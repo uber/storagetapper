@@ -322,8 +322,8 @@ func Prepare(pipeType int, create []string, t *testing.T) (*sql.DB, pipe.Pipe) {
 	ExecSQL(dbc, t, "RESET MASTER")
 	ExecSQL(dbc, t, "SET GLOBAL binlog_format = 'ROW'")
 	ExecSQL(dbc, t, "SET GLOBAL server_id=1")
-	ExecSQL(dbc, t, "TRUNCATE TABLE "+types.MyDbName+".state")
-	ExecSQL(dbc, t, "TRUNCATE TABLE "+types.MyDbName+".columns")
+	ExecSQL(dbc, t, "DROP TABLE IF EXISTS "+types.MyDbName+".state")
+	ExecSQL(dbc, t, "DROP TABLE IF EXISTS "+types.MyDbName+".columns")
 
 	if !state.Init(cfg) {
 		t.FailNow()

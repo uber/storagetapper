@@ -51,6 +51,8 @@ func configureZap(level int, production bool) (Logger, error) {
 
 }
 
+//FIXME: Need to set zap.AddCallerSkip(0) to show correct line numbers for non
+//default loggers
 func (l *zapLogger) WithFields(keyValues Fields) Logger {
 	var f = make([]interface{}, 0)
 	for k, v := range keyValues {

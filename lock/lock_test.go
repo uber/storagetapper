@@ -26,6 +26,8 @@ import (
 
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/test"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 var dbAddr = db.GetInfoForTest(&db.Loc{Name: ""}, 0)

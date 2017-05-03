@@ -29,17 +29,18 @@ func TestZapBasic(t *testing.T) {
 	for i := 0; i <= Debug; i++ {
 		fmt.Printf("Level: %v\n", i)
 
-		l, err := configureZap(i, false)
+		var err error
+		def, err = configureZap(i, false)
 		if err != nil {
 			t.Fatalf("Init failed %v", err.Error())
 		}
 
-		l.Debugf("msg")
-		l.Infof("msg")
-		l.Warnf("msg")
-		l.Errorf("msg")
+		Debugf("msg")
+		Infof("msg")
+		Warnf("msg")
+		Errorf("msg")
 
-		lf := l.WithFields(Fields{"Test field 1": "val1", "Test field2": "val2"})
+		lf := WithFields(Fields{"Test field 1": "val1", "Test field2": "val2"})
 
 		lf.Debugf("msg with fields")
 		lf.Infof("msg with fields")

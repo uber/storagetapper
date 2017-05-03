@@ -234,7 +234,7 @@ func TestKafkaBasic(t *testing.T) {
 	}
 
 	//Don't check returned error because table might not exist
-	_ = util.ExecSQL(state.GetDB(), "TRUNCATE TABLE kafka_offsets")
+	_ = util.ExecSQL(state.GetDB(), "DROP TABLE IF EXISTS kafka_offsets")
 
 	p := createPipe(0)
 
@@ -243,7 +243,7 @@ func TestKafkaBasic(t *testing.T) {
 	log.Debugf("Check saved offsets by starting producers first")
 	testLoopReversed(p, t, KEY)
 
-	err := util.ExecSQL(state.GetDB(), "TRUNCATE TABLE kafka_offsets")
+	err := util.ExecSQL(state.GetDB(), "DROP TABLE IF EXISTS kafka_offsets")
 	test.CheckFail(err, t)
 
 	log.Debugf("Test non-keyed push")
@@ -271,7 +271,7 @@ func TestKafkaBigMessage(t *testing.T) {
 	}
 
 	//Don't check returned error because table might not exist
-	_ = util.ExecSQL(state.GetDB(), "TRUNCATE TABLE kafka_offsets")
+	_ = util.ExecSQL(state.GetDB(), "DROP TABLE IF EXISTS kafka_offsets")
 
 	p := createPipe(1)
 
@@ -333,7 +333,7 @@ func TestKafkaOffsets(t *testing.T) {
 	defer func() { log.E(state.Close()) }()
 
 	//Don't check returned error because table might not exist
-	_ = util.ExecSQL(state.GetDB(), "TRUNCATE TABLE kafka_offsets")
+	_ = util.ExecSQL(state.GetDB(), "DROP TABLE IF EXISTS kafka_offsets")
 
 	log.Debugf("Testing that pipe can preserve offsets on graceful shutdown")
 
@@ -419,8 +419,7 @@ func TestKafkaMultiPartition(t *testing.T) {
 
 	numMsgs := 3
 
-	//Don't check returned error because table might not exist
-	_ = util.ExecSQL(state.GetDB(), "TRUNCATE TABLE kafka_offsets")
+	_ = util.ExecSQL(state.GetDB(), "DROP TABLE IF EXISTS kafka_offsets")
 
 	p := createPipe(1)
 

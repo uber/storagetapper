@@ -549,7 +549,11 @@ func GetOutputSchema(name string) string {
 	var body string
 
 	err := util.QueryRowSQL(conn, "SELECT schemaBody FROM outputSchema WHERE name=?", name).Scan(&body)
-	if log.E(err) {
+
+	if err != nil {
+		if err.Error() != "sql: no rows in result set" {
+			log.E(err)
+		}
 		return ""
 	}
 	log.Debugf("Return output schema from state: %v", body)

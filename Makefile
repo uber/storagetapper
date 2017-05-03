@@ -2,8 +2,9 @@ GIT_REVISION := $(shell git rev-parse --short HEAD)
 TEST_TIMEOUT := 600s
 
 PKGS := $(shell find . -maxdepth 1 -type d -not -path '*/\.*'|grep -v -e vendor -e doc)
+SRCS := $(shell find . -name "*.go" -not -path './vendor')
 
-storagetapper:
+storagetapper: $(SRCS)
 	go build -ldflags "-X main.revision=$(GIT_REVISION)"
 
 #FIXME: Because of the shared state in database tests can't be run in parallel

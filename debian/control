@@ -1,0 +1,17 @@
+Source: storagetapper
+Priority: optional
+Maintainer: Evgeniy Firsov <firsov@uber.com>
+Uploaders: Evgeniy Firsov <firsov@uber.com>,
+Build-Depends: debhelper (>= 9), dh-systemd
+Standards-Version: 3.9.8
+Section: utils
+Homepage: https://github.com/uber/storagetapper
+
+Package: storagetapper
+Architecture: any
+Section: utils
+Depends: ${misc:Depends}
+Description: StorageTapper is a service that reads data from MySQL, transforms it into an
+ Avro schema serialized format and publishes these events to Kafka.
+ Consumers can then consume these events directly from Kafka.
+

@@ -18,5 +18,8 @@ test: storagetapper
 lint: storagetapper
 	gometalinter --deadline=$(TEST_TIMEOUT) --disable-all -Evet -Egolint -Egoimports -Eineffassign -Egosimple -Eerrcheck -Eunused -Edeadcode -Emisspell $(PKGS)
 
+deb:
+	dpkg-buildpackage -uc -us -b
+
 clean:
 	rm storagetapper

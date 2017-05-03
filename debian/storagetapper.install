@@ -1,0 +1,3 @@
+storagetapper usr/bin
+config/base.yaml etc/storagetapper
+config/production.yaml etc/storagetapper

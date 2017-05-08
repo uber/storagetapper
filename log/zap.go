@@ -23,6 +23,8 @@ package log
 import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	"code.uber.internal/infra/storagetapper/config"
 )
 
 func init() {
@@ -32,18 +34,28 @@ func init() {
 	loggers["zap"] = configureZap
 }
 
+type zapConfig struct {
+	Logging zap.Config
+}
+
 type zapLogger struct {
 	*zap.SugaredLogger
 }
 
 func configureZap(level int, production bool) (Logger, error) {
-	cfg := zap.NewProductionConfig()
+	var cfg zapConfig
+	cfg.Logging = zap.NewProductionConfig()
 	if !production {
-		cfg = zap.NewDevelopmentConfig()
+		cfg.Logging = zap.NewDevelopmentConfig()
 	}
 
-	cfg.Level = zap.NewAtomicLevelAt(zapcore.Level(Debug - level - 1))
-	l, err := cfg.Build(zap.AddCallerSkip(1))
+	cfg.Logging.Level = zap.NewAtomicLevelAt(zapcore.Level(Debug - level - 1))
+
+	if err := config.LoadSection(&cfg); err != nil {
+		return nil, err
+	}
+
+	l, err := cfg.Logging.Build(zap.AddCallerSkip(1))
 	if err != nil {
 		return nil, err
 	}

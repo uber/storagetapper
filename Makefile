@@ -4,8 +4,11 @@ TEST_TIMEOUT := 600s
 PKGS := $(shell find . -maxdepth 1 -type d -not -path '*/\.*'|grep -v -e vendor -e doc -e debian)
 SRCS := $(shell find . -name "*.go" -not -path './vendor')
 
-storagetapper: $(SRCS)
+storagetapper: $(SRCS) vendor
 	go build -ldflags "-X main.revision=$(GIT_REVISION)"
+
+vendor:
+	glide install
 
 #FIXME: Because of the shared state in database tests can't be run in parallel
 unittest: storagetapper

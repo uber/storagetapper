@@ -19,7 +19,7 @@ unittest: storagetapper
 	done
 
 lint: storagetapper
-	gometalinter --deadline=$(TEST_TIMEOUT) --disable-all -Evet -Egolint -Egoimports -Eineffassign -Egosimple -Eerrcheck -Eunused -Edeadcode -Emisspell $(PKGS)
+	CGO_ENABLED=0 gometalinter --deadline=$(TEST_TIMEOUT) --disable-all -Evet -Egolint -Egoimports -Eineffassign -Egosimple -Eerrcheck -Eunused -Edeadcode -Emisspell $(PKGS)
 
 test: unittest lint
 

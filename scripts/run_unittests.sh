@@ -11,7 +11,7 @@ for CMD in "go test -race -cover -test.timeout $TIMEOUT $2 $3 $4" "gometalinter 
 #for CMD in "go test -race -cover -test.timeout $TIMEOUT $2 $3"; do
 	echo "Running: $CMD"
 	if [ -z "$1" ]; then
-		for i in `find . -maxdepth 1 -type d -not -path '*/\.*' |grep -v -e vendor -e go-build -e idl -e udeploy`; do $CMD $i; done | grep -E --color -e 'FAIL' -e 'ok ' -e '$'
+		for i in `find . -maxdepth 1 -type d -not -path '*/\.*' |grep -v -e vendor`; do $CMD $i; done | grep -E --color -e 'FAIL' -e 'ok ' -e '$'
 	else
 		$CMD ./$1
 	fi

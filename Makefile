@@ -2,7 +2,7 @@ NAME := storagetapper
 GIT_REVISION := $(shell git rev-parse --short HEAD)
 TEST_TIMEOUT := 600s
 
-PKGS := $(shell find . -maxdepth 1 -type d -not -path '*/\.*'|grep -v -e vendor -e doc -e debian)
+PKGS := $(shell find . -maxdepth 1 -type d -not -path '*/\.*'|grep -v -e vendor -e doc -e debian -e scripts)
 SRCS := $(shell find . -name "*.go" -not -path './vendor')
 
 $(NAME): $(SRCS) vendor

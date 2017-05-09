@@ -1,0 +1,82 @@
+hash: 054702e2e54d9192efdb30fafdc00d4876f3d5e260fd58c2fcb5bde151a8321d
+updated: 2017-05-09T13:12:06.251619875-07:00
+imports:
+- name: github.com/cactus/go-statsd-client
+  version: d8eabe07bc70ff9ba6a56836cde99d1ea3d005f7
+  subpackages:
+  - statsd
+- name: github.com/davecgh/go-spew
+  version: 346938d642f2ec3594ed81d874461961cd0faa76
+  subpackages:
+  - spew
+- name: github.com/eapache/go-resiliency
+  version: b86b1ec0dd4209a588dc1285cdd471e73525c0b3
+  subpackages:
+  - breaker
+- name: github.com/eapache/go-xerial-snappy
+  version: bb955e01b9346ac19dc29eb16586c90ded99a98c
+- name: github.com/eapache/queue
+  version: 44cc805cf13205b55f69e14bcb69867d1ae92f98
+- name: github.com/go-sql-driver/mysql
+  version: a0583e0143b1624142adab07e0e97fe106d99561
+- name: github.com/golang/snappy
+  version: 553a641470496b2327abcac10b36396bd98e45c9
+- name: github.com/juju/errors
+  version: 6f54ff6318409d31ff16261533ce2c8381a4fd5d
+- name: github.com/klauspost/crc32
+  version: 1bab8b35b6bb565f92cbc97939610af9369f942a
+- name: github.com/linkedin/goavro
+  version: dc850ca497fb119089900abc4d892aa8f95a4003
+- name: github.com/ngaut/log
+  version: cec23d3e10b016363780d894a0eb732a12c06e02
+- name: github.com/pierrec/lz4
+  version: f5b77fd73d83122495309c0f459b810f83cc291f
+- name: github.com/pierrec/xxHash
+  version: 5a004441f897722c627870a981d02b29924215fa
+  subpackages:
+  - xxHash32
+- name: github.com/rcrowley/go-metrics
+  version: 1f30fe9094a513ce4c700b9a54458bbb0c96996c
+- name: github.com/satori/go.uuid
+  version: 5bf94b69c6b68ee1b541973bb8e1144db23a194b
+- name: github.com/Shopify/sarama
+  version: 0fb560e5f7fbcaee2f75e3c34174320709f69944
+- name: github.com/siddontang/go
+  version: 354e14e6c093c661abb29fd28403b3c19cff5514
+  subpackages:
+  - hack
+  - ioutil2
+  - sync2
+- name: github.com/siddontang/go-mysql
+  version: af2878fcb995ea98969471f866f17d516d9fbc6a
+  subpackages:
+  - client
+  - mysql
+  - packet
+  - replication
+- name: github.com/Sirupsen/logrus
+  version: 5b60b3d3ee017ed00bcd0225fcca7acab767844b
+- name: github.com/uber-common/bark
+  version: 148dd9dfbd0feb293fc81593a8c10c99877f81bc
+- name: go.uber.org/atomic
+  version: 4e336646b2ef9fc6e47be8e21594178f98e5ebcf
+- name: go.uber.org/zap
+  version: cea6c27e79e5fd11f29021359e19bb5d02be1682
+  subpackages:
+  - buffer
+  - internal/bufferpool
+  - internal/color
+  - internal/exit
+  - internal/multierror
+  - zapcore
+- name: golang.org/x/net
+  version: 6acef71eb69611914f7a30939ea9f6e194c78172
+  subpackages:
+  - context
+- name: golang.org/x/sys
+  version: 9ccfe848b9db8435a24c424abbc07a921adf1df5
+  subpackages:
+  - unix
+- name: gopkg.in/yaml.v2
+  version: cd8b52f8269e0feb286dfeef29f8fe4d5b397e0b
+testImports: []

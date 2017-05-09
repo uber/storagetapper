@@ -1,0 +1,9 @@
+package: github.com/uber/storagetapper
+import:
+- package: github.com/go-sql-driver/mysql
+  version: v1.3
+- package: github.com/siddontang/go-mysql
+- package: github.com/Shopify/sarama
+  version: 1.11.0
+- package: github.com/linkedin/goavro
+- package: go.uber.org/zap

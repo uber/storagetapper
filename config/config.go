@@ -59,6 +59,9 @@ type AppConfig struct {
 // GetDefaultConfig returns default configuration
 func GetDefaultConfig() *AppConfig {
 	return &AppConfig{
+		Port:    7836,
+		PortDyn: 7836,
+
 		MaxNumProcs:           runtime.NumCPU(),
 		StateUpdateTimeout:    300,
 		ReaderPipeType:        "kafka",

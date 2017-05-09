@@ -1,1 +1,6 @@
+#log_type: zap
+#log_level: debug
+#logging:
+#    outputPaths: /var/log/storagetapper.log
+
 state_connect_url: storagetapper@localhost

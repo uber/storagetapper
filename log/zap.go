@@ -24,7 +24,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"code.uber.internal/infra/storagetapper/config"
+	"github.com/uber/storagetapper/config"
 )
 
 func init() {

@@ -26,6 +26,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/siddontang/go-mysql/mysql"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/log"
@@ -33,7 +34,6 @@ import (
 	"github.com/uber/storagetapper/test"
 	"github.com/uber/storagetapper/types"
 	"github.com/uber/storagetapper/util"
-	"github.com/siddontang/go-mysql/mysql"
 )
 
 var cfg *config.AppConfig

@@ -26,10 +26,10 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/Shopify/sarama"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/types"
 	"github.com/uber/storagetapper/util"
-	"github.com/Shopify/sarama"
 )
 
 //Initial offset type

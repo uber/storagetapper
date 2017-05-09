@@ -26,12 +26,12 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Shopify/sarama"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/shutdown"
 	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/test"
 	"github.com/uber/storagetapper/util"
-	"github.com/Shopify/sarama"
 )
 
 var startCh chan bool

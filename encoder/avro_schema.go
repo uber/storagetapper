@@ -24,9 +24,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/linkedin/goavro"
 	"github.com/uber/storagetapper/types"
 	"github.com/uber/storagetapper/util"
-	"github.com/linkedin/goavro"
 )
 
 const (

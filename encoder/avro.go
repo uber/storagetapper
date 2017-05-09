@@ -25,10 +25,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/linkedin/goavro"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/types"
-	"github.com/linkedin/goavro"
 )
 
 const numMetadataFields = 3

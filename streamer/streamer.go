@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/siddontang/go-mysql/mysql"
 	"github.com/uber/storagetapper/binlog"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
@@ -35,7 +36,6 @@ import (
 	"github.com/uber/storagetapper/pipe"
 	"github.com/uber/storagetapper/shutdown"
 	"github.com/uber/storagetapper/state"
-	"github.com/siddontang/go-mysql/mysql"
 )
 
 //Streamer struct defines common properties of Event streamer worker

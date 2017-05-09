@@ -30,6 +30,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/satori/go.uuid"
+	"github.com/siddontang/go-mysql/mysql"
+	"github.com/siddontang/go-mysql/replication"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/encoder"
@@ -43,9 +46,6 @@ import (
 	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/types"
 	"github.com/uber/storagetapper/util"
-	"github.com/satori/go.uuid"
-	"github.com/siddontang/go-mysql/mysql"
-	"github.com/siddontang/go-mysql/replication"
 )
 
 const seqnoSaveInterval = 1000000

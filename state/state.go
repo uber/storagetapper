@@ -28,13 +28,13 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/schema"
 	"github.com/uber/storagetapper/types"
 	"github.com/uber/storagetapper/util"
-	"github.com/go-sql-driver/mysql"
 )
 
 type row struct {

@@ -12,8 +12,10 @@ vendor:
 	glide install
 
 install: $(NAME)
-	install -s $(NAME) $(PREFIX)/usr/bin
-	install -d config/base.yaml config/production.yaml $(PREFIX)/etc/$(NAME)
+	install -m 0755 -d $(DESTDIR)/usr/bin
+	install -m 0550 -s $(NAME) $(DESTDIR)/usr/bin
+	install -m 0750 -d $(DESTDIR)/etc/$(NAME)
+	install -m 0600 config/base.yaml config/production.yaml $(DESTDIR)/etc/$(NAME)
 
 #FIXME: Because of the shared state in database tests can't be run in parallel
 unittest: $(NAME)

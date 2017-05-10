@@ -22,7 +22,7 @@ unittest: $(NAME)
 	for i in $(PKGS); do \
 		$(shell echo $(NAME) | tr a-z A-Z)_ENVIRONMENT=development \
 		$(shell echo $(NAME) | tr a-z A-Z)_CONFIG_DIR=$(shell pwd)/config \
-		go test -race -cover -test.timeout $(TEST_TIMEOUT) $$i | grep -E --color -e '^FAIL' -e '^ok ' -e '$$'; \
+		go test -race -cover -test.timeout $(TEST_TIMEOUT) $$i || exit 1; \
 	done
 
 lint: $(NAME)

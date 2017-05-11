@@ -316,7 +316,7 @@ func ExecSQL(db *sql.DB, t *testing.T, query string) {
 }
 
 func Prepare(pipeType int, create []string, t *testing.T) (*sql.DB, pipe.Pipe) {
-	dbc, err := db.OpenService(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "test"}, "")
+	dbc, err := db.OpenService(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1"}, "")
 	test.CheckFail(err, t)
 
 	ExecSQL(dbc, t, "RESET MASTER")

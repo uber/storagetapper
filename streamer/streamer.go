@@ -221,7 +221,7 @@ func (s *Streamer) start(cfg *config.AppConfig, inPipe pipe.Pipe, outPipe pipe.P
 	//Consumer should registered before snapshot started, so it sees all the
 	//event during the snapshot
 	ctx, cancel := context.WithCancel(context.Background())
-	consumer, err := s.inPipe.RegisterConsumerCtx(config.GetTopicName(cfg.BufferTopicNameFormat, s.svc, s.db, s.table), ctx)
+	consumer, err := s.inPipe.RegisterConsumerCtx(ctx, config.GetTopicName(cfg.BufferTopicNameFormat, s.svc, s.db, s.table))
 	if log.EL(s.log, err) {
 		cancel()
 		return false

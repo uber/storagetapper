@@ -113,8 +113,8 @@ func setupData(dbConn *sql.DB, t *testing.T) {
 }
 
 func setupWorker(t *testing.T) (pipe.Pipe, pipe.Pipe, pipe.Consumer) {
-	inP := pipe.Create(pipe.Local, 16, cfg, nil, shutdown.Context)
-	outP := pipe.Create(pipe.Kafka, 16, cfg, nil, shutdown.Context)
+	inP := pipe.Create(shutdown.Context, pipe.Local, 16, cfg, nil)
+	outP := pipe.Create(shutdown.Context, pipe.Kafka, 16, cfg, nil)
 	outPConsumer, err := outP.RegisterConsumer(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl))
 	test.CheckFail(err, t)
 	shutdown.Register(1)

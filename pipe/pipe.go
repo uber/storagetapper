@@ -51,7 +51,7 @@ type Producer interface {
 //Pipe connects named producers and consumers
 type Pipe interface {
 	RegisterConsumer(key string) (Consumer, error)
-	RegisterConsumerCtx(key string, ctx context.Context) (Consumer, error)
+	RegisterConsumerCtx(ctx context.Context, key string) (Consumer, error)
 	RegisterProducer(key string) (Producer, error)
 	CloseConsumer(p Consumer, graceful bool) error
 	CloseProducer(p Producer) error
@@ -70,7 +70,7 @@ const (
 //db is used by Kafka pipe to save state
 //pctx is used to be able to cancel blocking calls inside pipe, like during
 //shutdown
-func Create(tp int, batchSize int, cfg *config.AppConfig, db *sql.DB, pctx context.Context) Pipe {
+func Create(pctx context.Context, tp int, batchSize int, cfg *config.AppConfig, db *sql.DB) Pipe {
 	switch tp {
 	case Local:
 		return &LocalPipe{c: make(map[string](chan interface{})), ctx: pctx, batchSize: batchSize}

@@ -543,7 +543,7 @@ L:
 }
 
 //eventFetcher is blocking call to buffered channel converter
-func (b *reader) eventFetcher(s *replication.BinlogStreamer, wg *sync.WaitGroup, ctx context.Context, msgCh chan *result, exitCh chan bool) {
+func (b *reader) eventFetcher(ctx context.Context, s *replication.BinlogStreamer, wg *sync.WaitGroup, msgCh chan *result, exitCh chan bool) {
 	defer wg.Done()
 L:
 	for {
@@ -595,7 +595,7 @@ func (b *reader) readEvents(c *db.Addr, stateUpdateTimeout int) {
 	defer func() { cancel(); close(exitCh); wg.Wait() }()
 
 	/*This goroutine is to multiplex blocking streamer.GetEvent and tickCh*/
-	go b.eventFetcher(streamer, &wg, ctx, msgCh, exitCh)
+	go b.eventFetcher(ctx, streamer, &wg, msgCh, exitCh)
 
 M:
 	for !shutdown.Initiated() {
@@ -721,7 +721,7 @@ func (b *reader) start(cfg *config.AppConfig) bool {
 }
 
 /*Worker start the binlog reader main loop*/
-func Worker(cfg *config.AppConfig, p pipe.Pipe, tp pool.Thread, c context.Context) bool {
+func Worker(c context.Context, cfg *config.AppConfig, p pipe.Pipe, tp pool.Thread) bool {
 	b := &reader{ctx: c, tpool: tp, pipe: p}
 	return b.start(cfg)
 }

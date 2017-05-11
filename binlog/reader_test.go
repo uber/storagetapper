@@ -305,7 +305,7 @@ func worker(cfg *config.AppConfig, p pipe.Pipe, tpool pool.Thread, t *testing.T)
 	defer shutdown.Done()
 
 	log.Debugf("Starting binlog reader in test")
-	if !Worker(cfg, p, tpool, shutdown.Context) {
+	if !Worker(shutdown.Context, cfg, p, tpool) {
 		t.FailNow()
 	}
 	log.Debugf("Finished binlog worker in test")
@@ -336,7 +336,7 @@ func Prepare(pipeType int, create []string, t *testing.T) (*sql.DB, pipe.Pipe) {
 		ExecSQL(dbc, t, s)
 	}
 
-	p := pipe.Create(pipeType, 16, cfg, state.GetDB(), shutdown.Context)
+	p := pipe.Create(shutdown.Context, pipeType, 16, cfg, state.GetDB())
 
 	if pipeType == pipe.Kafka {
 		//FIXME: Rewrite test so it doesn't require events to come out inorder

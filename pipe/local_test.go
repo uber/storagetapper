@@ -79,7 +79,7 @@ func localProducer(p Pipe, key string, t *testing.T) {
 func TestLocalBasic(t *testing.T) {
 	shutdown.Setup()
 
-	p := Create(Local, 16, cfg, nil, shutdown.Context)
+	p := Create(shutdown.Context, Local, 16, cfg, nil)
 
 	wg.Add(16)
 	for i := 0; i < 16; i++ {

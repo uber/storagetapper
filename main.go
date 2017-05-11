@@ -59,12 +59,12 @@ func idle(v int64, timeout int, tpool pool.Thread) {
 	//	}
 }
 
-func worker(cfg *config.AppConfig, inP pipe.Pipe, outP pipe.Pipe, tpool pool.Thread, ctx context.Context) {
+func worker(ctx context.Context, cfg *config.AppConfig, inP pipe.Pipe, outP pipe.Pipe, tpool pool.Thread) {
 	log.Debugf("Started worker thread, Total: %+v", shutdown.NumProcs()+1)
 	for !shutdown.Initiated() && !tpool.Terminate() {
 		v := state.GetVersion()
 
-		if !binlog.Worker(cfg, inP, tpool, ctx) {
+		if !binlog.Worker(ctx, cfg, inP, tpool) {
 			streamer.Worker(cfg, inP, outP)
 		}
 
@@ -137,13 +137,13 @@ func mainLow(cfg *config.AppConfig) {
 	// * batch_size - in outP batch buffer
 	// * batch_size - in streamer helper channel buffer
 	// * +1 - waiting in streamer helper to be pushed when buffer is full
-	inP := pipe.Create(pipeType, 2*cfg.PipeBatchSize+1, cfg, state.GetDB(), shutdown.Context)
-	outP := pipe.Create(pipe.Kafka, cfg.PipeBatchSize, cfg, state.GetDB(), shutdown.Context)
+	inP := pipe.Create(shutdown.Context, pipeType, 2*cfg.PipeBatchSize+1, cfg, state.GetDB())
+	outP := pipe.Create(shutdown.Context, pipe.Kafka, cfg.PipeBatchSize, cfg, state.GetDB())
 
 	tp := pool.Create()
 
 	tp.Start(nprocs, func() {
-		worker(cfg, inP, outP, tp, shutdown.Context)
+		worker(shutdown.Context, cfg, inP, outP, tp)
 	})
 
 	shutdown.Wait()

@@ -47,7 +47,7 @@ func (p *LocalPipe) Type() int {
 	return Local
 }
 
-func (p *LocalPipe) registerProducerConsumer(key string, ctx context.Context) (*LocalProducerConsumer, error) {
+func (p *LocalPipe) registerProducerConsumer(ctx context.Context, key string) (*LocalProducerConsumer, error) {
 	p.mutex.Lock()
 	ch := p.c[key]
 	if ch == nil {
@@ -60,12 +60,12 @@ func (p *LocalPipe) registerProducerConsumer(key string, ctx context.Context) (*
 
 //RegisterConsumer registers consumer with the given pipe name
 func (p *LocalPipe) RegisterConsumer(key string) (Consumer, error) {
-	return p.RegisterConsumerCtx(key, p.ctx)
+	return p.RegisterConsumerCtx(p.ctx, key)
 }
 
 //RegisterConsumerCtx registers consumer with the given pipe name
-func (p *LocalPipe) RegisterConsumerCtx(key string, ctx context.Context) (Consumer, error) {
-	return p.registerProducerConsumer(key, ctx)
+func (p *LocalPipe) RegisterConsumerCtx(ctx context.Context, key string) (Consumer, error) {
+	return p.registerProducerConsumer(ctx, key)
 }
 
 //CloseProducer closes given producer
@@ -80,7 +80,7 @@ func (p *LocalPipe) CloseConsumer(lp Consumer, graceful bool) error {
 
 //RegisterProducer registers producer with the given pipe name
 func (p *LocalPipe) RegisterProducer(key string) (Producer, error) {
-	return p.registerProducerConsumer(key, p.ctx)
+	return p.registerProducerConsumer(p.ctx, key)
 }
 
 func (p *LocalProducerConsumer) pushLow(b interface{}) error {

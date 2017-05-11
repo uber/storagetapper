@@ -228,7 +228,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	/*New consumer sees only new events, so register it before any events
 	* produced */
-	p := pipe.Create(pipe.Kafka, cfg.PipeBatchSize, cfg, nil, shutdown.Context)
+	p := pipe.Create(shutdown.Context, pipe.Kafka, cfg.PipeBatchSize, cfg, nil)
 	c, err := p.RegisterConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
 	test.CheckFail(err, t)
 	c2, err := p.RegisterConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table2")

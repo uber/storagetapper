@@ -162,7 +162,7 @@ func (p *KafkaPipe) RegisterProducer(topic string) (Producer, error) {
 }
 
 func (p *KafkaPipe) getOffsets(topic string) (map[int32]kafkaPartition, error) {
-	res := make(map[int32]kafkaPartition, 0)
+	res := make(map[int32]kafkaPartition)
 	if p.conn == nil {
 		return res, nil
 	}
@@ -188,7 +188,7 @@ func (p *KafkaPipe) getOffsets(topic string) (map[int32]kafkaPartition, error) {
 
 //pushPartitionMsg pushes message to partition consumer, while waiting for
 //cancelation event also
-func (p *KafkaPipe) pushPartitionMsg(ch chan *sarama.ConsumerMessage, ctx context.Context, t *kafkaPartition) bool {
+func (p *KafkaPipe) pushPartitionMsg(ctx context.Context, ch chan *sarama.ConsumerMessage, t *kafkaPartition) bool {
 	select {
 	case ch <- t.nextMsg:
 		t.nextMsg = nil
@@ -231,7 +231,7 @@ func (p *KafkaPipe) redistributeConsumers(c *topicConsumer) {
 			defer c.wg.Done()
 			//			defer shutdown.Done()
 
-			if c.partitions[i].nextMsg != nil && !p.pushPartitionMsg(outCh, ctx, &c.partitions[i]) {
+			if c.partitions[i].nextMsg != nil && !p.pushPartitionMsg(ctx, outCh, &c.partitions[i]) {
 				return
 			}
 
@@ -253,7 +253,7 @@ func (p *KafkaPipe) redistributeConsumers(c *topicConsumer) {
 					b := make([]byte, len(c.partitions[i].nextMsg.Value))
 					copy(b, c.partitions[i].nextMsg.Value)
 					c.partitions[i].nextMsg.Value = b
-					if !p.pushPartitionMsg(outCh, ctx, &c.partitions[i]) {
+					if !p.pushPartitionMsg(ctx, outCh, &c.partitions[i]) {
 						return
 					}
 				//case <-shutdown.InitiatedCh():
@@ -307,7 +307,7 @@ func (p *KafkaPipe) initTopicConsumer(topic string) error {
 }
 
 //RegisterConsumerCtx registers a new kafka consumer
-func (p *KafkaPipe) RegisterConsumerCtx(topic string, ctx context.Context) (Consumer, error) {
+func (p *KafkaPipe) RegisterConsumerCtx(ctx context.Context, topic string) (Consumer, error) {
 	log.Debugf("Registering consumer %v", topic)
 	p.lock.Lock()
 	defer p.lock.Unlock()
@@ -345,7 +345,7 @@ func (p *KafkaPipe) RegisterConsumerCtx(topic string, ctx context.Context) (Cons
 
 //RegisterConsumer registers a new kafka consumer
 func (p *KafkaPipe) RegisterConsumer(topic string) (Consumer, error) {
-	return p.RegisterConsumerCtx(topic, p.ctx)
+	return p.RegisterConsumerCtx(p.ctx, topic)
 }
 
 func (p *KafkaPipe) commitOffset(topic string, partition int32, offset int64, persistInterval int64) error {

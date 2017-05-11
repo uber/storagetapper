@@ -8,6 +8,9 @@ Service reads data from MySQL, transforms it into an Avro schema
 serialized format, and publishes these events to Kafka. Consumers can then
 consume these events directly from Kafka.
 
+[![Build Status](https://travis-ci.org/uber/storagetapper.svg?branch=master)](https://travis-ci.org/uber/storagetapper)
+[![Go Report Card](https://goreportcard.com/badge/github.com/uber/storagetapper)](https://goreportcard.com/report/github.com/uber/storagetapper)
+
 - [Features](#features)
 - [Limitations](#limitations)
 - [Build & Install](#build--install)

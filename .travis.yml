@@ -11,6 +11,7 @@ before_install:
 - go get github.com/Masterminds/glide
 - go get github.com/alecthomas/gometalinter
 - gometalinter --install
+- /bin/sh scripts/install_kafka.sh
 script: make test
 after_success:
 - bash <(curl -s https://codecov.io/bash)

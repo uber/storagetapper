@@ -3,13 +3,17 @@ sudo: required
 language: go
 go: 1.7.x
 before_install:
-    - sudo apt-get -qq update
-    - sudo apt-get install -y mysql-server-5.6
-    - echo -e "[mysqld]\nbinlog-format=ROW\ngtid_mode=ON\nenforce-gtid-consistency\nlog_bin=/var/log/mysql/mysql-bin.log\nlog_slave_updates=1"|sudo tee -a /etc/mysql/my.cnf
-    - sudo service mysql restart
-    - go get github.com/Masterminds/glide
-    - go get github.com/alecthomas/gometalinter
-    - gometalinter --install
+- sudo apt-get -qq update
+- sudo apt-get install -y mysql-server-5.6
+- echo -e "[mysqld]\nbinlog-format=ROW\ngtid_mode=ON\nenforce-gtid-consistency\nlog_bin=/var/log/mysql/mysql-bin.log\nlog_slave_updates=1"|sudo
+  tee -a /etc/mysql/my.cnf
+- sudo service mysql restart
+- go get github.com/Masterminds/glide
+- go get github.com/alecthomas/gometalinter
+- gometalinter --install
 script: make test
 after_success:
-    - bash <(curl -s https://codecov.io/bash)
+- bash <(curl -s https://codecov.io/bash)
+notifications:
+  slack:
+    secure: iedKKVCXQmbEhQ2WRqWzl8xuMqgPeeb0ABHE+ddw7AJVXVX2soYakFlS2BQXQ9TYTHfbcguAFbVFg20FVuxQ9/Pg4eKa3njEHDimFu33zPMeV/ArqMWpVAn+5y3W8c4Ng9+DvJ0/fudhcFzfG2sHXtuKmM8vF/nupTH5riqk4iruOdlZBjZ78xjBQgQxQ5OthJZ8DzqWleoAZ+Ckoy0x7lvJdSGbj3AOT4VtN5g6WAX9a36aFysKoVCsX10pCGXeYPthqBimlrR0Bo8ZZ+n1GQO+qXvkX1P/JuJSi5JDz3Fwul+A37XSOwb52g+/eNxKo8KnPt0mAU08+bpNlFFXV6LazQrEXSpakwzQwBtQpyP82ehUjzqp5G3uxbIdE0wvhwTbyve+/TOUnbpYL8x19J7BIzz5q0PrgkXoRK/DLJzv4GZHsB+zpdBactMmh8s04nz1x4dwi+8ljkBwM78Ths7yNL1Iete5zaQtnA1iXPinqIHecqgaWREdvhCJLub34tlSRQO9HLAuDxyQ2bslJfOV/eDaH9kibhlFLeTgfjMJN8xthQ0yV5K6C7IBh0uyMNUBOFMV6T2st4pho4wYcKELpJndwH/91Hp1N4bmI/SiOEhZMbUQLEaT/HTjzRX6tSOAcRR4NR+Yj8sA4+O18Cj+SJRE5iSUk4cyKa0ntMs=

@@ -11,3 +11,5 @@ before_install:
     - go get github.com/alecthomas/gometalinter
     - gometalinter --install
 script: make test
+after_success:
+    - bash <(curl -s https://codecov.io/bash)

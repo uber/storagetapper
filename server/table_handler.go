@@ -71,6 +71,36 @@ type tableListResponse struct {
 	Table   string
 }
 
+func handleListCmd(w http.ResponseWriter, t *tableCmdReq) error {
+	var err error
+	var cond string
+	var args = make([]interface{}, 0)
+
+	cond, args = addSQLCond(cond, args, "cluster", t.Cluster)
+	cond, args = addSQLCond(cond, args, "service", t.Service)
+	cond, args = addSQLCond(cond, args, "db", t.Db)
+
+	var rows state.Type
+	if rows, err = state.GetCond(cond, args...); err == nil {
+		var resp []byte
+		for _, v := range rows {
+			var b []byte
+			if len(resp) != 0 {
+				resp = append(resp, '\n')
+			}
+			if b, err = json.Marshal(&tableListResponse{Cluster: v.Cluster, Service: v.Service, Db: v.Db, Table: v.Table}); err != nil {
+				break
+			}
+			resp = append(resp, b...)
+		}
+		if err == nil {
+			_, err = w.Write(resp)
+		}
+	}
+
+	return err
+}
+
 func tableCmd(w http.ResponseWriter, r *http.Request) {
 	t := tableCmdReq{}
 	err := json.NewDecoder(r.Body).Decode(&t)
@@ -78,30 +108,9 @@ func tableCmd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	//TODO: Implement "list" command
+
 	if t.Cmd == "list" {
-		var cond string
-		var args = make([]interface{}, 0)
-		cond, args = addSQLCond(cond, args, "cluster", t.Cluster)
-		cond, args = addSQLCond(cond, args, "service", t.Service)
-		cond, args = addSQLCond(cond, args, "db", t.Db)
-		var rows state.Type
-		if rows, err = state.GetCond(cond, args...); err == nil {
-			var resp []byte
-			for _, v := range rows {
-				var b []byte
-				if len(resp) != 0 {
-					resp = append(resp, '\n')
-				}
-				if b, err = json.Marshal(&tableListResponse{Cluster: v.Cluster, Service: v.Service, Db: v.Db, Table: v.Table}); err != nil {
-					break
-				}
-				resp = append(resp, b...)
-			}
-			if err == nil {
-				_, err = w.Write(resp)
-			}
-		}
+		err = handleListCmd(w, &t)
 	} else if len(t.Cluster) == 0 || len(t.Service) == 0 || len(t.Db) == 0 || len(t.Table) == 0 {
 		err = errors.New("Invalid command. All fields(cluster,service,db,table) must not be empty")
 	} else if t.Cmd == "add" {

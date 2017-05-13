@@ -69,6 +69,36 @@ func (s *Streamer) streamBatch(snReader *snapshot.Reader, outProducer pipe.Produ
 	return true, int64(b), int64(i), nil
 }
 
+func (s *Streamer) commitWithRetry(snapshotMetrics *metrics.Snapshot) bool {
+	var err error
+	for i := 0; i < numRetries; i++ {
+		w := snapshotMetrics.ProduceLatency
+		w.Start()
+		err = s.outProducer.PushBatchCommit()
+		w.Stop()
+		if err == nil {
+			return true
+		}
+		log.Warnf("Retrying...Attempt %v", i+1)
+	}
+	log.EL(s.log, err)
+	return false
+}
+
+func (s *Streamer) pushSchema() bool {
+	if s.encoder.Type() == encoder.Common {
+		outMsg, err := s.encoder.Row(types.Schema, nil, 0)
+		if log.EL(s.log, err) {
+			return false
+		}
+		err = s.outProducer.Push(outMsg)
+		if log.EL(s.log, err) {
+			return false
+		}
+	}
+	return true
+}
+
 // StreamFromConsistentSnapshot initializes and pulls event from the Snapshot reader, serializes
 // them in Avro format and publishes to output Kafka topic.
 func (s *Streamer) streamFromConsistentSnapshot(concurrent bool, throttleMB int64, throttleIOPS int64) bool {
@@ -88,15 +118,8 @@ func (s *Streamer) streamFromConsistentSnapshot(concurrent bool, throttleMB int6
 	s.log.Infof("Starting consistent snapshot streamer for: %v, %v concurrent: %v", s.topic, encoder.StrFromType(s.encoder.Type()), concurrent)
 
 	//For JSON format push schema as a first message of the stream
-	if s.encoder.Type() == encoder.Common {
-		outMsg, err := s.encoder.Row(types.Schema, nil, 0)
-		if log.EL(s.log, err) {
-			return false
-		}
-		err = s.outProducer.Push(outMsg)
-		if log.EL(s.log, err) {
-			return false
-		}
+	if !s.pushSchema() {
+		return false
 	}
 
 	_, err := snReader.Prepare(s.cluster, s.svc, s.db, s.table, s.encoder)
@@ -126,17 +149,7 @@ func (s *Streamer) streamFromConsistentSnapshot(concurrent bool, throttleMB int6
 			break
 		}
 
-		for i := 0; i < numRetries; i++ {
-			w := snapshotMetrics.ProduceLatency
-			w.Start()
-			err = s.outProducer.PushBatchCommit()
-			w.Stop()
-			if err == nil {
-				break
-			}
-			log.Warnf("Retrying...Attempt %v", i+1)
-		}
-		if log.EL(s.log, err) {
+		if !s.commitWithRetry(snapshotMetrics) {
 			return false
 		}
 

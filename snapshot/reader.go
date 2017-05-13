@@ -115,11 +115,9 @@ func (s *Reader) End() {
 	s.log.Infof("Snapshot reader finished")
 }
 
-/*MySQLToGo converts mysql type to the pointer to Go type, the pointer to type
-* is required by sql.Rows.Scan() */
 /*FIXME: Use sql.ColumnType.DatabaseType instead if this function if go1.8 is
 * used */
-func MySQLToGo(p *interface{}, mysql string) {
+func mySQLToDriverType(p *interface{}, mysql string) {
 	switch mysql {
 	case "int", "integer", "tinyint", "smallint", "mediumint":
 		*p = new(sql.NullInt64)
@@ -138,6 +136,38 @@ func MySQLToGo(p *interface{}, mysql string) {
 	default:
 		*p = new(sql.RawBytes)
 	}
+}
+
+func driverTypeToGoType(p []interface{}, schema *types.TableSchema) []interface{} {
+	v := make([]interface{}, len(p))
+
+	for i := 0; i < len(p); i++ {
+		v[i] = nil
+		switch f := p[i].(type) {
+		case *sql.NullInt64:
+			if f.Valid {
+				if schema.Columns[i].DataType != "bigint" {
+					v[i] = int32(f.Int64)
+				} else {
+					v[i] = f.Int64
+				}
+			}
+		case *sql.NullString:
+			if f.Valid {
+				v[i] = f.String
+			}
+		case *sql.NullFloat64:
+			if f.Valid {
+				v[i] = f.Float64
+			}
+		case *sql.RawBytes:
+			if f != nil {
+				v[i] = []byte(*f)
+			}
+		}
+	}
+
+	return v
 }
 
 //GetNext pops record fetched by HasNext
@@ -173,7 +203,7 @@ func (s *Reader) HasNext() bool {
 
 	p := make([]interface{}, len(c))
 	for i := 0; i < len(c); i++ {
-		MySQLToGo(&p[i], schema.Columns[i].DataType)
+		mySQLToDriverType(&p[i], schema.Columns[i].DataType)
 	}
 
 	s.err = s.rows.Scan(p...)
@@ -181,32 +211,7 @@ func (s *Reader) HasNext() bool {
 		return true
 	}
 
-	v := make([]interface{}, len(c))
-	for i := 0; i < len(c); i++ {
-		v[i] = nil
-		switch f := p[i].(type) {
-		case *sql.NullInt64:
-			if f.Valid {
-				if schema.Columns[i].DataType != "bigint" {
-					v[i] = int32(f.Int64)
-				} else {
-					v[i] = f.Int64
-				}
-			}
-		case *sql.NullString:
-			if f.Valid {
-				v[i] = f.String
-			}
-		case *sql.NullFloat64:
-			if f.Valid {
-				v[i] = f.Float64
-			}
-		case *sql.RawBytes:
-			if f != nil {
-				v[i] = []byte(*f)
-			}
-		}
-	}
+	v := driverTypeToGoType(p, schema)
 
 	s.outMsg, s.err = s.encoder.Row(types.Insert, &v, 0)
 	if log.EL(s.log, s.err) {

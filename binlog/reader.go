@@ -134,6 +134,50 @@ func (b *reader) pushSchema(t *table) bool {
 	return !log.EL(b.log, err)
 }
 
+func (b *reader) addNewTable(st state.Type, i int) bool {
+	t := st[i]
+
+	enc, err := encoder.Create(encoder.TypeFromStr(b.outputFormat), t.Service, t.Db, t.Table)
+	if log.EL(b.log, err) {
+		return false
+	}
+
+	if !schema.HasPrimaryKey(enc.Schema()) {
+		b.log.Errorf("Table %v doesn't have a primary key. Won't ingest the table", t.Table)
+		return true
+	}
+
+	pn := config.GetTopicName(b.topicNameFormat, t.Service, t.Db, t.Table)
+	p, err := b.pipe.RegisterProducer(pn)
+	if err != nil {
+		return false
+	}
+
+	b.log.Infof("New table added to binlog reader (%v,%v,%v), will produce to: %v", t.Service, t.Db, t.Table, pn)
+
+	b.tables[t.Db][t.Table] = &table{t.ID, false, p, t.RawSchema, t.SchemaGtid, t.Service, enc}
+
+	return true
+}
+
+func (b *reader) removeDeletedTables() (count uint) {
+	for _, d := range b.tables {
+		for n, t := range d {
+			if t.dead {
+				b.log.Infof("Table with id %v removed from binlog reader", t.id)
+				err := b.pipe.CloseProducer(t.producer)
+				log.EL(b.log, err)
+				delete(d, n)
+			} else {
+				t.dead = true
+				count++
+				log.Debugf("%v", t.id)
+			}
+		}
+	}
+	return
+}
+
 func (b *reader) reloadState() bool {
 	st, err := state.GetForCluster(b.dbl.Cluster)
 	if err != nil {
@@ -143,7 +187,7 @@ func (b *reader) reloadState() bool {
 
 	b.log.Debugf("reloadState")
 
-	for _, t := range st {
+	for i, t := range st {
 		if b.tables[t.Db] == nil {
 			b.tables[t.Db] = make(map[string]*table)
 		}
@@ -161,44 +205,12 @@ func (b *reader) reloadState() bool {
 		}
 		if tbl != nil {
 			tbl.dead = false
-		} else {
-			enc, err := encoder.Create(encoder.TypeFromStr(b.outputFormat), t.Service, t.Db, t.Table)
-			if log.EL(b.log, err) {
-				return false
-			}
-
-			if !schema.HasPrimaryKey(enc.Schema()) {
-				b.log.Errorf("Table %v doesn't have a primary key. Won't ingest the table", t.Table)
-				continue
-			}
-
-			pn := config.GetTopicName(b.topicNameFormat, t.Service, t.Db, t.Table)
-			p, err := b.pipe.RegisterProducer(pn)
-			if err != nil {
-				return false
-			}
-
-			b.log.Infof("New table added to binlog reader (%v,%v,%v), will produce to: %v", t.Service, t.Db, t.Table, pn)
-
-			b.tables[t.Db][t.Table] = &table{t.ID, false, p, t.RawSchema, t.SchemaGtid, t.Service, enc}
+		} else if !b.addNewTable(st, i) {
+			return false
 		}
 	}
 
-	var c uint
-	for _, d := range b.tables {
-		for n, t := range d {
-			if t.dead {
-				b.log.Infof("Table with id %v removed from binlog reader", t.id)
-				err = b.pipe.CloseProducer(t.producer)
-				log.EL(b.log, err)
-				delete(d, n)
-			} else {
-				t.dead = true
-				c++
-				log.Debugf("%v", t.id)
-			}
-		}
-	}
+	c := b.removeDeletedTables()
 
 	b.metrics.NumTablesIngesting.Set(int64(c))
 
@@ -430,6 +442,34 @@ func (b *reader) handleQueryEvent(ev *replication.BinlogEvent) bool {
 	return true
 }
 
+func (b *reader) incGTID(v *replication.GTIDEvent) bool {
+	u, err := uuid.FromBytes(v.SID)
+	if log.E(err) {
+		return false
+	}
+
+	if s, ok := b.gtidSet.Sets[u.String()]; ok {
+		l := &s.Intervals[len(s.Intervals)-1]
+		if l.Stop == v.GNO {
+			l.Stop++
+			return true
+		}
+		b.log.Infof("non-sequential gtid event: %+v %+v", l.Stop, v.GNO)
+	}
+
+	gtid := fmt.Sprintf("%s:%d", u.String(), v.GNO)
+	b.log.Infof("non-sequential gtid event: %+v", gtid)
+	b.log.Infof("out gtid set: %+v", b.gtidSet.String())
+	us, err := mysql.ParseUUIDSet(gtid)
+	if log.E(err) {
+		return false
+	}
+
+	b.gtidSet.AddSet(us)
+
+	return true
+}
+
 func (b *reader) handleEvent(ev *replication.BinlogEvent) bool {
 	switch v := ev.Event.(type) {
 	case *replication.FormatDescriptionEvent:
@@ -450,27 +490,9 @@ func (b *reader) handleEvent(ev *replication.BinlogEvent) bool {
 			return false
 		}
 	case *replication.GTIDEvent:
-		u, err := uuid.FromBytes(v.SID)
-		if log.E(err) {
+		if !b.incGTID(v) {
 			return false
 		}
-		s, ok := b.gtidSet.Sets[u.String()]
-		if ok {
-			l := &s.Intervals[len(s.Intervals)-1]
-			if l.Stop == v.GNO {
-				l.Stop++
-				return true
-			}
-			b.log.Infof("non-sequential gtid event: %+v %+v", l.Stop, v.GNO)
-		}
-		gtid := fmt.Sprintf("%s:%d", u.String(), v.GNO)
-		b.log.Infof("non-sequential gtid event: %+v", gtid)
-		b.log.Infof("out gtid set: %+v", b.gtidSet.String())
-		us, err := mysql.ParseUUIDSet(gtid)
-		if log.E(err) {
-			return false
-		}
-		b.gtidSet.AddSet(us)
 	case *replication.TableMapEvent:
 		//It's already in RowsEvent, not need to handle separately
 	case *replication.XIDEvent:

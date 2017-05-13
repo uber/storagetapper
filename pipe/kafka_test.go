@@ -396,6 +396,84 @@ func TestKafkaOffsets(t *testing.T) {
 	}
 }
 
+func testSimpleNto1(p Pipe, t *testing.T) {
+	wg.Add(1)
+	go func() { defer wg.Done(); kafkaConsumer(p, "topic3333", 0, numPartitions, true, t) }()
+	<-startCh //wait consumers to start
+	for i := 0; i < numPartitions; i++ {
+		kafkaProducer(p, "topic3333", i, i, 1, t)
+	}
+	wg.Wait() // wait consumers to finish
+}
+
+func registerConsumers(p Pipe, pc []Consumer, topic string, n int, t *testing.T) {
+	var err error
+	for j := 0; j < n; j++ {
+		pc[j], err = p.RegisterConsumer(topic)
+		test.CheckFail(err, t)
+	}
+}
+
+func closeConsumers(p Pipe, pc []Consumer, n int, t *testing.T) {
+	for j := 0; j < n; j++ {
+		err := p.CloseConsumer(pc[j], true)
+		test.CheckFail(err, t)
+	}
+}
+
+func multiTestLoop(p Pipe, i int, t *testing.T) {
+	numMsgs := 3
+
+	pc := make([]Consumer, numPartitions)
+
+	registerConsumers(p, pc, "topic3333", i+1, t)
+
+	for j := 0; j < numPartitions; j++ {
+		kafkaProducer(p, "topic3333", j*numMsgs, j, numMsgs, t)
+	}
+
+	j := 0
+	res := make(map[string]bool)
+	partsPerConsumer := numPartitions / (i + 1 - j)
+	for k := 0; k < numPartitions; k++ {
+		log.Debugf("consumer %v msgs k=%v", j, k)
+		for l := 0; l < numMsgs; l++ {
+			r := consumeMessage(pc[j], t)
+
+			if res[r] {
+				t.Fatalf("Duplicate entry for %v", r)
+			}
+
+			res[r] = true
+
+			log.Debugf("consumer %v msgs: %v k=%v", j, r, k)
+		}
+		if (numPartitions-k-1)%partsPerConsumer == 0 {
+			j++
+			if i+1 != j {
+				partsPerConsumer = (numPartitions - k - 1) / (i + 1 - j)
+				log.Debugf("s1ss %v", partsPerConsumer)
+			}
+		}
+	}
+
+	closeConsumers(p, pc, i+1, t)
+
+	if len(res) < numMsgs*numPartitions {
+		t.Fatalf("Too few messages %v, expected %v", len(res), numMsgs*numPartitions)
+	} else if len(res) > numMsgs*numPartitions {
+		t.Fatalf("Too many messages %v, expected %v", len(res), numMsgs*numPartitions)
+	}
+
+	for j := 0; j < numMsgs*numPartitions; j++ {
+		e := "topic3333key." + strconv.Itoa(j)
+		log.Debugf("msg %v", e)
+		if !res[e] {
+			t.Fatalf("Absent: %v", e)
+		}
+	}
+}
+
 //WARN: There is no way to control number of partition programmatically
 //so the test relies on the server configuration:
 //num.partitions=8
@@ -417,88 +495,25 @@ func TestKafkaMultiPartition(t *testing.T) {
 	}
 	defer func() { log.E(state.Close()) }()
 
-	numMsgs := 3
-
 	_ = util.ExecSQL(state.GetDB(), "DROP TABLE IF EXISTS kafka_offsets")
 
 	p := createPipe(1)
 
-	wg.Add(1)
-	go func() { defer wg.Done(); kafkaConsumer(p, "topic3333", 0, numPartitions, true, t) }()
-	<-startCh //wait consumers to start
-	for i := 0; i < numPartitions; i++ {
-		kafkaProducer(p, "topic3333", i, i, 1, t)
-	}
-	wg.Wait() // wait consumers to finish
+	//Simple test produces 1 message to N partitions, consumes all messages by one consumer
+	testSimpleNto1(p, t)
 
 	log.Debugf("Starting multi partition consumers")
 
-	var err error
-	pc := make([]Consumer, numPartitions)
 	//Vary number of consumer from 0 to numPartitions
 	for i := 0; i < numPartitions; i++ {
-		for j := 0; j < i+1; j++ {
-			pc[j], err = p.RegisterConsumer("topic3333")
-			test.CheckFail(err, t)
-		}
-
-		for j := 0; j < numPartitions; j++ {
-			kafkaProducer(p, "topic3333", j*numMsgs, j, numMsgs, t)
-		}
-
-		j := 0
-		res := make(map[string]bool)
-		partsPerConsumer := numPartitions / (i + 1 - j)
-		for k := 0; k < numPartitions; k++ {
-			log.Debugf("consumer %v msgs k=%v", j, k)
-			for l := 0; l < numMsgs; l++ {
-				r := consumeMessage(pc[j], t)
-
-				if res[r] {
-					t.Fatalf("Duplicate entry for %v", r)
-				}
-
-				res[r] = true
-
-				log.Debugf("consumer %v msgs: %v k=%v", j, r, k)
-			}
-			if (numPartitions-k-1)%partsPerConsumer == 0 {
-				j++
-				if i+1 != j {
-					partsPerConsumer = (numPartitions - k - 1) / (i + 1 - j)
-					log.Debugf("s1ss %v", partsPerConsumer)
-				}
-			}
-		}
-
-		for j := 0; j < i+1; j++ {
-			err = p.CloseConsumer(pc[j], true)
-			test.CheckFail(err, t)
-		}
-
-		if len(res) < numMsgs*numPartitions {
-			t.Fatalf("Too few messages %v, expected %v", len(res), numMsgs*numPartitions)
-		} else if len(res) > numMsgs*numPartitions {
-			t.Fatalf("Too many messages %v, expected %v", len(res), numMsgs*numPartitions)
-		}
-
-		for j := 0; j < numMsgs*numPartitions; j++ {
-			e := "topic3333key." + strconv.Itoa(j)
-			log.Debugf("msg %v", e)
-			if !res[e] {
-				t.Fatalf("Absent: %v", e)
-			}
-		}
-
+		multiTestLoop(p, i, t)
 	}
 
 	log.Debugf("Check that consumer saves only offsets for partition it consumes from")
 
+	pc := make([]Consumer, numPartitions)
 	//Every consumer consumes two partitions
-	for j := 0; j < numPartitions/2; j++ {
-		pc[j], err = p.RegisterConsumer("topic3333")
-		test.CheckFail(err, t)
-	}
+	registerConsumers(p, pc, "topic3333", numPartitions/2, t)
 
 	//Write one message to every partition
 	for j := 0; j < numPartitions; j++ {

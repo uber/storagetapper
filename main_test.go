@@ -21,6 +21,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -96,7 +97,10 @@ var resfmt2 = [][]string{
 	},
 }
 
-func waitSnapshotToFinish(table string, t *testing.T) {
+func waitSnapshotToFinish(init bool, table string, t *testing.T) {
+	if !init {
+		return
+	}
 	for !shutdown.Initiated() {
 		n, err := state.GetTableNewFlag("e2e_test_svc1", "e2e_test_db1", table)
 		test.CheckFail(err, t)
@@ -147,6 +151,69 @@ func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResu
 
 var seqno int
 
+func waitMainInitialized() {
+	/*Wait while it initializes */
+	for shutdown.NumProcs() < 2 {
+		time.Sleep(time.Millisecond * 500)
+	}
+}
+
+func initTestDB(init bool, t *testing.T) {
+	if init {
+		conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: "root", Pwd: "", Db: ""})
+		test.CheckFail(err, t)
+
+		test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS "+types.MyDbName)
+		test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS e2e_test_db1")
+		test.ExecSQL(conn, t, "RESET MASTER")
+
+		test.ExecSQL(conn, t, "CREATE DATABASE e2e_test_db1")
+		test.ExecSQL(conn, t, "CREATE TABLE e2e_test_db1.e2e_test_table1(f1 int not null primary key, f3 int not null default 0, f4 int)")
+
+		err = conn.Close()
+		test.CheckFail(err, t)
+		seqno = 0
+	}
+}
+
+func addFirstTable(init bool, t *testing.T) {
+	if init {
+		/*Insert some test cluster connection info */
+		err := util.HTTPPostJSON("http://localhost:7836/cluster", `{"cmd" : "add", "name" : "e2e_test_cluster1", "host" : "localhost", "port" : 3306, "user" : "root", "pw" : ""}`)
+		test.CheckFail(err, t)
+		/*Register test table for ingestion */
+		err = util.HTTPPostJSON("http://localhost:7836/table", `{"cmd" : "add", "cluster" : "e2e_test_cluster1", "service" : "e2e_test_svc1", "db":"e2e_test_db1", "table":"e2e_test_table1"}`)
+		test.CheckFail(err, t)
+
+		/*Insert output Avro schema */
+		avroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "e2e_test_cluster1", Service: "e2e_test_svc1", Name: "e2e_test_db1"}, "e2e_test_table1")
+		test.CheckFail(err, t)
+		n := fmt.Sprintf("hp-%s-%s-%s", "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1")
+		err = util.HTTPPostJSON("http://localhost:7836/schema", `{"cmd" : "add", "name" : "`+n+`", "schema": `+strconv.Quote(string(avroSchema))+` }`)
+		test.CheckFail(err, t)
+	}
+}
+
+func addSecondTable(init bool, t *testing.T) {
+	if init {
+		log.Debugf("Inserting second table")
+		err := util.HTTPPostJSON("http://localhost:7836/table", `{"cmd" : "add", "cluster" : "e2e_test_cluster1", "service" : "e2e_test_svc1", "db":"e2e_test_db1", "table":"e2e_test_table2"}`)
+		test.CheckFail(err, t)
+		/*Insert output Avro schema for second table */
+		avroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "e2e_test_cluster1", Service: "e2e_test_svc1", Name: "e2e_test_db1"}, "e2e_test_table2")
+		test.CheckFail(err, t)
+		n := fmt.Sprintf("hp-%s-%s-%s", "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2")
+		err = util.HTTPPostJSON("http://localhost:7836/schema", `{"cmd" : "add", "name" : "`+n+`", "schema": `+strconv.Quote(string(avroSchema))+` }`)
+		test.CheckFail(err, t)
+	}
+}
+
+func createSecondTable(init bool, conn *sql.DB, t *testing.T) {
+	if init {
+		test.ExecSQL(conn, t, "CREATE TABLE e2e_test_db1.e2e_test_table2(f1 int not null primary key, f3 int not null default 0, f4 int)")
+	}
+}
+
 func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPipeFormat string, init bool, keyShift int, t *testing.T) {
 	cfg := config.Get()
 
@@ -168,21 +235,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	var jsonResult, avroResult []string = make([]string, 0), make([]string, 0)
 	var jsonResult2, avroResult2 []string = make([]string, 0), make([]string, 0)
 
-	if init {
-		conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: "root", Pwd: "", Db: ""})
-		test.CheckFail(err, t)
-
-		test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS "+types.MyDbName)
-		test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS e2e_test_db1")
-		test.ExecSQL(conn, t, "RESET MASTER")
-
-		test.ExecSQL(conn, t, "CREATE DATABASE e2e_test_db1")
-		test.ExecSQL(conn, t, "CREATE TABLE e2e_test_db1.e2e_test_table1(f1 int not null primary key, f3 int not null default 0, f4 int)")
-
-		err = conn.Close()
-		test.CheckFail(err, t)
-		seqno = 0
-	}
+	initTestDB(init, t)
 
 	seqno += 1000000
 
@@ -214,10 +267,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		wg.Done()
 	}()
 
-	/*Wait while it initializes */
-	for shutdown.NumProcs() < 2 {
-		time.Sleep(time.Millisecond * 500)
-	}
+	waitMainInitialized()
 
 	defer func() {
 		shutdown.Initiate()
@@ -234,21 +284,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	c2, err := p.RegisterConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
 	test.CheckFail(err, t)
 
-	if init {
-		/*Insert some test cluster connection info */
-		err = util.HTTPPostJSON("http://localhost:7836/cluster", `{"cmd" : "add", "name" : "e2e_test_cluster1", "host" : "localhost", "port" : 3306, "user" : "root", "pw" : ""}`)
-		test.CheckFail(err, t)
-		/*Register test table for ingestion */
-		err = util.HTTPPostJSON("http://localhost:7836/table", `{"cmd" : "add", "cluster" : "e2e_test_cluster1", "service" : "e2e_test_svc1", "db":"e2e_test_db1", "table":"e2e_test_table1"}`)
-		test.CheckFail(err, t)
-
-		/*Insert output Avro schema */
-		avroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "e2e_test_cluster1", Service: "e2e_test_svc1", Name: "e2e_test_db1"}, "e2e_test_table1")
-		test.CheckFail(err, t)
-		n := fmt.Sprintf("hp-%s-%s-%s", "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1")
-		err = util.HTTPPostJSON("http://localhost:7836/schema", `{"cmd" : "add", "name" : "`+n+`", "schema": `+strconv.Quote(string(avroSchema))+` }`)
-		test.CheckFail(err, t)
-	}
+	addFirstTable(init, t)
 
 	avroEncoder, err := encoder.Create(encoder.Avro, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1")
 	test.CheckFail(err, t)
@@ -256,9 +292,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	/*Wait snapshot to finish before sending more data otherwise everything
 	* even following events will be read from snapshot and we want them to be
 	* read from binlog */
-	if init {
-		waitSnapshotToFinish("e2e_test_table1", t)
-	}
+	waitSnapshotToFinish(init, "e2e_test_table1", t)
 
 	for i := 1 + keyShift; i < 10+keyShift; i++ {
 		test.ExecSQL(conn, t, resfmt[1][0], i)
@@ -306,9 +340,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		avroResult = append(avroResult, s)
 	}
 
-	if init {
-		test.ExecSQL(conn, t, "CREATE TABLE e2e_test_db1.e2e_test_table2(f1 int not null primary key, f3 int not null default 0, f4 int)")
-	}
+	createSecondTable(init, conn, t)
 
 	if init {
 		jsonResult2 = append(jsonResult2, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}]}`, 0))
@@ -345,17 +377,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		time.Sleep(time.Millisecond * 50)
 	}
 
-	if init {
-		log.Debugf("Inserting second table")
-		err = util.HTTPPostJSON("http://localhost:7836/table", `{"cmd" : "add", "cluster" : "e2e_test_cluster1", "service" : "e2e_test_svc1", "db":"e2e_test_db1", "table":"e2e_test_table2"}`)
-		test.CheckFail(err, t)
-		/*Insert output Avro schema for second table */
-		avroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "e2e_test_cluster1", Service: "e2e_test_svc1", Name: "e2e_test_db1"}, "e2e_test_table2")
-		test.CheckFail(err, t)
-		n := fmt.Sprintf("hp-%s-%s-%s", "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2")
-		err = util.HTTPPostJSON("http://localhost:7836/schema", `{"cmd" : "add", "name" : "`+n+`", "schema": `+strconv.Quote(string(avroSchema))+` }`)
-		test.CheckFail(err, t)
-	}
+	addSecondTable(init, t)
 
 	avroEncoder2, err := encoder.Create(encoder.Avro, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2")
 	test.CheckFail(err, t)
@@ -369,9 +391,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	/*Wait snapshot to finish before sending more data otherwise everything
 	* even following events will be read from snapshot and we want them to be
 	* read from binlog */
-	if init {
-		waitSnapshotToFinish("e2e_test_table2", t)
-	}
+	waitSnapshotToFinish(init, "e2e_test_table2", t)
 
 	for i := 1 + keyShift; i < 10+keyShift; i++ {
 		test.ExecSQL(conn, t, resfmt2[1][0], i)

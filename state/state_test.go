@@ -141,6 +141,74 @@ func TestGetTable(t *testing.T) {
 	}
 }
 
+func testGTIDs(t *testing.T) {
+	log.Debugf("Check GTID handling")
+
+	dbloc1 := &db.Loc{Cluster: "clst1", Service: "svc1", Name: "db1_state"}
+
+	gts, err := GetGTID(dbloc1)
+	test.CheckFail(err, t)
+	if gts != "" {
+		t.Fatalf(gts)
+	}
+
+	exgts := `0b59c905-b790-11e5-ba7b-a0369f7a1a38:1-55209742,
+	160c927a-b0bc-11e6-9350-2c600cd7b2df:1-268964356,
+	607d16a2-e503-11e5-a2e0-a0369f7763e8:1-57531690,
+	871a5fc8-aff2-11e6-8e2d-2c600ccd8ebf:1-53392746,
+	a7c7f66d-1f35-11e6-9e5e-a0369f776224:1-724441547,
+	c4ba8574-004d-11e5-8f81-2c600c7300c2:1-227694298`
+
+	_, err = mysql.ParseGTIDSet("mysql", exgts)
+	test.CheckFail(err, t)
+
+	err = SetGTID(dbloc1, exgts)
+	test.CheckFail(err, t)
+
+	gts, err = GetGTID(dbloc1)
+	test.CheckFail(err, t)
+
+	if gts != exgts {
+		t.Fatalf(gts)
+	}
+
+	log.Debugf("Check that StateGetGTID return non-empty GTID")
+	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid) VALUES ('svc1', 'clst1', 'db1_state', 'table5', '')")
+	test.CheckFail(err, t)
+	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid) VALUES ('svc1', 'clst1', 'db1_state', 'table0', '')")
+	test.CheckFail(err, t)
+
+	gts, err = GetGTID(dbloc1)
+	test.CheckFail(err, t)
+
+	if gts != exgts {
+		t.Fatalf(gts)
+	}
+
+	log.Debugf("Check if we can read back data of particular cluster and gtid of it is not affected by above SetGTID for clst1")
+	st3, err := GetForCluster("clst2")
+	test.CheckFail(err, t)
+
+	if !checkStateEqual(refST3, st3) {
+		log.Errorf("Reference: %v", refST3)
+		log.Errorf("Read     : %v", st3)
+		t.FailNow()
+	}
+
+	gts1 := "c4ba8574-004d-11e5-8f81-2c600c7300c2:1-227694298"
+	var seqno1 uint64 = 282823744
+	err = SaveBinlogState(dbloc1, gts1, seqno1)
+	test.CheckFail(err, t)
+	st4, err := readStateCond("service='svc1' and db='db1_state' limit 1")
+	test.CheckFail(err, t)
+
+	if st4[0].Gtid != gts1 || st4[0].SeqNo != seqno1 {
+		log.Errorf("Expected: %v, %v", gts1, seqno1)
+		log.Errorf("Got: %v, %v %+v", st4[0].Gtid, st4[0].SeqNo, st4)
+		t.FailNow()
+	}
+}
+
 func TestStateBasic(t *testing.T) {
 	initState(t)
 
@@ -208,71 +276,7 @@ func TestStateBasic(t *testing.T) {
 		t.Fatalf("reg")
 	}
 
-	dbloc1 := &db.Loc{Cluster: "clst1", Service: "svc1", Name: "db1_state"}
-
-	log.Debugf("Check GTID handling")
-
-	gts, err := GetGTID(dbloc1)
-	test.CheckFail(err, t)
-	if gts != "" {
-		t.Fatalf(gts)
-	}
-
-	exgts := `0b59c905-b790-11e5-ba7b-a0369f7a1a38:1-55209742,
-	160c927a-b0bc-11e6-9350-2c600cd7b2df:1-268964356,
-	607d16a2-e503-11e5-a2e0-a0369f7763e8:1-57531690,
-	871a5fc8-aff2-11e6-8e2d-2c600ccd8ebf:1-53392746,
-	a7c7f66d-1f35-11e6-9e5e-a0369f776224:1-724441547,
-	c4ba8574-004d-11e5-8f81-2c600c7300c2:1-227694298`
-
-	_, err = mysql.ParseGTIDSet("mysql", exgts)
-	test.CheckFail(err, t)
-
-	err = SetGTID(dbloc1, exgts)
-	test.CheckFail(err, t)
-
-	gts, err = GetGTID(dbloc1)
-	test.CheckFail(err, t)
-
-	if gts != exgts {
-		t.Fatalf(gts)
-	}
-
-	log.Debugf("Check that StateGetGTID return non-empty GTID")
-	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid) VALUES ('svc1', 'clst1', 'db1_state', 'table5', '')")
-	test.CheckFail(err, t)
-	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid) VALUES ('svc1', 'clst1', 'db1_state', 'table0', '')")
-	test.CheckFail(err, t)
-
-	gts, err = GetGTID(dbloc1)
-	test.CheckFail(err, t)
-
-	if gts != exgts {
-		t.Fatalf(gts)
-	}
-
-	log.Debugf("Check if we can read back data of particular cluster and gtid of it is not affected by above SetGTID for clst1")
-	st3, err := GetForCluster("clst2")
-	test.CheckFail(err, t)
-
-	if !checkStateEqual(refST3, st3) {
-		log.Errorf("Reference: %v", refST3)
-		log.Errorf("Read     : %v", st3)
-		t.FailNow()
-	}
-
-	gts1 := "c4ba8574-004d-11e5-8f81-2c600c7300c2:1-227694298"
-	var seqno1 uint64 = 282823744
-	err = SaveBinlogState(dbloc1, gts1, seqno1)
-	test.CheckFail(err, t)
-	st4, err := readStateCond("service='svc1' and db='db1_state' limit 1")
-	test.CheckFail(err, t)
-
-	if st4[0].Gtid != gts1 || st4[0].SeqNo != seqno1 {
-		log.Errorf("Expected: %v, %v", gts1, seqno1)
-		log.Errorf("Got: %v, %v %+v", st4[0].Gtid, st4[0].SeqNo, st4)
-		t.FailNow()
-	}
+	testGTIDs(t)
 
 	err = Close()
 	test.CheckFail(err, t)

@@ -3,15 +3,7 @@ sudo: required
 language: go
 go: 1.7.x
 before_install:
-- sudo apt-get -qq update
-- sudo apt-get install -y mysql-server-5.6
-- echo -e "[mysqld]\nbinlog-format=ROW\ngtid_mode=ON\nenforce-gtid-consistency\nlog_bin=/var/log/mysql/mysql-bin.log\nlog_slave_updates=1"|sudo
-  tee -a /etc/mysql/my.cnf
-- sudo service mysql restart
-- go get github.com/Masterminds/glide
-- go get github.com/alecthomas/gometalinter
-- gometalinter --install
-- /bin/sh scripts/install_kafka.sh
+- /bin/sh scripts/install_deps.sh
 script: make test
 after_success:
 - bash <(curl -s https://codecov.io/bash)

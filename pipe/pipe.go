@@ -51,7 +51,6 @@ type Producer interface {
 //Pipe connects named producers and consumers
 type Pipe interface {
 	RegisterConsumer(key string) (Consumer, error)
-	RegisterConsumerCtx(ctx context.Context, key string) (Consumer, error)
 	RegisterProducer(key string) (Producer, error)
 	CloseConsumer(p Consumer, graceful bool) error
 	CloseProducer(p Producer) error

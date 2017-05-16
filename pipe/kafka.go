@@ -96,12 +96,13 @@ type KafkaProducer struct {
 
 // KafkaConsumer consumes messages from Kafka using topic and partition specified during consumer creation
 type KafkaConsumer struct {
-	pipe  *KafkaPipe
-	topic string
-	ctx   context.Context
-	ch    chan *sarama.ConsumerMessage
-	msg   *sarama.ConsumerMessage
-	err   error
+	pipe   *KafkaPipe
+	topic  string
+	ctx    context.Context
+	cancel context.CancelFunc
+	ch     chan *sarama.ConsumerMessage
+	msg    *sarama.ConsumerMessage
+	err    error
 }
 
 // Type returns Pipe type as Kafka
@@ -306,9 +307,10 @@ func (p *KafkaPipe) initTopicConsumer(topic string) error {
 	return nil
 }
 
-//RegisterConsumerCtx registers a new kafka consumer
-func (p *KafkaPipe) RegisterConsumerCtx(ctx context.Context, topic string) (Consumer, error) {
+//RegisterConsumer registers a new kafka consumer
+func (p *KafkaPipe) RegisterConsumer(topic string) (Consumer, error) {
 	log.Debugf("Registering consumer %v", topic)
+
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
@@ -339,13 +341,10 @@ func (p *KafkaPipe) RegisterConsumerCtx(ctx context.Context, topic string) (Cons
 
 	p.redistributeConsumers(p.consumers[topic])
 
-	log.Debugf("Registered consumer %v", topic)
-	return &KafkaConsumer{p, topic, ctx, ch, nil, nil}, nil
-}
+	ctx, cancel := context.WithCancel(context.Background())
 
-//RegisterConsumer registers a new kafka consumer
-func (p *KafkaPipe) RegisterConsumer(topic string) (Consumer, error) {
-	return p.RegisterConsumerCtx(p.ctx, topic)
+	log.Debugf("Registered consumer %v", topic)
+	return &KafkaConsumer{p, topic, ctx, cancel, ch, nil, nil}, nil
 }
 
 func (p *KafkaPipe) commitOffset(topic string, partition int32, offset int64, persistInterval int64) error {
@@ -406,6 +405,8 @@ func (p *KafkaConsumer) commitConsumerPartitionOffsets() error {
 // CloseConsumer closes Kafka consumer
 func (p *KafkaPipe) CloseConsumer(pc Consumer, graceful bool) error {
 	kc := pc.(*KafkaConsumer)
+
+	kc.cancel() //Unblock FetchNext
 
 	p.lock.Lock()
 	defer p.lock.Unlock()

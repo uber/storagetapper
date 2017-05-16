@@ -22,7 +22,6 @@ package streamer
 
 import (
 	"fmt"
-	"golang.org/x/net/context" //"context"
 	"time"
 
 	"github.com/siddontang/go-mysql/mysql"
@@ -244,10 +243,8 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes map[string]pipe.Pipe) b
 
 	//Consumer should registered before snapshot started, so it sees all the
 	//event during the snapshot
-	ctx, cancel := context.WithCancel(context.Background())
-	consumer, err := s.inPipe.RegisterConsumerCtx(ctx, config.GetTopicName(cfg.BufferTopicNameFormat, s.svc, s.db, s.table))
+	consumer, err := s.inPipe.RegisterConsumer(config.GetTopicName(cfg.BufferTopicNameFormat, s.svc, s.db, s.table))
 	if log.EL(s.log, err) {
-		cancel()
 		return false
 	}
 
@@ -257,7 +254,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes map[string]pipe.Pipe) b
 		return false
 	}
 
-	s.StreamTable(consumer, cancel, bootstrapCh)
+	s.StreamTable(consumer, bootstrapCh)
 
 	log.Debugf("Finished streamer")
 

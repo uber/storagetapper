@@ -60,12 +60,7 @@ func (p *LocalPipe) registerProducerConsumer(ctx context.Context, key string) (*
 
 //RegisterConsumer registers consumer with the given pipe name
 func (p *LocalPipe) RegisterConsumer(key string) (Consumer, error) {
-	return p.RegisterConsumerCtx(p.ctx, key)
-}
-
-//RegisterConsumerCtx registers consumer with the given pipe name
-func (p *LocalPipe) RegisterConsumerCtx(ctx context.Context, key string) (Consumer, error) {
-	return p.registerProducerConsumer(ctx, key)
+	return p.registerProducerConsumer(p.ctx, key)
 }
 
 //CloseProducer closes given producer

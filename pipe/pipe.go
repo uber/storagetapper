@@ -61,6 +61,7 @@ type Pipe interface {
 //TODO: Get this info from config, where testing config points to local
 const (
 	Local int = iota
+	File  int = iota
 	Kafka int = iota
 )
 
@@ -74,7 +75,11 @@ func Create(pctx context.Context, tp int, batchSize int, cfg *config.AppConfig, 
 	switch tp {
 	case Local:
 		return &LocalPipe{c: make(map[string](chan interface{})), ctx: pctx, batchSize: batchSize}
-	default:
+	case Kafka:
 		return &KafkaPipe{ctx: pctx, kafkaAddrs: cfg.KafkaAddrs, conn: db, batchSize: batchSize}
+	case File:
+		return &FilePipe{cfg.DataDir, cfg.MaxFileSize}
+	default:
+		return &FilePipe{cfg.DataDir, cfg.MaxFileSize}
 	}
 }

@@ -123,6 +123,10 @@ func (s *Streamer) produceEvent(data interface{}) error {
 		return nil
 	}
 
+	if s.outPipe.Type() == pipe.File {
+		key = "log"
+	}
+
 	err = s.outProducer.PushBatch(key, outMsg)
 
 	log.EL(s.log, err)

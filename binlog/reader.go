@@ -179,7 +179,7 @@ func (b *reader) removeDeletedTables() (count uint) {
 }
 
 func (b *reader) reloadState() bool {
-	st, err := state.GetForCluster(b.dbl.Cluster)
+	st, err := state.GetCond("cluster=? AND input='mysql'", b.dbl.Cluster)
 	if err != nil {
 		b.log.Errorf("Failed to read state, Error: %v", err.Error())
 		return false
@@ -416,7 +416,7 @@ func (b *reader) handleQueryEvent(ev *replication.BinlogEvent) bool {
 			t := d[table]
 			b.log.Debugf("detected alter statement of being ingested table '%v.%v', mutation '%v'", dbname, table, m[0][3])
 			if !schema.MutateTable(state.GetNoDB(), t.service, dbname, table, m[0][3], t.encoder.Schema(), &t.rawSchema) ||
-				!state.ReplaceSchema(t.service, b.dbl.Cluster, t.encoder.Schema(), t.rawSchema, t.schemaGtid, b.gtidSet.String()) {
+				!state.ReplaceSchema(t.service, b.dbl.Cluster, t.encoder.Schema(), t.rawSchema, t.schemaGtid, b.gtidSet.String(), "", "") {
 				return false
 			}
 			t.schemaGtid = b.gtidSet.String()

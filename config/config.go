@@ -55,6 +55,8 @@ type AppConfig struct {
 	ThrottleTargetMB   int64 `yaml:"throttle_target_mb"`
 	ThrottleTargetIOPS int64 `yaml:"throttle_target_iops"`
 
+	DefaultInputType string `yaml:"default_input_type"`
+
 	DataDir     string `yaml:"data_dir"`
 	MaxFileSize int64  `yaml:"max_file_size"`
 }
@@ -82,6 +84,8 @@ func GetDefaultConfig() *AppConfig {
 
 		ThrottleTargetMB:   0,
 		ThrottleTargetIOPS: 0,
+
+		DefaultInputType: "mysql",
 
 		DataDir:     "/var/lib/" + types.MySvcName,
 		MaxFileSize: 1024 * 1024 * 1024,

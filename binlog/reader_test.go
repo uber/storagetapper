@@ -350,12 +350,12 @@ func Prepare(pipeType int, create []string, t *testing.T) (*sql.DB, pipe.Pipe) {
 
 	log.Debugf("Starting binlog reader")
 
-	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1") {
+	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1", "mysql", "") {
 		t.FailNow()
 	}
 
 	if testName == "TestMultiTable" {
-		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1") {
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", "") {
 			t.FailNow()
 		}
 	}

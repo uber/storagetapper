@@ -97,25 +97,25 @@ func TestServerTableListCommands(t *testing.T) {
 
 	list.Cluster = ""
 	resp = tableRequest(list, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1"}` {
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":""}` {
 		t.Fatalf("wrong response 2: '%v'", string(resp.Body.Bytes()))
 	}
 
 	list.Service = ""
 	resp = tableRequest(list, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1"}
-{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4"}` {
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":""}
+{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":""}` {
 		t.Fatalf("wrong response 3: '%v'", string(resp.Body.Bytes()))
 	}
 
 	list.Cluster = "clst2"
 	list.Db = ""
 	resp = tableRequest(list, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2"}
-{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3"}
-{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3"}
-{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4"}
-{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5"}` {
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":""}
+{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":""}
+{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":""}
+{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":""}
+{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":""}` {
 		t.Fatalf("wrong response 4: '%v'", string(resp.Body.Bytes()))
 	}
 
@@ -123,12 +123,12 @@ func TestServerTableListCommands(t *testing.T) {
 	list.Cluster = ""
 	list.Db = ""
 	resp = tableRequest(list, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1"}
-{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2"}
-{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3"}
-{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3"}
-{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4"}
-{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5"}` {
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":""}
+{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":""}
+{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":""}
+{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":""}
+{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":""}
+{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":""}` {
 		t.Fatalf("wrong response 5: '%v'", string(resp.Body.Bytes()))
 	}
 }

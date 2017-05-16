@@ -40,6 +40,8 @@ type tableCmdReq struct {
 	Service string
 	Db      string
 	Table   string
+	Input   string
+	Output  string
 }
 
 //BufferTopicNameFormat is a copy of config variable, used in DeregisterTable.
@@ -69,6 +71,8 @@ type tableListResponse struct {
 	Service string
 	Db      string
 	Table   string
+	Input   string
+	Output  string
 }
 
 func handleListCmd(w http.ResponseWriter, t *tableCmdReq) error {
@@ -114,7 +118,14 @@ func tableCmd(w http.ResponseWriter, r *http.Request) {
 	} else if len(t.Cluster) == 0 || len(t.Service) == 0 || len(t.Db) == 0 || len(t.Table) == 0 {
 		err = errors.New("Invalid command. All fields(cluster,service,db,table) must not be empty")
 	} else if t.Cmd == "add" {
-		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: t.Db}, t.Table) {
+		cfg := config.Get()
+		if t.Input == "" {
+			t.Input = cfg.DefaultInputType
+		}
+		if t.Output == "" {
+			t.Output = cfg.OutputPipeType
+		}
+		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: t.Db}, t.Table, t.Input, t.Output) {
 			err = errors.New("Error registering table")
 		} else {
 			updateTableRegCnt()

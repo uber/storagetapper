@@ -59,7 +59,7 @@ func idle(v int64, timeout int, tpool pool.Thread) {
 	//	}
 }
 
-func worker(ctx context.Context, cfg *config.AppConfig, inP pipe.Pipe, outP pipe.Pipe, tpool pool.Thread) {
+func worker(ctx context.Context, cfg *config.AppConfig, inP pipe.Pipe, outP map[string]pipe.Pipe, tpool pool.Thread) {
 	log.Debugf("Started worker thread, Total: %+v", shutdown.NumProcs()+1)
 	for !shutdown.Initiated() && !tpool.Terminate() {
 		v := state.GetVersion()
@@ -130,6 +130,8 @@ func mainLow(cfg *config.AppConfig) {
 		nprocs = 1 /*Start binlog only, it'll control the size of the thread pool*/
 	}
 
+	outP := make(map[string]pipe.Pipe)
+
 	//Increasing batch size is important to prevent Pipes from preserving
 	//offsets before batch of the size batch_size has been committed to the
 	//output pipe
@@ -138,7 +140,8 @@ func mainLow(cfg *config.AppConfig) {
 	// * batch_size - in streamer helper channel buffer
 	// * +1 - waiting in streamer helper to be pushed when buffer is full
 	inP := pipe.Create(shutdown.Context, pipeType, 2*cfg.PipeBatchSize+1, cfg, state.GetDB())
-	outP := pipe.Create(shutdown.Context, pipe.Kafka, cfg.PipeBatchSize, cfg, state.GetDB())
+	outP["kafka"] = pipe.Create(shutdown.Context, pipe.Kafka, cfg.PipeBatchSize, cfg, state.GetDB())
+	outP["file"] = pipe.Create(shutdown.Context, pipe.File, cfg.PipeBatchSize, cfg, state.GetDB())
 
 	tp := pool.Create()
 

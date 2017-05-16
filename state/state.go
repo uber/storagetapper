@@ -38,17 +38,18 @@ import (
 )
 
 type row struct {
-	ID               int64
-	Cluster          string
-	Service          string
-	Db               string
-	Table            string
-	IngestionVersion uint32
-	Gtid             string
-	SeqNo            uint64
-	SchemaGtid       string
-	RawSchema        string
-	needBootstrap    bool
+	ID            int64
+	Cluster       string
+	Service       string
+	Db            string
+	Table         string
+	Input         string
+	Output        string
+	Gtid          string
+	SeqNo         uint64
+	SchemaGtid    string
+	RawSchema     string
+	needBootstrap bool
 }
 
 //Type is in-memory representation of state
@@ -135,7 +136,8 @@ func create(cfg *config.AppConfig) bool {
 		service VARCHAR(128) NOT NULL,
 		db VARCHAR(128) NOT NULL,
 		tableName VARCHAR(128) NOT NULL,
-		ingestionVersion INT NOT NULL DEFAULT 1,
+		input VARCHAR(128) NOT NULL,
+		output VARCHAR(128) NOT NULL,
 		gtid TEXT NOT NULL DEFAULT '',
 		seqno BIGINT NOT NULL DEFAULT 0,
 		schemaGTID TEXT NOT NULL DEFAULT '',
@@ -245,7 +247,7 @@ func parseRows(rows *sql.Rows) (Type, error) {
 	res := make(Type, 0)
 	var r row
 	for rows.Next() {
-		if err := rows.Scan(&r.ID, &r.Cluster, &r.Service, &r.Db, &r.Table, &r.IngestionVersion, &r.Gtid, &r.SeqNo, &r.SchemaGtid, &r.RawSchema, &r.needBootstrap); err != nil {
+		if err := rows.Scan(&r.ID, &r.Cluster, &r.Service, &r.Db, &r.Table, &r.Input, &r.Output, &r.Gtid, &r.SeqNo, &r.SchemaGtid, &r.RawSchema, &r.needBootstrap); err != nil {
 			return nil, err
 		}
 		res = append(res, r)
@@ -356,7 +358,7 @@ func GetSchema(svc string, sdb string, table string) (*types.TableSchema, error)
 //state with new versions provided as parameters
 //If oldGtid is empty adds it as new table to the state
 //FIXME: To big function. Split it.
-func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema string, oldGtid string, gtid string) bool {
+func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema string, oldGtid string, gtid string, input string, output string) bool {
 	tx, err := conn.Begin()
 	if log.E(err) {
 		return false
@@ -385,7 +387,7 @@ func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema s
 		}
 	} else {
 		log.Debugf("Inserting schema for table %+v", s.TableName)
-		if _, err := tx.Exec("INSERT INTO state (service, cluster, db, tableName, schemaGTID, rawSchema) VALUES (?, ?, ?, ?, ?, ?)", svc, cluster, s.DBName, s.TableName, gtid, rawSchema); err != nil {
+		if _, err := tx.Exec("INSERT INTO state (service, cluster, db, tableName, schemaGTID, rawSchema, input, output) VALUES (?,?,?,?,?,?,?,?)", svc, cluster, s.DBName, s.TableName, gtid, rawSchema, input, output); err != nil {
 			if err.(*mysql.MySQLError).Number == 1062 { //Duplicate key
 				log.Warnf("Newer schema version found in the state, my: (current: %v, new: %v), state: ?. service=%v, db=%v, table=%v", "", gtid, svc, s.DBName, s.TableName)
 				log.E(tx.Rollback())
@@ -416,7 +418,7 @@ func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema s
 }
 
 //RegisterTable adds table to the state
-func RegisterTable(dbl *db.Loc, table string) bool {
+func RegisterTable(dbl *db.Loc, table string, input string, output string) bool {
 	ts, err := schema.Get(dbl, table)
 	if log.E(err) {
 		return false
@@ -432,7 +434,7 @@ func RegisterTable(dbl *db.Loc, table string) bool {
 		return false
 	}
 
-	if !ReplaceSchema(dbl.Service, dbl.Cluster, ts, rawSchema, "", sgtid) {
+	if !ReplaceSchema(dbl.Service, dbl.Cluster, ts, rawSchema, "", sgtid, input, output) {
 		return false
 	}
 

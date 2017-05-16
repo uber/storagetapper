@@ -133,7 +133,26 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 	return true
 }
 
-func (s *Streamer) start(cfg *config.AppConfig, inPipe pipe.Pipe, outPipe pipe.Pipe) bool {
+func (s *Streamer) startBootstrap(needsBootstrap bool, bootstrapCh chan bool, cfg *config.AppConfig) bool {
+	if needsBootstrap {
+		if cfg.ConcurrentBootstrap {
+			s.log.Debugf("Starting concurrent snapshot")
+			shutdown.Register(1)
+			go func() {
+				defer shutdown.Done()
+				bootstrapCh <- s.streamFromConsistentSnapshot(true, cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS)
+			}()
+		} else {
+			if !s.streamFromConsistentSnapshot(false, cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func (s *Streamer) start(cfg *config.AppConfig, outPipes map[string]pipe.Pipe) bool {
 	// Fetch Lock on a service-db-table entry in State.
 	// Currently, each event streamer worker handles a single table.
 	//TODO: Handle multiple tables per event streamer worker in future
@@ -160,6 +179,11 @@ func (s *Streamer) start(cfg *config.AppConfig, inPipe pipe.Pipe, outPipe pipe.P
 			s.db = row.Db
 			s.table = row.Table
 			s.id = row.ID
+			s.outPipe = outPipes[row.Output]
+			if s.outPipe == nil {
+				log.Errorf("Unknown output pipe type: %v", row.Output)
+				return true
+			}
 			defer s.lock.Unlock()
 			break
 		}
@@ -188,6 +212,12 @@ func (s *Streamer) start(cfg *config.AppConfig, inPipe pipe.Pipe, outPipe pipe.P
 
 	log.Debugf("Will be streaming to topic: %v", s.topic)
 
+	s.outProducer, err = s.outPipe.RegisterProducer(s.topic)
+	if log.E(err) {
+		return false
+	}
+	defer func() { log.EL(s.log, s.outPipe.CloseProducer(s.outProducer)) }()
+
 	// Ensures that some binlog reader worker has started reading log events for the cluster on
 	// which the table resides.
 	gtid, err := s.ensureBinlogReaderStart()
@@ -196,12 +226,6 @@ func (s *Streamer) start(cfg *config.AppConfig, inPipe pipe.Pipe, outPipe pipe.P
 	}
 
 	s.waitForGtid(s.svc, s.db, gtid)
-
-	s.outProducer, err = outPipe.RegisterProducer(s.topic)
-	if log.E(err) {
-		return false
-	}
-	defer func() { log.EL(s.log, outPipe.CloseProducer(s.outProducer)) }()
 
 	s.outputFormat = cfg.OutputFormat
 	s.stateUpdateTimeout = cfg.StateUpdateTimeout
@@ -228,20 +252,9 @@ func (s *Streamer) start(cfg *config.AppConfig, inPipe pipe.Pipe, outPipe pipe.P
 	}
 
 	bootstrapCh := make(chan bool)
-	if needsBootstrap {
-		if cfg.ConcurrentBootstrap {
-			s.log.Debugf("Starting concurrent snapshot")
-			shutdown.Register(1)
-			go func() {
-				defer shutdown.Done()
-				bootstrapCh <- s.streamFromConsistentSnapshot(true, cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS)
-			}()
-		} else {
-			if !s.streamFromConsistentSnapshot(false, cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS) {
-				cancel()
-				return false
-			}
-		}
+	if !s.startBootstrap(needsBootstrap, bootstrapCh, cfg) {
+		log.E(s.inPipe.CloseConsumer(consumer, false))
+		return false
 	}
 
 	s.StreamTable(consumer, cancel, bootstrapCh)
@@ -252,7 +265,7 @@ func (s *Streamer) start(cfg *config.AppConfig, inPipe pipe.Pipe, outPipe pipe.P
 }
 
 // Worker : Initializer function
-func Worker(cfg *config.AppConfig, inP pipe.Pipe, outP pipe.Pipe) bool {
-	s := &Streamer{inPipe: inP, outPipe: outP}
-	return s.start(cfg, inP, outP)
+func Worker(cfg *config.AppConfig, inP pipe.Pipe, outPipes map[string]pipe.Pipe) bool {
+	s := &Streamer{inPipe: inP}
+	return s.start(cfg, outPipes)
 }

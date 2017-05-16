@@ -58,7 +58,7 @@ var (
 	TestTbl      = "test_snapstream"
 )
 
-func EventWorker(cfg *config.AppConfig, inP pipe.Pipe, outP pipe.Pipe, t *testing.T) {
+func EventWorker(cfg *config.AppConfig, inP pipe.Pipe, outP map[string]pipe.Pipe, t *testing.T) {
 	defer shutdown.Done()
 	log.Debugf("Starting Event streamer reader")
 	Worker(cfg, inP, outP)
@@ -92,7 +92,7 @@ func setupDB(t *testing.T) *sql.DB {
 		t.FailNow()
 	}
 
-	if !state.RegisterTable(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl) {
+	if !state.RegisterTable(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, "mysql", cfg.OutputPipeType) {
 		log.Fatalf("Failed to register table")
 	}
 	execSQL(state.GetDB(), t, "UPDATE state SET gtid='fake-gtid' WHERE tableName=? AND service=? AND db=?", TestTbl, TestSvc, TestDb)
@@ -114,12 +114,14 @@ func setupData(dbConn *sql.DB, t *testing.T) {
 
 func setupWorker(t *testing.T) (pipe.Pipe, pipe.Pipe, pipe.Consumer) {
 	inP := pipe.Create(shutdown.Context, pipe.Local, 16, cfg, nil)
-	outP := pipe.Create(shutdown.Context, pipe.Kafka, 16, cfg, nil)
-	outPConsumer, err := outP.RegisterConsumer(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl))
+	outP := make(map[string]pipe.Pipe)
+	outP["kafka"] = pipe.Create(shutdown.Context, pipe.Kafka, 16, cfg, nil)
+	outP["file"] = pipe.Create(shutdown.Context, pipe.File, 16, cfg, nil)
+	outPConsumer, err := outP["kafka"].RegisterConsumer(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl))
 	test.CheckFail(err, t)
 	shutdown.Register(1)
 	go EventWorker(cfg, inP, outP, t)
-	return inP, outP, outPConsumer
+	return inP, outP["kafka"], outPConsumer
 }
 
 func verifyFromOutputKafka(outP pipe.Pipe, outPConsumer pipe.Consumer, t *testing.T) {

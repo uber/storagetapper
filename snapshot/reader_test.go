@@ -57,7 +57,7 @@ func createDB(a db.Addr, t *testing.T) {
 	ExecSQL(conn, t, "create database snap_test_db1")
 	ExecSQL(conn, t, "create table snap_test_db1.snap_test_t1 ( f1 int not null primary key, f2 varchar(32), f3 double)")
 
-	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1") {
+	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1", "mysql", "") {
 		t.FailNow()
 	}
 

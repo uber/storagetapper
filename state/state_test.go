@@ -43,20 +43,20 @@ func checkStateEqual(m1 Type, m2 Type) bool {
 }
 
 var refST1 = Type{
-	{1, "clst1", "svc1", "db1_state", "table1", 1, "", 0, "", "", true},
-	{2, "clst1", "svc1", "db1_state", "table2", 1, "", 0, "", "", true},
-	{3, "clst1", "svc1", "db2_state", "table1", 1, "", 0, "", "", true},
-	{4, "clst1", "svc2", "db3_state", "table1", 1, "", 0, "", "", true},
-	{5, "clst2", "svc2", "db2_state", "table1", 1, "", 0, "", "", true},
+	{1, "clst1", "svc1", "db1_state", "table1", "", "", "", 0, "", "", true},
+	{2, "clst1", "svc1", "db1_state", "table2", "", "", "", 0, "", "", true},
+	{3, "clst1", "svc1", "db2_state", "table1", "", "", "", 0, "", "", true},
+	{4, "clst1", "svc2", "db3_state", "table1", "", "", "", 0, "", "", true},
+	{5, "clst2", "svc2", "db2_state", "table1", "", "", "", 0, "", "", true},
 }
 
 var refST2 = Type{
-	{6, "clst1", "svc1", "db1_state", "table3", 1, "", 0, "", "", true},
-	{7, "clst1", "svc2", "db2_state", "table2", 1, "", 0, "", "", true},
+	{6, "clst1", "svc1", "db1_state", "table3", "", "", "", 0, "", "", true},
+	{7, "clst1", "svc2", "db2_state", "table2", "", "", "", 0, "", "", true},
 }
 
 var refST3 = Type{
-	{5, "clst2", "svc2", "db2_state", "table1", 1, "", 0, "", "", true},
+	{5, "clst2", "svc2", "db2_state", "table1", "", "", "", 0, "", "", true},
 }
 
 func insertStateRows(s Type, t1 *testing.T) {
@@ -372,7 +372,7 @@ func TestStateSchema(t *testing.T) {
 		t.FailNow()
 	}
 
-	if !ReplaceSchema("svc1", "clst1", ts, tsRaw, "", sgtid) {
+	if !ReplaceSchema("svc1", "clst1", ts, tsRaw, "", sgtid, "", "") {
 		t.Fatalf("%+v %+v", ts, err)
 	}
 
@@ -399,7 +399,7 @@ func TestStateSchema(t *testing.T) {
 	log.Debugf("New schema: %+v", ts)
 	log.Debugf("New raw schema: %+v", tsRaw)
 
-	if !ReplaceSchema("svc1", "clst1", ts, tsRaw, sgtid, sgtid1) {
+	if !ReplaceSchema("svc1", "clst1", ts, tsRaw, sgtid, sgtid1, "", "") {
 		t.FailNow()
 	}
 
@@ -454,11 +454,11 @@ func TestTableRegister(t *testing.T) {
 	*/
 	dbloc1 := &db.Loc{Cluster: "clst1", Service: "svc1", Name: "db1_state"}
 
-	if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1") {
+	if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1", "", "") {
 		t.Fatalf("Fail register db1_state 1")
 	}
 
-	if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1") {
+	if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1", "", "") {
 		t.Fatalf("Fail register db1_state 2")
 	}
 

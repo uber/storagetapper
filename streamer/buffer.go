@@ -24,7 +24,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/net/context" //"context"
 	"sync"
 	"time"
 
@@ -204,7 +203,7 @@ L:
 
 // StreamTable attempts to acquire a lock on a table partition and streams events from
 // that table partition while periodically updating its state of the last kafka offset consumed
-func (s *Streamer) StreamTable(consumer pipe.Consumer, cancel context.CancelFunc, bootstrapCh chan bool) bool {
+func (s *Streamer) StreamTable(consumer pipe.Consumer, bootstrapCh chan bool) bool {
 	var saveOffsets = true
 
 	msgCh, exitCh := make(chan *result, s.batchSize), make(chan bool)
@@ -213,7 +212,6 @@ func (s *Streamer) StreamTable(consumer pipe.Consumer, cancel context.CancelFunc
 	wg.Add(1)
 
 	defer func() {
-		cancel()
 		log.EL(s.log, s.inPipe.CloseConsumer(consumer, saveOffsets))
 		close(exitCh)
 		wg.Wait()

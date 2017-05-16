@@ -6,4 +6,8 @@ import:
 - package: github.com/Shopify/sarama
   version: 1.11.0
 - package: github.com/linkedin/goavro
+  version: 1.0.3
+- package: github.com/fsnotify/fsnotify
+  version: 1.4.2
 - package: go.uber.org/zap
+  version: 1.4.0

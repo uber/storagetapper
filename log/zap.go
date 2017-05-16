@@ -57,7 +57,7 @@ func configureZap(level int, production bool) (Logger, error) {
 		return nil, err
 	}
 
-	l, err := cfg.Logging.Build(zap.AddCallerSkip(1))
+	l, err := cfg.Logging.Build(zap.AddCallerSkip(2))
 	if err != nil {
 		return nil, err
 	}

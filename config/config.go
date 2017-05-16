@@ -54,6 +54,9 @@ type AppConfig struct {
 
 	ThrottleTargetMB   int64 `yaml:"throttle_target_mb"`
 	ThrottleTargetIOPS int64 `yaml:"throttle_target_iops"`
+
+	DataDir     string `yaml:"data_dir"`
+	MaxFileSize int64  `yaml:"max_file_size"`
 }
 
 // GetDefaultConfig returns default configuration
@@ -79,6 +82,9 @@ func GetDefaultConfig() *AppConfig {
 
 		ThrottleTargetMB:   0,
 		ThrottleTargetIOPS: 0,
+
+		DataDir:     "/var/lib/" + types.MySvcName,
+		MaxFileSize: 1024 * 1024 * 1024,
 	}
 }
 

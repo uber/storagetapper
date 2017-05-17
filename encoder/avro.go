@@ -204,7 +204,18 @@ func fillAvroFields(r *goavro.Record, row *[]interface{}, s *types.TableSchema, 
 		if row == nil {
 			v = s.Columns[i].Type
 		} else {
-			v = (*row)[i]
+			switch b := (*row)[i].(type) {
+			case int8:
+				v = int32(b)
+			case uint8:
+				v = int32(b)
+			case int16:
+				v = int32(b)
+			case uint16:
+				v = int32(b)
+			default:
+				v = b
+			}
 		}
 		_ = r.Set(s.Columns[i].Name, v)
 	}

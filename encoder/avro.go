@@ -33,8 +33,12 @@ import (
 
 const numMetadataFields = 3
 
-//AvroEncoder implements Encoder interface for Avro format
-type AvroEncoder struct {
+func init() {
+	registerPlugin("avro", initAvroEncoder)
+}
+
+//avroEncoder implements Encoder interface for Avro format
+type avroEncoder struct {
 	Service   string
 	Db        string
 	Table     string
@@ -45,18 +49,22 @@ type AvroEncoder struct {
 	outSchema *types.AvroSchema
 }
 
+func initAvroEncoder(service string, db string, table string) (Encoder, error) {
+	return &avroEncoder{Service: service, Db: db, Table: table}, nil
+}
+
 //Type returns type of the encoder interface (faster then type assertion?)
-func (e *AvroEncoder) Type() int {
-	return Avro
+func (e *avroEncoder) Type() string {
+	return "avro"
 }
 
 //Schema return structured schema of the table
-func (e *AvroEncoder) Schema() *types.TableSchema {
+func (e *avroEncoder) Schema() *types.TableSchema {
 	return e.inSchema
 }
 
 //Row convert raw binary log event into Avro record
-func (e *AvroEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, error) {
+func (e *avroEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, error) {
 	r, err := goavro.NewRecord(*e.setter)
 	if err != nil {
 		return nil, err
@@ -66,7 +74,7 @@ func (e *AvroEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, err
 }
 
 //CommonFormat encodes CommonFormat event into Avro record
-func (e *AvroEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) {
+func (e *avroEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) {
 	if cf.Type == "schema" {
 		err := e.UpdateCodec()
 		if err != nil {
@@ -122,7 +130,7 @@ func convertCommonFormatToAvroRecord(rs goavro.RecordSetter, cfEvent *types.Comm
 }
 
 //UpdateCodec updates encoder schema
-func (e *AvroEncoder) UpdateCodec() error {
+func (e *avroEncoder) UpdateCodec() error {
 	var err error
 	log.Debugf("Schema codec updating")
 	//Schema from state is used to encode from row format, whether in
@@ -161,12 +169,24 @@ func encodeAvroRecord(codec goavro.Codec, r *goavro.Record) ([]byte, error) {
 }
 
 //DecodeAvroRecord deserializes(decodes) byte array into Avro record
-func (e *AvroEncoder) DecodeAvroRecord(b []byte) (*goavro.Record, error) {
+//Used by tests only
+func (e *avroEncoder) DecodeAvroRecord(b []byte) (*goavro.Record, error) {
 	r, err := e.codec.Decode(bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}
 	return r.(*goavro.Record), nil
+}
+
+//DecodeAvroRecord deserializes(decodes) byte array into Avro record
+//Used by tests only
+func DecodeAvroRecord(enc Encoder, b []byte) (*goavro.Record, error) {
+	switch e := enc.(type) {
+	case *avroEncoder:
+		return e.DecodeAvroRecord(b)
+	default:
+		return nil, fmt.Errorf("this function is for avroEncoder type only")
+	}
 }
 
 //fillAvroKey fills Avro records row_key from primary key of the row
@@ -239,7 +259,7 @@ func convertRowToAvroFormat(tp int, row *[]interface{}, s *types.TableSchema, se
 	}
 }
 
-func (e *AvroEncoder) prepareCommonFormatFilter(inSchema *types.CommonFormatEvent) {
+func (e *avroEncoder) prepareCommonFormatFilter(inSchema *types.CommonFormatEvent) {
 	nfiltered := len(*inSchema.Fields) - (len(e.outSchema.Fields) - numMetadataFields)
 	log.Debugf("prepareCommonFormatFilter %v", nfiltered)
 	if nfiltered == 0 {
@@ -258,7 +278,7 @@ func (e *AvroEncoder) prepareCommonFormatFilter(inSchema *types.CommonFormatEven
 	log.Debugf("n=%v filter=(%v)", nfiltered, e.filter)
 }
 
-func (e *AvroEncoder) prepareRowFilter() {
+func (e *avroEncoder) prepareRowFilter() {
 	nfiltered := len(e.inSchema.Columns) - (len(e.outSchema.Fields) - numMetadataFields)
 	log.Debugf("prepareRowFilter %v", nfiltered)
 	if nfiltered == 0 {

@@ -31,8 +31,12 @@ import (
 	"github.com/uber/storagetapper/types"
 )
 
-//CommonFormatEncoder implements Encoder interface into common format
-type CommonFormatEncoder struct {
+func init() {
+	registerPlugin("json", initCommonFormatEncoder)
+}
+
+//commonFormatEncoder implements Encoder interface into common format
+type commonFormatEncoder struct {
 	Service   string
 	Db        string
 	Table     string
@@ -53,24 +57,28 @@ func genTime() int64 {
 //generator
 var GenTime GenTimeFunc = genTime
 
+func initCommonFormatEncoder(service string, db string, table string) (Encoder, error) {
+	return &commonFormatEncoder{Service: service, Db: db, Table: table}, nil
+}
+
 //Type returns this encoder type
-func (e *CommonFormatEncoder) Type() int {
-	return Common
+func (e *commonFormatEncoder) Type() string {
+	return "json"
 }
 
 //Schema returns table schema
-func (e *CommonFormatEncoder) Schema() *types.TableSchema {
+func (e *commonFormatEncoder) Schema() *types.TableSchema {
 	return e.inSchema
 }
 
 //Row encodes row into CommonFormat
-func (e *CommonFormatEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, error) {
+func (e *commonFormatEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, error) {
 	cf := convertRowToCommonFormat(tp, row, e.inSchema, seqno, e.filter)
 	return CommonFormatEncode(cf)
 }
 
 //CommonFormat encodes common format event into byte array
-func (e *CommonFormatEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) {
+func (e *commonFormatEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) {
 	if cf.Type == "schema" {
 		err := e.UpdateCodec()
 		if err != nil {
@@ -83,7 +91,7 @@ func (e *CommonFormatEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte,
 }
 
 /*UpdateCodec refreshes the schema from state DB */
-func (e *CommonFormatEncoder) UpdateCodec() error {
+func (e *commonFormatEncoder) UpdateCodec() error {
 	schema, err := state.GetSchema(e.Service, e.Db, e.Table)
 	if err != nil {
 		return err
@@ -109,14 +117,18 @@ func (e *CommonFormatEncoder) UpdateCodec() error {
 	return err
 }
 
-//UpdateCodecFromDB is used in test to get schema from original database
-//instread of reading it from state as UpdateCodec does
-func (e *CommonFormatEncoder) UpdateCodecFromDB() error {
+func (e *commonFormatEncoder) updateCodecFromDB() error {
 	schema, err := schema.Get(&db.Loc{Service: e.Service, Name: e.Db}, e.Table)
 	if err == nil {
 		e.inSchema = schema
 	}
 	return err
+}
+
+//CommonFormatUpdateCodecFromDB is used in test to get schema from original database
+//instread of reading it from state as UpdateCodec does
+func CommonFormatUpdateCodecFromDB(enc Encoder) error {
+	return enc.(*commonFormatEncoder).updateCodecFromDB()
 }
 
 //CommonFormatDecode decodes CommonFormat event from byte array
@@ -193,7 +205,7 @@ func convertRowToCommonFormat(tp int, row *[]interface{}, schema *types.TableSch
 	return &c
 }
 
-func (e *CommonFormatEncoder) prepareFilter() {
+func (e *commonFormatEncoder) prepareFilter() {
 	if e.outSchema == nil {
 		return
 	}

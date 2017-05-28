@@ -66,7 +66,7 @@ func (s *Streamer) encodeCommonFormat(data []byte) (key string, outMsg []byte, e
 		}
 
 		key = encoder.GetCommonFormatKey(cfEvent)
-	} else if encoder.TypeFromStr(cfEvent.Type) == s.outputFormat {
+	} else if cfEvent.Type == s.outputFormat {
 		_, err = buf.ReadFrom(dec.Buffered())
 		if log.EL(s.log, err) {
 			return
@@ -92,7 +92,7 @@ func (s *Streamer) encodeCommonFormat(data []byte) (key string, outMsg []byte, e
 
 		key = encoder.GetCommonFormatKey(ev)
 	} else {
-		err = fmt.Errorf("Unsupported conversion from: %v to %v", cfEvent.Type, encoder.StrFromType(s.outputFormat))
+		err = fmt.Errorf("Unsupported conversion from: %v to %v", cfEvent.Type, s.outputFormat)
 	}
 
 	return

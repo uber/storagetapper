@@ -23,7 +23,6 @@ package streamer
 import (
 	"time"
 
-	"github.com/uber/storagetapper/encoder"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/metrics"
 	"github.com/uber/storagetapper/pipe"
@@ -86,7 +85,7 @@ func (s *Streamer) commitWithRetry(snapshotMetrics *metrics.Snapshot) bool {
 }
 
 func (s *Streamer) pushSchema() bool {
-	if s.encoder.Type() == encoder.Common {
+	if s.encoder.Type() == "json" {
 		outMsg, err := s.encoder.Row(types.Schema, nil, 0)
 		if log.EL(s.log, err) {
 			return false
@@ -115,7 +114,7 @@ func (s *Streamer) streamFromConsistentSnapshot(concurrent bool, throttleMB int6
 		defer func() { log.EL(s.log, s.outPipe.CloseProducer(outProducer)) }()
 	}
 
-	s.log.Infof("Starting consistent snapshot streamer for: %v, %v concurrent: %v", s.topic, encoder.StrFromType(s.encoder.Type()), concurrent)
+	s.log.Infof("Starting consistent snapshot streamer for: %v, %v concurrent: %v", s.topic, s.encoder.Type(), concurrent)
 
 	//For JSON format push schema as a first message of the stream
 	if !s.pushSchema() {

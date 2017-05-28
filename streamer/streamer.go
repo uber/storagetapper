@@ -58,7 +58,7 @@ type Streamer struct {
 	BytesWritten int64
 	BytesRead    int64
 
-	outputFormat       int
+	outputFormat       string
 	stateUpdateTimeout int
 	batchSize          int
 	lock               lock.Lock
@@ -203,7 +203,7 @@ func (s *Streamer) start(cfg *config.AppConfig, inPipe pipe.Pipe, outPipe pipe.P
 	}
 	defer func() { log.EL(s.log, outPipe.CloseProducer(s.outProducer)) }()
 
-	s.outputFormat = encoder.TypeFromStr(cfg.OutputFormat)
+	s.outputFormat = cfg.OutputFormat
 	s.stateUpdateTimeout = cfg.StateUpdateTimeout
 
 	s.encoder, err = encoder.Create(s.outputFormat, s.svc, s.db, s.table)

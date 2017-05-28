@@ -447,7 +447,7 @@ func initConsumeTableEvents(p pipe.Pipe, db string, table string, t *testing.T) 
 }
 
 func consumeTableEvents(pc pipe.Consumer, db string, table string, result []types.CommonFormatEvent, t *testing.T) {
-	enc, err := encoder.Create(encoder.Common, "test_svc1", db, table)
+	enc, err := encoder.Create("json", "test_svc1", db, table)
 	test.CheckFail(err, t)
 
 	for i, v := range result {

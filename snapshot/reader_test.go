@@ -82,7 +82,7 @@ func TestEmptyTable(t *testing.T) {
 	}()
 
 	s := Reader{}
-	enc, err := encoder.Create(encoder.Common, "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	enc, err := encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
 	test.CheckFail(err, t)
 
 	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
@@ -120,7 +120,7 @@ func TestBasic(t *testing.T) {
 	}
 
 	s := Reader{}
-	enc, err := encoder.Create(encoder.Common, "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	enc, err := encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
 	test.CheckFail(err, t)
 
 	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
@@ -188,10 +188,10 @@ func TestMoreFieldTypes(t *testing.T) {
 	ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?,?,?,?,?,?,?,?,?)", 1567, strconv.Itoa(1567), float64(1567)/3, "testtextfield", time.Now(), time.Now(), time.Now(), time.Now(), 98878, []byte("testbinaryfield"), 827738)
 
 	s := Reader{}
-	enc, err := encoder.Create(encoder.Common, "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	enc, err := encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
 	test.CheckFail(err, t)
 
-	err = enc.(*encoder.CommonFormatEncoder).UpdateCodecFromDB()
+	err = encoder.CommonFormatUpdateCodecFromDB(enc)
 	test.CheckFail(err, t)
 
 	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
@@ -234,7 +234,7 @@ func TestSnapshotConsistency(t *testing.T) {
 	ExecSQL(conn, t, "delete from snap_test_t1 where f1 > 300 && f1 < 400")
 
 	s := Reader{}
-	enc, err := encoder.Create(encoder.Common, "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	enc, err := encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
 	test.CheckFail(err, t)
 	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
 	test.CheckFail(err, t)

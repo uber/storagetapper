@@ -114,7 +114,7 @@ func waitSnapshotToFinish(init bool, table string, t *testing.T) {
 	log.Debugf("Detected snapshot finished for %v", table)
 }
 
-func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResult []string, avroEncoder *encoder.AvroEncoder, t *testing.T) {
+func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResult []string, avroEncoder encoder.Encoder, t *testing.T) {
 	var result []string
 	if format == "avro" {
 		result = avroResult
@@ -131,7 +131,7 @@ func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResu
 
 		var b []byte
 		if format == "avro" {
-			r, err := avroEncoder.DecodeAvroRecord(msg.([]byte))
+			r, err := encoder.DecodeAvroRecord(avroEncoder, msg.([]byte))
 			test.CheckFail(err, t)
 			b, err = json.Marshal(r)
 			test.CheckFail(err, t)
@@ -286,7 +286,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	addFirstTable(init, t)
 
-	avroEncoder, err := encoder.Create(encoder.Avro, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1")
+	avroEncoder, err := encoder.Create("avro", "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1")
 	test.CheckFail(err, t)
 
 	/*Wait snapshot to finish before sending more data otherwise everything
@@ -379,7 +379,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	addSecondTable(init, t)
 
-	avroEncoder2, err := encoder.Create(encoder.Avro, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2")
+	avroEncoder2, err := encoder.Create("avro", "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2")
 	test.CheckFail(err, t)
 
 	log.Debugf("Inserted second table")
@@ -418,9 +418,9 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	time.Sleep(time.Millisecond * 1500) //Let binlog to see table deletion
 
 	log.Debugf("Start consuming events from %v", "hp-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
-	consumeEvents(c, cfg.OutputFormat, avroResult, jsonResult, avroEncoder.(*encoder.AvroEncoder), t)
+	consumeEvents(c, cfg.OutputFormat, avroResult, jsonResult, avroEncoder, t)
 	log.Debugf("Start consuming events from %v", "hp-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
-	consumeEvents(c2, cfg.OutputFormat, avroResult2, jsonResult2, avroEncoder2.(*encoder.AvroEncoder), t)
+	consumeEvents(c2, cfg.OutputFormat, avroResult2, jsonResult2, avroEncoder2, t)
 
 	test.CheckFail(p.CloseConsumer(c, true), t)
 	test.CheckFail(p.CloseConsumer(c2, true), t)

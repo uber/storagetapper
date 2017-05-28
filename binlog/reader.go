@@ -137,7 +137,7 @@ func (b *reader) pushSchema(t *table) bool {
 func (b *reader) addNewTable(st state.Type, i int) bool {
 	t := st[i]
 
-	enc, err := encoder.Create(encoder.TypeFromStr(b.outputFormat), t.Service, t.Db, t.Table)
+	enc, err := encoder.Create(b.outputFormat, t.Service, t.Db, t.Table)
 	if log.EL(b.log, err) {
 		return false
 	}

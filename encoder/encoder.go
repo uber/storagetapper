@@ -27,55 +27,40 @@ import (
 	"github.com/uber/storagetapper/types"
 )
 
-//Encoder interface implementation types
-const (
-	Unknown int = iota
-	Avro    int = iota
-	Common  int = iota
-)
+//encoderConstructor initializes encoder plugin
+type encoderConstructor func(service string, db string, table string) (Encoder, error)
+
+//plugins insert their constructors into this map
+var encoders map[string]encoderConstructor
+
+//registerPlugin should be called from plugin's init
+func registerPlugin(name string, init encoderConstructor) {
+	if encoders == nil {
+		encoders = make(map[string]encoderConstructor)
+	}
+	encoders[name] = init
+}
 
 //Encoder is unified interface to encode data from transit formats(row, common)
 type Encoder interface {
 	Row(tp int, row *[]interface{}, seqNo uint64) ([]byte, error)
 	CommonFormat(cf *types.CommonFormatEvent) ([]byte, error)
 	UpdateCodec() error
-	Type() int
+	Type() string
 	Schema() *types.TableSchema
-}
-
-//TypeFromStr converts type name to type
-func TypeFromStr(s string) int {
-	if strings.ToLower(s) == "avro" {
-		return Avro
-	} else if strings.ToLower(s) == "json" {
-		return Common
-	}
-	return Unknown
-}
-
-//StrFromType converts encoder type to type name
-func StrFromType(t int) string {
-	switch t {
-	case Avro:
-		return "avro"
-	case Common:
-		return "json"
-	}
-	return "unknown"
 }
 
 //Create is a factory which create encoder of given type for given service, db,
 //table
-func Create(format int, s string, d string, t string) (Encoder, error) {
-	var enc Encoder
+func Create(encType string, s string, d string, t string) (Encoder, error) {
+	init := encoders[strings.ToLower(encType)]
 
-	if format == Avro {
-		enc = &AvroEncoder{Service: s, Db: d, Table: t}
-	} else {
-		enc = &CommonFormatEncoder{Service: s, Db: d, Table: t}
+	enc, err := init(s, d, t)
+	if err != nil {
+		return nil, err
 	}
 
-	err := enc.UpdateCodec()
+	err = enc.UpdateCodec()
 
 	return enc, err
 }

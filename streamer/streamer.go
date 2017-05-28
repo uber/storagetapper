@@ -21,8 +21,8 @@
 package streamer
 
 import (
-	"context"
 	"fmt"
+	"golang.org/x/net/context" //"context"
 	"time"
 
 	"github.com/siddontang/go-mysql/mysql"

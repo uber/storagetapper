@@ -21,8 +21,8 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
+	"golang.org/x/net/context" //"context"
 	"time"
 
 	"github.com/uber/storagetapper/binlog"

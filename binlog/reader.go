@@ -22,8 +22,8 @@ package binlog
 
 import (
 	"bytes"
-	"context"
 	"fmt"
+	"golang.org/x/net/context" //"context"
 	"os"
 	"regexp"
 	"strings"

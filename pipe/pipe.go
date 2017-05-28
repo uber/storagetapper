@@ -21,8 +21,8 @@
 package pipe
 
 import (
-	"context"
 	"database/sql"
+	"golang.org/x/net/context" //"context"
 
 	"github.com/uber/storagetapper/config"
 )

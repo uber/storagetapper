@@ -22,9 +22,9 @@ package streamer
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/net/context" //"context"
 	"sync"
 	"time"
 

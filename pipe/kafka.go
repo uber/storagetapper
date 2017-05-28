@@ -21,9 +21,9 @@
 package pipe
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
+	"golang.org/x/net/context" //"context"
 	"sync"
 
 	"github.com/Shopify/sarama"

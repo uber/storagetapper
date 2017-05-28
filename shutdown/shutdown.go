@@ -29,7 +29,7 @@ thread for which register has been called already.
 package shutdown
 
 import (
-	"context"
+	"golang.org/x/net/context" //"context"
 	"os"
 	"os/signal"
 	"sync"

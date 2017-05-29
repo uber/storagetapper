@@ -87,7 +87,7 @@ func ParseLevel(s string) int {
 func Configure(logType string, logLevel string, production bool) {
 	configure := loggers[strings.ToLower(logType)]
 	if configure == nil {
-		fmt.Printf("Logger '%v' is not registered, falling back to 'std'", logType)
+		fmt.Printf("Logger '%v' is not registered, falling back to 'std'\n", logType)
 		configure = configureStd
 	}
 

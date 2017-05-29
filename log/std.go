@@ -27,10 +27,7 @@ import (
 )
 
 func init() {
-	if loggers == nil {
-		loggers = make(map[string]LoggerConstructor)
-	}
-	loggers["std"] = configureStd
+	registerPlugin("std", configureStd)
 }
 
 func newStd(level int) Logger {

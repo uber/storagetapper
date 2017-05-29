@@ -44,6 +44,13 @@ type LoggerConstructor func(level int, production bool) (Logger, error)
 //loggers contains registered logger plugins
 var loggers map[string]LoggerConstructor
 
+func registerPlugin(name string, init LoggerConstructor) {
+	if loggers == nil {
+		loggers = make(map[string]LoggerConstructor)
+	}
+	loggers[name] = init
+}
+
 //def is a instance of default logger
 var def = newStd(Info)
 

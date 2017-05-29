@@ -30,10 +30,7 @@ import (
 )
 
 func init() {
-	if loggers == nil {
-		loggers = make(map[string]LoggerConstructor)
-	}
-	loggers["zap"] = configureZap
+	registerPlugin("zap", configureZap)
 }
 
 type zapConfig struct {

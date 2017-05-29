@@ -26,10 +26,7 @@ import (
 )
 
 func init() {
-	if loggers == nil {
-		loggers = make(map[string]LoggerConstructor)
-	}
-	loggers["logrus"] = configureLogrus
+	registerPlugin("logrus", configureLogrus)
 }
 
 //The indirection is needed to satisfy our logger's interface WithFields method

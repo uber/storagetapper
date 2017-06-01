@@ -141,8 +141,9 @@ func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResu
 
 		//		log.Errorf("Received : %+v %v", string(b), len(b))
 		//		log.Errorf("Reference: %+v %v", v, len(v))
-		if v != string(b) {
-			log.Errorf("Received : %+v %v", string(b), len(b))
+		conv := string(b)
+		if v != conv {
+			log.Errorf("Received : %+v %v", conv, len(b))
 			log.Errorf("Reference: %+v %v", v, len(v))
 			t.FailNow()
 		}

@@ -82,7 +82,13 @@ func TestEmptyTable(t *testing.T) {
 	}()
 
 	s := Reader{}
-	enc, err := encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	var enc encoder.Encoder
+	if encoder.GetDefaultEncoderType() == "msgpack" {
+		enc, err = encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	} else if encoder.GetDefaultEncoderType() == "json" {
+		enc, err = encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	}
+
 	test.CheckFail(err, t)
 
 	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
@@ -120,7 +126,13 @@ func TestBasic(t *testing.T) {
 	}
 
 	s := Reader{}
-	enc, err := encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	var enc encoder.Encoder
+	if encoder.GetDefaultEncoderType() == "msgpack" {
+		enc, err = encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	} else if encoder.GetDefaultEncoderType() == "json" {
+		enc, err = encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	}
+
 	test.CheckFail(err, t)
 
 	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
@@ -133,10 +145,13 @@ func TestBasic(t *testing.T) {
 		if err != nil {
 			test.CheckFail(err, t)
 		} else {
-			cf, err := encoder.CommonFormatDecode(data)
+			cf, err := encoder.DecodeToCommonFormat(data)
 			cf.Timestamp = 0
 			test.CheckFail(err, t)
 			refcf := types.CommonFormatEvent{Type: "insert", Key: []interface{}{float64(i)}, SeqNo: 0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: float64(i)}, {Name: "f2", Value: strconv.FormatInt(i, 10)}, {Name: "f3", Value: float64(i) / 3}}}
+			// refcf := types.CommonFormatEvent{Type: "insert", Key: []interface{}{i}, SeqNo: 0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: i}, {Name: "f2", Value: strconv.FormatInt(i, 10)}, {Name: "f3", Value: float64(i) / 3}}}
+
+			ChangeCfFields(cf)
 			if !reflect.DeepEqual(&refcf, cf) {
 				log.Errorf("Received: %+v %+v", cf, cf.Fields)
 				log.Errorf("Reference: %+v %+v", &refcf, refcf.Fields)
@@ -188,7 +203,12 @@ func TestMoreFieldTypes(t *testing.T) {
 	ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?,?,?,?,?,?,?,?,?)", 1567, strconv.Itoa(1567), float64(1567)/3, "testtextfield", time.Now(), time.Now(), time.Now(), time.Now(), 98878, []byte("testbinaryfield"), 827738)
 
 	s := Reader{}
-	enc, err := encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	var enc encoder.Encoder
+	if encoder.GetDefaultEncoderType() == "msgpack" {
+		enc, err = encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	} else if encoder.GetDefaultEncoderType() == "json" {
+		enc, err = encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	}
 	test.CheckFail(err, t)
 
 	err = encoder.CommonFormatUpdateCodecFromDB(enc)
@@ -201,9 +221,33 @@ func TestMoreFieldTypes(t *testing.T) {
 	for s.HasNext() {
 		key, msg, err := s.GetNext()
 		test.CheckFail(err, t)
-		d, err := encoder.CommonFormatDecode(msg)
+		d, err := encoder.DecodeToCommonFormat(msg)
 		test.CheckFail(err, t)
 		log.Debugf("%+v %+v %+v %+v", key, d, d.Fields, err)
+	}
+}
+
+func ChangeCfFields(cf *types.CommonFormatEvent) {
+	switch (cf.Key[0]).(type) {
+	case int64:
+		cf.Key[0] = float64(cf.Key[0].(int64))
+	case uint64:
+		cf.Key[0] = float64(cf.Key[0].(uint64))
+	}
+
+	if cf.Fields != nil {
+		for f := range *cf.Fields {
+			switch ((*cf.Fields)[f].Value).(type) {
+			case int64:
+				val := ((*cf.Fields)[f].Value).(int64)
+				newFloat := float64(val)
+				(*cf.Fields)[f].Value = newFloat
+			case uint64:
+				val := ((*cf.Fields)[f].Value).(uint64)
+				newFloat := float64(val)
+				(*cf.Fields)[f].Value = newFloat
+			}
+		}
 	}
 }
 
@@ -234,7 +278,13 @@ func TestSnapshotConsistency(t *testing.T) {
 	ExecSQL(conn, t, "delete from snap_test_t1 where f1 > 300 && f1 < 400")
 
 	s := Reader{}
-	enc, err := encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	var enc encoder.Encoder
+	if encoder.GetDefaultEncoderType() == "msgpack" {
+		enc, err = encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	} else if encoder.GetDefaultEncoderType() == "json" {
+		enc, err = encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	}
+
 	test.CheckFail(err, t)
 	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
 	test.CheckFail(err, t)
@@ -245,10 +295,14 @@ func TestSnapshotConsistency(t *testing.T) {
 		if err != nil {
 			test.CheckFail(err, t)
 		} else {
-			cf, err := encoder.CommonFormatDecode(data)
+			cf, err := encoder.DecodeToCommonFormat(data)
+			// cf, err := encoder.CommonFormatDecode(data)
 			test.CheckFail(err, t)
 			cf.Timestamp = 0
 			refcf := types.CommonFormatEvent{Type: "insert", Key: []interface{}{float64(i)}, SeqNo: 0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: float64(i)}, {Name: "f2", Value: strconv.FormatInt(i, 10)}, {Name: "f3", Value: float64(i) / 3}}}
+			// refcf := types.CommonFormatEvent{Type: "insert", Key: []interface{}{i}, SeqNo: 0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: i}, {Name: "f2", Value: strconv.FormatInt(i, 10)}, {Name: "f3", Value: float64(i) / 3}}}
+
+			ChangeCfFields(cf)
 
 			if !reflect.DeepEqual(&refcf, cf) {
 				log.Errorf("Received: %+v %+v", cf, cf.Fields)

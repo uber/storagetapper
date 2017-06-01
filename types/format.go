@@ -20,6 +20,8 @@
 
 package types
 
+//go:generate msgp
+
 //CommonFormatEvent types
 const (
 	Insert int = iota

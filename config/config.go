@@ -59,6 +59,8 @@ type AppConfig struct {
 
 	DataDir     string `yaml:"data_dir"`
 	MaxFileSize int64  `yaml:"max_file_size"`
+
+	EncoderType string `yaml:"encoder_type"`
 }
 
 // GetDefaultConfig returns default configuration
@@ -89,6 +91,8 @@ func GetDefaultConfig() *AppConfig {
 
 		DataDir:     "/var/lib/" + types.MySvcName,
 		MaxFileSize: 1024 * 1024 * 1024,
+
+		EncoderType: "json",
 	}
 }
 

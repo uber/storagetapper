@@ -21,9 +21,7 @@
 package binlog
 
 import (
-	"bytes"
 	"database/sql"
-	"encoding/json"
 	"os"
 	"reflect"
 	"sync/atomic"
@@ -446,8 +444,41 @@ func initConsumeTableEvents(p pipe.Pipe, db string, table string, t *testing.T) 
 	return pc
 }
 
+// This method is used to convert the resulting Field and Key interfaces
+// to float64 to match up the field values with floats rather than keeping
+// them back as ints. Reason is MsgPack has ability for numbers to be ints
+// while json decodes back into float64. DeepEqual fails unless types
+// are also equal.
+func changeCfFields(cf *types.CommonFormatEvent) {
+	if encoder.GetDefaultEncoderType() == "msgpack" {
+		// Fix to ensure that msgpack does float64
+		switch (cf.Key[0]).(type) {
+		case int64:
+			cf.Key[0] = float64(cf.Key[0].(int64))
+		}
+
+		if cf.Fields != nil {
+			for f := range *cf.Fields {
+				switch ((*cf.Fields)[f].Value).(type) {
+				case int64:
+					val := ((*cf.Fields)[f].Value).(int64)
+					newFloat := float64(val)
+					(*cf.Fields)[f].Value = newFloat
+				}
+			}
+		}
+	}
+}
+
 func consumeTableEvents(pc pipe.Consumer, db string, table string, result []types.CommonFormatEvent, t *testing.T) {
-	enc, err := encoder.Create("json", "test_svc1", db, table)
+	var enc encoder.Encoder
+	var err error
+	if encoder.GetDefaultEncoderType() == "msgpack" {
+		enc, err = encoder.Create("msgpack", "test_svc1", db, table)
+	} else if encoder.GetDefaultEncoderType() == "json" {
+		enc, err = encoder.Create("json", "test_svc1", db, table)
+	}
+
 	test.CheckFail(err, t)
 
 	for i, v := range result {
@@ -465,27 +496,28 @@ func consumeTableEvents(pc pipe.Consumer, db string, table string, result []type
 		case *types.RowMessage:
 			b, err = enc.Row(m.Type, m.Data, m.SeqNo)
 			test.CheckFail(err, t)
-			cf, err = encoder.CommonFormatDecode(b.([]byte))
+			cf, err = encoder.DecodeToCommonFormat(b.([]byte))
 			test.CheckFail(err, t)
 		case []byte:
-			buf := bytes.NewBuffer(b.([]byte))
 
 			cf = &types.CommonFormatEvent{}
-			dec := json.NewDecoder(buf)
-			err = dec.Decode(&cf)
+			bd, buf, err := encoder.GetBufferedDecoder(b.([]byte), cf)
 			test.CheckFail(err, t)
 
 			if cf.Type != "schema" {
-				_, err = buf.ReadFrom(dec.Buffered())
+				err = encoder.BufferedReadFrom(buf, bd)
 				test.CheckFail(err, t)
-				cf, err = encoder.CommonFormatDecode(buf.Bytes())
+				cf, err = encoder.DecodeToCommonFormat(buf.Bytes())
 				test.CheckFail(err, t)
 			}
 		}
 
+		changeCfFields(cf)
+
 		cf.SeqNo -= 1000000
 		cf.Timestamp = 0
 		if !reflect.DeepEqual(*cf, v) {
+			log.Errorf("%v", encoder.GetDefaultEncoderType())
 			log.Errorf("Received: %+v %+v", cf, cf.Fields)
 			log.Errorf("Reference: %+v %+v", &v, v.Fields)
 			t.Fail()
@@ -636,7 +668,11 @@ func TestReaderShutdown(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
-	cfg.ReaderOutputFormat = "json"
+	if encoder.GetDefaultEncoderType() == "msgpack" {
+		cfg.ReaderOutputFormat = "msgpack"
+	} else if encoder.GetDefaultEncoderType() == "json" {
+		cfg.ReaderOutputFormat = "json"
+	}
 	cfg.MaxNumProcs = 1
 	log.Debugf("Config loaded %v", cfg)
 	os.Exit(m.Run())

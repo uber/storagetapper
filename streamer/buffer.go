@@ -21,8 +21,6 @@
 package streamer
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -44,11 +42,8 @@ func (s *Streamer) getTag() map[string]string {
 }
 
 func (s *Streamer) encodeCommonFormat(data []byte) (key string, outMsg []byte, err error) {
-	buf := bytes.NewBuffer(data)
-
 	cfEvent := &types.CommonFormatEvent{}
-	dec := json.NewDecoder(buf)
-	err = dec.Decode(&cfEvent)
+	bd, buf, err := encoder.GetBufferedDecoder(data, cfEvent)
 	if log.EL(s.log, err) {
 		log.Errorf("broken event: %v %v", data, len(data))
 		return
@@ -66,24 +61,24 @@ func (s *Streamer) encodeCommonFormat(data []byte) (key string, outMsg []byte, e
 
 		key = encoder.GetCommonFormatKey(cfEvent)
 	} else if cfEvent.Type == s.outputFormat {
-		_, err = buf.ReadFrom(dec.Buffered())
+		err = encoder.BufferedReadFrom(buf, bd)
 		if log.EL(s.log, err) {
+			log.Errorf("issue with buffered read from: %+v, %+v", buf, bd)
 			return
 		}
 		outMsg = buf.Bytes()
 		key = cfEvent.Key[0].(string)
 		//		log.Debugf("Data in final format already. Forwarding. Key=%v, SeqNo=%v", key, cfEvent.SeqNo)
-	} else if cfEvent.Type == "json" {
-		_, err = buf.ReadFrom(dec.Buffered())
+	} else if cfEvent.Type == "json" || cfEvent.Type == "msgpack" {
+		err = encoder.BufferedReadFrom(buf, bd)
 		if log.EL(s.log, err) {
 			return
 		}
 		var ev *types.CommonFormatEvent
-		ev, err = encoder.CommonFormatDecode(buf.Bytes())
+		ev, err = encoder.DecodeToCommonFormat(buf.Bytes())
 		if log.EL(s.log, err) {
 			return
 		}
-
 		outMsg, err = s.encoder.CommonFormat(ev)
 		if log.EL(s.log, err) {
 			return

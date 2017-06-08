@@ -8,5 +8,6 @@ echo "[mysqld]\nserver-id=1\nbinlog-format=ROW\ngtid_mode=ON\nenforce-gtid-consi
 sudo service mysql restart
 go get github.com/Masterminds/glide
 go get github.com/alecthomas/gometalinter
+go get github.com/tinylib/msgp
 gometalinter --install
 /bin/sh scripts/install_kafka.sh

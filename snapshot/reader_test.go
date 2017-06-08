@@ -57,10 +57,11 @@ func createDB(a db.Addr, t *testing.T) {
 	ExecSQL(conn, t, "create database snap_test_db1")
 	ExecSQL(conn, t, "create table snap_test_db1.snap_test_t1 ( f1 int not null primary key, f2 varchar(32), f3 double)")
 
+	state.DeregisterTable("snap_test_svc1", "snap_test_db1", "snap_test_t1")
+
 	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1", "mysql", "") {
 		t.FailNow()
 	}
-
 }
 
 func TestEmptyTable(t *testing.T) {
@@ -83,9 +84,9 @@ func TestEmptyTable(t *testing.T) {
 
 	s := Reader{}
 	var enc encoder.Encoder
-	if encoder.GetDefaultEncoderType() == "msgpack" {
+	if encoder.Internal.Type() == "msgpack" {
 		enc, err = encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
-	} else if encoder.GetDefaultEncoderType() == "json" {
+	} else if encoder.Internal.Type() == "json" {
 		enc, err = encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
 	}
 
@@ -127,11 +128,7 @@ func TestBasic(t *testing.T) {
 
 	s := Reader{}
 	var enc encoder.Encoder
-	if encoder.GetDefaultEncoderType() == "msgpack" {
-		enc, err = encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
-	} else if encoder.GetDefaultEncoderType() == "json" {
-		enc, err = encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
-	}
+	enc, err = encoder.Create(encoder.Internal.Type(), "snap_test_svc1", "snap_test_db1", "snap_test_t1")
 
 	test.CheckFail(err, t)
 
@@ -145,7 +142,7 @@ func TestBasic(t *testing.T) {
 		if err != nil {
 			test.CheckFail(err, t)
 		} else {
-			cf, err := encoder.DecodeToCommonFormat(data)
+			cf, err := encoder.Internal.DecodeEvent(data)
 			cf.Timestamp = 0
 			test.CheckFail(err, t)
 			refcf := types.CommonFormatEvent{Type: "insert", Key: []interface{}{float64(i)}, SeqNo: 0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: float64(i)}, {Name: "f2", Value: strconv.FormatInt(i, 10)}, {Name: "f3", Value: float64(i) / 3}}}
@@ -186,7 +183,6 @@ func TestMoreFieldTypes(t *testing.T) {
 		test.CheckFail(err, t)
 	}()
 
-	//FIXME: This fail the test because of the NULL in the fields after alter table
 	for i := 0; i < 1; i++ {
 		ExecSQL(conn, t, "insert into snap_test_t1(f1) values(?)", i)
 	}
@@ -202,16 +198,17 @@ func TestMoreFieldTypes(t *testing.T) {
 
 	ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?,?,?,?,?,?,?,?,?)", 1567, strconv.Itoa(1567), float64(1567)/3, "testtextfield", time.Now(), time.Now(), time.Now(), time.Now(), 98878, []byte("testbinaryfield"), 827738)
 
+	if !state.DeregisterTable("snap_test_svc1", "snap_test_db1", "snap_test_t1") {
+		t.FailNow()
+	}
+
+	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1", "mysql", "") {
+		t.FailNow()
+	}
+
 	s := Reader{}
 	var enc encoder.Encoder
-	if encoder.GetDefaultEncoderType() == "msgpack" {
-		enc, err = encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
-	} else if encoder.GetDefaultEncoderType() == "json" {
-		enc, err = encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
-	}
-	test.CheckFail(err, t)
-
-	err = encoder.CommonFormatUpdateCodecFromDB(enc)
+	enc, err = encoder.Create(encoder.Internal.Type(), "snap_test_svc1", "snap_test_db1", "snap_test_t1")
 	test.CheckFail(err, t)
 
 	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
@@ -221,7 +218,7 @@ func TestMoreFieldTypes(t *testing.T) {
 	for s.HasNext() {
 		key, msg, err := s.GetNext()
 		test.CheckFail(err, t)
-		d, err := encoder.DecodeToCommonFormat(msg)
+		d, err := encoder.Internal.DecodeEvent(msg)
 		test.CheckFail(err, t)
 		log.Debugf("%+v %+v %+v %+v", key, d, d.Fields, err)
 	}
@@ -279,11 +276,7 @@ func TestSnapshotConsistency(t *testing.T) {
 
 	s := Reader{}
 	var enc encoder.Encoder
-	if encoder.GetDefaultEncoderType() == "msgpack" {
-		enc, err = encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
-	} else if encoder.GetDefaultEncoderType() == "json" {
-		enc, err = encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
-	}
+	enc, err = encoder.Create(encoder.Internal.Type(), "snap_test_svc1", "snap_test_db1", "snap_test_t1")
 
 	test.CheckFail(err, t)
 	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
@@ -295,7 +288,7 @@ func TestSnapshotConsistency(t *testing.T) {
 		if err != nil {
 			test.CheckFail(err, t)
 		} else {
-			cf, err := encoder.DecodeToCommonFormat(data)
+			cf, err := encoder.Internal.DecodeEvent(data)
 			// cf, err := encoder.CommonFormatDecode(data)
 			test.CheckFail(err, t)
 			cf.Timestamp = 0

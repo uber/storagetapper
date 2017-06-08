@@ -450,7 +450,7 @@ func initConsumeTableEvents(p pipe.Pipe, db string, table string, t *testing.T) 
 // while json decodes back into float64. DeepEqual fails unless types
 // are also equal.
 func changeCfFields(cf *types.CommonFormatEvent) {
-	if encoder.GetDefaultEncoderType() == "msgpack" {
+	if encoder.Internal.Type() == "msgpack" {
 		// Fix to ensure that msgpack does float64
 		switch (cf.Key[0]).(type) {
 		case int64:
@@ -471,13 +471,7 @@ func changeCfFields(cf *types.CommonFormatEvent) {
 }
 
 func consumeTableEvents(pc pipe.Consumer, db string, table string, result []types.CommonFormatEvent, t *testing.T) {
-	var enc encoder.Encoder
-	var err error
-	if encoder.GetDefaultEncoderType() == "msgpack" {
-		enc, err = encoder.Create("msgpack", "test_svc1", db, table)
-	} else if encoder.GetDefaultEncoderType() == "json" {
-		enc, err = encoder.Create("json", "test_svc1", db, table)
-	}
+	enc, err := encoder.Create(encoder.Internal.Type(), "test_svc1", db, table)
 
 	test.CheckFail(err, t)
 
@@ -496,18 +490,17 @@ func consumeTableEvents(pc pipe.Consumer, db string, table string, result []type
 		case *types.RowMessage:
 			b, err = enc.Row(m.Type, m.Data, m.SeqNo)
 			test.CheckFail(err, t)
-			cf, err = encoder.DecodeToCommonFormat(b.([]byte))
+			cf, err = encoder.Internal.DecodeEvent(b.([]byte))
 			test.CheckFail(err, t)
 		case []byte:
 
 			cf = &types.CommonFormatEvent{}
-			bd, buf, err := encoder.GetBufferedDecoder(b.([]byte), cf)
+			payload, err := encoder.Internal.UnwrapEvent(b.([]byte), cf)
 			test.CheckFail(err, t)
 
 			if cf.Type != "schema" {
-				err = encoder.BufferedReadFrom(buf, bd)
 				test.CheckFail(err, t)
-				cf, err = encoder.DecodeToCommonFormat(buf.Bytes())
+				cf, err = encoder.Internal.DecodeEvent(payload)
 				test.CheckFail(err, t)
 			}
 		}
@@ -517,7 +510,6 @@ func consumeTableEvents(pc pipe.Consumer, db string, table string, result []type
 		cf.SeqNo -= 1000000
 		cf.Timestamp = 0
 		if !reflect.DeepEqual(*cf, v) {
-			log.Errorf("%v", encoder.GetDefaultEncoderType())
 			log.Errorf("Received: %+v %+v", cf, cf.Fields)
 			log.Errorf("Reference: %+v %+v", &v, v.Fields)
 			t.Fail()
@@ -668,11 +660,7 @@ func TestReaderShutdown(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
-	if encoder.GetDefaultEncoderType() == "msgpack" {
-		cfg.ReaderOutputFormat = "msgpack"
-	} else if encoder.GetDefaultEncoderType() == "json" {
-		cfg.ReaderOutputFormat = "json"
-	}
+	cfg.ReaderOutputFormat = encoder.Internal.Type()
 	cfg.MaxNumProcs = 1
 	log.Debugf("Config loaded %v", cfg)
 	os.Exit(m.Run())

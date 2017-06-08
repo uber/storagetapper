@@ -40,12 +40,6 @@ var testServ = "test_svc1"
 var testDB = "db1"
 var testTable = "t1"
 
-var encoderTypes = []string{
-	"json",
-	"msgpack",
-	// TODO: "avro", Seems like avro needs some different setup to run these
-}
-
 var testBasicResult = []types.CommonFormatEvent{
 	/* Test basic insert, update, delete */
 	{Type: "insert", Key: []interface{}{1.0}, SeqNo: 1.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 1.0}}},
@@ -80,9 +74,12 @@ var testBasicPrepare = []string{
 func TestType(t *testing.T) {
 	Prepare(t, testBasicPrepare)
 
-	for _, encType := range encoderTypes {
-		enc, err := Create(encType, testServ, testDB, testTable)
+	for encType := range encoders {
+		log.Debugf("Encoder: %v", t)
+
+		enc, err := initEncoder(encType, testServ, testDB, testTable)
 		test.CheckFail(err, t)
+
 		test.Assert(t, enc.Type() == encType, "type diff")
 	}
 }
@@ -90,15 +87,21 @@ func TestType(t *testing.T) {
 func TestMarshalUnmarshal(t *testing.T) {
 	Prepare(t, testBasicPrepare)
 
-	for _, encType := range encoderTypes {
-		defaultEncoderType = encType
+	for encType := range encoders {
+		log.Debugf("Encoder: %v", encType)
+		enc, err := initEncoder(encType, "", "", "")
+		test.CheckFail(err, t)
+
+		if enc.Type() == "avro" {
+			continue
+		}
 
 		for _, cf := range testBasicResult {
 			log.Debugf("Initial CF: %v\n", cf)
-			encoded, err := CommonFormatEncode(&cf)
+			encoded, err := enc.CommonFormat(&cf)
 			test.CheckFail(err, t)
 
-			decoded, err := DecodeToCommonFormat(encoded)
+			decoded, err := enc.DecodeEvent(encoded)
 			log.Debugf("Post CF: %v\n", decoded)
 			test.CheckFail(err, t)
 
@@ -110,11 +113,13 @@ func TestMarshalUnmarshal(t *testing.T) {
 func TestUnmarshalError(t *testing.T) {
 	Prepare(t, testBasicPrepare)
 
-	for _, encType := range encoderTypes {
-		defaultEncoderType = encType
+	for encType := range encoders {
+		log.Debugf("Encoder: %v", t)
+		enc, err := initEncoder(encType, "", "", "")
+		test.CheckFail(err, t)
 
 		for _, encoded := range testErrorDecoding {
-			_, err := DecodeToCommonFormat(encoded)
+			_, err := enc.DecodeEvent(encoded)
 			test.Assert(t, err != nil, "not getting an error from garbage input")
 		}
 	}

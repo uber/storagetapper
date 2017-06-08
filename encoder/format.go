@@ -21,12 +21,11 @@
 package encoder
 
 import (
+	"bytes"
 	"encoding/json"
 	"time"
 
-	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/log"
-	"github.com/uber/storagetapper/schema"
 	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/types"
 )
@@ -101,7 +100,7 @@ func (e *commonFormatEncoder) UpdateCodec() error {
 
 	s := state.GetOutputSchema(GetOutputSchemaName(e.Service, e.Db, e.Table))
 	if s != "" {
-		c, err := e.CommonFormatDecode([]byte(s))
+		c, err := e.schemaDecode([]byte(s))
 		if err != nil {
 			return err
 		}
@@ -117,19 +116,14 @@ func (e *commonFormatEncoder) UpdateCodec() error {
 	return err
 }
 
-func (e *commonFormatEncoder) updateCodecFromDB() error {
-	schema, err := schema.Get(&db.Loc{Service: e.Service, Name: e.Db}, e.Table)
-	if err == nil {
-		e.inSchema = schema
-	}
-	return err
-}
-
-//CommonFormatDecode decodes CommonFormat event from byte array
-func (e *commonFormatEncoder) CommonFormatDecode(b []byte) (*types.CommonFormatEvent, error) {
+func jsonDecode(b []byte) (*types.CommonFormatEvent, error) {
 	res := &types.CommonFormatEvent{}
 	err := json.Unmarshal(b, res)
 	return res, err
+}
+
+func (e *commonFormatEncoder) schemaDecode(b []byte) (*types.CommonFormatEvent, error) {
+	return jsonDecode(b)
 }
 
 //CommonFormatEncode encodes CommonFormatEvent into byte array
@@ -221,4 +215,26 @@ func (e *commonFormatEncoder) prepareFilter() {
 		}
 	}
 	log.Debugf("n=%v filter=(%v)", nfiltered, e.filter)
+}
+
+// UnwrapEvent splits the event header and payload
+// cfEvent is populated with the 'header' information aka the first decoding.
+// Data after the header returned in the payload parameter
+func (e *commonFormatEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent) (payload []byte, err error) {
+	buf := bytes.NewBuffer(data)
+	dec := json.NewDecoder(buf)
+	err = dec.Decode(cfEvent)
+	if err != nil {
+		return
+	}
+	_, err = buf.ReadFrom(dec.Buffered())
+	if err != nil {
+		return
+	}
+	return buf.Bytes(), nil
+}
+
+//DecodeEvent decodes JSON encoded array into CommonFormatEvent struct
+func (e *commonFormatEncoder) DecodeEvent(b []byte) (*types.CommonFormatEvent, error) {
+	return jsonDecode(b)
 }

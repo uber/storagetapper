@@ -21,14 +21,9 @@
 package encoder
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/tinylib/msgp/msgp"
-	"github.com/uber/storagetapper/config"
-	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/types"
 )
 
@@ -38,7 +33,8 @@ type encoderConstructor func(service string, db string, table string) (Encoder, 
 //plugins insert their constructors into this map
 var encoders map[string]encoderConstructor
 
-var defaultEncoderType = config.Get().EncoderType
+//Internal is encoder for intermediate buffer messages and message wrappers. Initialized in z.go
+var Internal Encoder
 
 //registerPlugin should be called from plugin's init
 func registerPlugin(name string, init encoderConstructor) {
@@ -55,28 +51,34 @@ type Encoder interface {
 	UpdateCodec() error
 	Type() string
 	Schema() *types.TableSchema
+
+	UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent) (payload []byte, err error)
+	DecodeEvent(b []byte) (*types.CommonFormatEvent, error)
 }
 
-// BufferedDecoder is a struct that allows us to enscapulate type of internal
-// encoding system
-type BufferedDecoder struct {
-	JSONDec *json.Decoder
-	MsgDec  *msgp.Reader
-}
-
-//Create is a factory which create encoder of given type for given service, db,
-//table
-func Create(encType string, s string, d string, t string) (Encoder, error) {
+func initEncoder(encType string, s string, d string, t string) (Encoder, error) {
 	init := encoders[strings.ToLower(encType)]
+
+	if init == nil {
+		return nil, fmt.Errorf("Unsupported encoder: %s", strings.ToLower(encType))
+	}
 
 	enc, err := init(s, d, t)
 	if err != nil {
 		return nil, err
 	}
 
-	err = enc.UpdateCodec()
+	return enc, nil
+}
 
-	return enc, err
+//Create is a factory which create encoder of given type for given service, db,
+//table
+func Create(encType string, s string, d string, t string) (Encoder, error) {
+	enc, err := initEncoder(encType, s, d, t)
+	if err != nil {
+		return nil, err
+	}
+	return enc, enc.UpdateCodec()
 }
 
 //GetRowKey concatenates row primary key fields into string
@@ -105,96 +107,4 @@ func GetCommonFormatKey(cf *types.CommonFormatEvent) string {
 		key += fmt.Sprintf("%v%v", len(s), s)
 	}
 	return key
-}
-
-// CommonFormatEncode encodes a CommonFormatEvent into the given
-// encoding type
-func CommonFormatEncode(c *types.CommonFormatEvent) ([]byte, error) {
-	if defaultEncoderType == "json" {
-		return json.Marshal(c)
-	} else if defaultEncoderType == "msgpack" {
-		return c.MarshalMsg(nil)
-	} else {
-		return nil, fmt.Errorf("Use supported encoders")
-	}
-}
-
-// DecodeToCommonFormat decodes a byte array into a
-// CommonFormatEvent based on the given encoding
-func DecodeToCommonFormat(b []byte) (*types.CommonFormatEvent, error) {
-	res := &types.CommonFormatEvent{}
-	var err error
-	if defaultEncoderType == "json" {
-		err = json.Unmarshal(b, res)
-	} else if defaultEncoderType == "msgpack" {
-		_, err = res.UnmarshalMsg(b)
-	}
-	return res, err
-}
-
-// GetBufferedDecoder gets a buffered decoder for the various encoding types possible based on
-// the default encoding type
-// cfEvent is populated with the 'header' information aka the first decoding.
-// The decoders/readers are stored in bd for future use
-// buf contains data with offset of after first cfEvent has been read
-func GetBufferedDecoder(data []byte, cfEvent *types.CommonFormatEvent) (bd *BufferedDecoder, buf *bytes.Buffer, err error) {
-	bd = &BufferedDecoder{}
-	buf = bytes.NewBuffer(data)
-	if defaultEncoderType == "json" {
-		dec := json.NewDecoder(buf)
-		err = dec.Decode(cfEvent)
-		if err != nil {
-			log.Errorf("Issue in GetBufferedDecoder")
-			return
-		}
-		bd.JSONDec = dec
-	} else if defaultEncoderType == "msgpack" {
-		dec := msgp.NewReader(buf)
-		err = cfEvent.DecodeMsg(dec)
-		if err != nil {
-			return
-		}
-		bd.MsgDec = dec
-		// to ensure no error shadowing
-		var payload []byte
-		payload, err = msgp.Skip(data)
-		if err != nil {
-			return
-		}
-		buf = bytes.NewBuffer(payload)
-	} else {
-		err = fmt.Errorf("Unsupported defaulted encoder type")
-	}
-	return
-}
-
-// BufferedReadFrom reads the buffered input from the decoder
-// in the case of message pack we just continue since the buffering
-// has been done when getting the decoder
-func BufferedReadFrom(buf *bytes.Buffer, bd *BufferedDecoder) (err error) {
-	if defaultEncoderType == "json" {
-		bufReader := bd.JSONDec.Buffered()
-		_, err = buf.ReadFrom(bufReader)
-	} else {
-		err = fmt.Errorf("Unsupported defaulted encoder type")
-	}
-	return
-}
-
-// GetDefaultEncoderType returns the type of the default internal encoder
-// currently only json and message pack eligible
-func GetDefaultEncoderType() string {
-	return defaultEncoderType
-}
-
-//CommonFormatUpdateCodecFromDB is used in test to get schema from original database
-//instread of reading it from state as UpdateCodec does
-func CommonFormatUpdateCodecFromDB(enc Encoder) error {
-	switch enc.(type) {
-	case *commonFormatEncoder:
-		return enc.(*commonFormatEncoder).updateCodecFromDB()
-	case *msgPackEncoder:
-		return enc.(*msgPackEncoder).c.updateCodecFromDB()
-	}
-	return fmt.Errorf("Encoder not supported")
 }

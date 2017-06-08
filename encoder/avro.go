@@ -296,3 +296,11 @@ func (e *avroEncoder) prepareRowFilter() {
 
 	log.Debugf("n=%v filter=(%v)", nfiltered, e.filter)
 }
+
+func (e *avroEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent) (payload []byte, err error) {
+	return nil, fmt.Errorf("Avro encoder doesn't support decoding")
+}
+
+func (e *avroEncoder) DecodeEvent(b []byte) (*types.CommonFormatEvent, error) {
+	return nil, fmt.Errorf("Avro encoder doesn't support decoding")
+}

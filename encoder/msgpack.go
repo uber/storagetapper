@@ -21,6 +21,9 @@
 package encoder
 
 import (
+	"bytes"
+
+	"github.com/tinylib/msgp/msgp"
 	"github.com/uber/storagetapper/types"
 )
 
@@ -81,9 +84,30 @@ func (e *msgPackEncoder) CommonFormatEncode(c *types.CommonFormatEvent) ([]byte,
 	// return msgpack.Marshal(c)
 }
 
-// CommonFormatDecode decodes CommonFormatEvent from byte array based on the msgpack encoding system
-func (e *msgPackEncoder) CommonFormatDecode(b []byte) (*types.CommonFormatEvent, error) {
+func msgPackDecode(b []byte) (*types.CommonFormatEvent, error) {
 	res := &types.CommonFormatEvent{}
 	_, err := res.UnmarshalMsg(b)
 	return res, err
+}
+
+/*
+func (e *msgPackEncoder) schemaDecode(b []byte) (*types.CommonFormatEvent, error) {
+	return msgPackDecode(b)
+}
+*/
+
+// UnwrapEvent splits the event header and payload
+// cfEvent is populated with the 'header' information aka the first decoding.
+// Data after the header returned in the payload parameter
+func (e *msgPackEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent) (payload []byte, err error) {
+	err = cfEvent.DecodeMsg(msgp.NewReader(bytes.NewBuffer(data)))
+	if err != nil {
+		return
+	}
+	return msgp.Skip(data)
+}
+
+//DecodeEvent decodes MsgPack encoded array into CommonFormatEvent struct
+func (e *msgPackEncoder) DecodeEvent(b []byte) (*types.CommonFormatEvent, error) {
+	return msgPackDecode(b)
 }

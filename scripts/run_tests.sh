@@ -11,7 +11,7 @@ export GOTRACEBACK="crash" #produce core file on panic
 CMD="go test -race -coverprofile=profile.out -covermode=atomic -test.timeout $TIMEOUT"
 
 for i in $@; do
-	$CMD $i || exit 1
+	$CMD $TEST_PARAM $i || exit 1
 	if [ -f profile.out ]; then
 		cat profile.out >> coverage.txt #combine coverage report for codecov.io
 		rm profile.out

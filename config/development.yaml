@@ -1,11 +1,9 @@
 log_type: zap
-log_level: debug
 
 port: 7836
 
 logging:
-  stdout: true
-  text_formatter: true
+    level: debug
 
 state_update_timeout: 10
 state_connect_url: "root@localhost"

@@ -116,7 +116,7 @@ func (b *reader) pushSchema(t *table) bool {
 		return false
 	}
 
-	if b.outputFormat == "avro" {
+	if b.outputFormat != "json" && b.outputFormat != "msgpack" {
 		return true
 	}
 

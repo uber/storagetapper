@@ -28,7 +28,9 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
+	"github.com/Shopify/sarama"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/encoder"
@@ -114,10 +116,18 @@ func setupData(dbConn *sql.DB, t *testing.T) {
 
 func setupWorker(t *testing.T) (pipe.Pipe, pipe.Pipe, pipe.Consumer) {
 	inP := pipe.Create(shutdown.Context, pipe.Local, 16, cfg, nil)
+
 	outP := make(map[string]pipe.Pipe)
 	outP["kafka"] = pipe.Create(shutdown.Context, pipe.Kafka, 16, cfg, nil)
 	outP["file"] = pipe.Create(shutdown.Context, pipe.File, 16, cfg, nil)
+
+	pipe.KafkaConfig = sarama.NewConfig()
+	pipe.KafkaConfig.Producer.Partitioner = sarama.NewManualPartitioner
+	pipe.KafkaConfig.Producer.Return.Successes = true
+	pipe.KafkaConfig.Consumer.MaxWaitTime = 10 * time.Millisecond
+
 	outPConsumer, err := outP["kafka"].RegisterConsumer(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl))
+
 	test.CheckFail(err, t)
 	shutdown.Register(1)
 	go EventWorker(cfg, inP, outP, t)

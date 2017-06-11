@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Shopify/sarama"
 	"github.com/uber/storagetapper/log"
@@ -52,6 +53,7 @@ func createPipe(batchSize int) *KafkaPipe {
 	p.Config = sarama.NewConfig()
 	p.Config.Producer.Partitioner = sarama.NewManualPartitioner
 	p.Config.Producer.Return.Successes = true
+	p.Config.Consumer.MaxWaitTime = 10 * time.Millisecond
 
 	//Test the cases when offsetPersistInterval smaller then batch size
 	offsetPersistInterval = 1

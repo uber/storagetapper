@@ -113,8 +113,15 @@ func (p *KafkaPipe) Type() int {
 // Init initializes Kafka pipe creating kafka_offsets table
 func (p *KafkaPipe) Init() error {
 	var err error
+	var config *sarama.Config
+	if KafkaConfig != nil {
+		config = KafkaConfig
+	}
+	if p.Config != nil {
+		config = p.Config
+	}
 	p.consumers = make(map[string]*topicConsumer)
-	p.saramaConsumer, err = sarama.NewConsumer(p.kafkaAddrs, nil)
+	p.saramaConsumer, err = sarama.NewConsumer(p.kafkaAddrs, config)
 	if log.E(err) {
 		return err
 	}

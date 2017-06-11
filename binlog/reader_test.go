@@ -346,6 +346,7 @@ func Prepare(pipeType int, create []string, t *testing.T) (*sql.DB, pipe.Pipe) {
 		pk.Config = sarama.NewConfig()
 		pk.Config.Producer.Partitioner = sarama.NewManualPartitioner
 		pk.Config.Producer.Return.Successes = true
+		pk.Config.Consumer.MaxWaitTime = 10 * time.Millisecond
 	}
 
 	log.Debugf("Starting binlog reader")

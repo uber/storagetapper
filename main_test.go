@@ -469,23 +469,14 @@ func TestBasic(t *testing.T) {
 	pipe.KafkaConfig = sarama.NewConfig()
 	pipe.KafkaConfig.Producer.Partitioner = sarama.NewManualPartitioner
 	pipe.KafkaConfig.Producer.Return.Successes = true
+	pipe.KafkaConfig.Consumer.MaxWaitTime = 10 * time.Millisecond
 
-	testStep("local", "json", "kafka", "json", true, 0, t)
-	//Test that we can restart and continue where previous run left off
-	testStep("local", "json", "kafka", "json", false, 100000, t)
-
-	testStep("kafka", "json", "kafka", "json", true, 0, t)
-	testStep("kafka", "json", "kafka", "json", false, 100000, t)
-
-	testStep("local", "json", "kafka", "avro", true, 0, t)
-	testStep("local", "json", "kafka", "avro", false, 100000, t)
-
-	testStep("kafka", "json", "kafka", "avro", true, 0, t)
-	testStep("kafka", "json", "kafka", "avro", false, 100000, t)
-
-	testStep("local", "avro", "kafka", "avro", true, 0, t)
-	testStep("local", "avro", "kafka", "avro", false, 100000, t)
-
-	testStep("kafka", "avro", "kafka", "avro", true, 0, t)
-	testStep("kafka", "avro", "kafka", "avro", false, 100000, t)
+	for _, p := range []string{"local", "kafka"} {
+		for _, enc := range []string{"json", "avro", "msgpack"} {
+			testStep(p, "json", "kafka", enc, true, 0, t)
+			testStep(p, "json", "kafka", enc, false, 100000, t)
+			testStep(p, enc, "kafka", enc, true, 0, t)
+			testStep(p, enc, "kafka", enc, false, 100000, t)
+		}
+	}
 }

@@ -1,5 +1,5 @@
-hash: 683726802147f81737c1155b3e2ed039d816e1053bcd8c91b33e6453e8c8df11
-updated: 2017-06-06T00:58:35.062102311Z
+hash: 9da43340c3f94e07e57df9fcf47553a94521712d760d5cfd1cd7cdbe3a4a7ba8
+updated: 2017-06-12T11:10:04.478996052-07:00
 imports:
 - name: github.com/cactus/go-statsd-client
   version: 1139cdac1a56e404b5382e3a3503a2c587d2c0c3
@@ -21,10 +21,6 @@ imports:
   version: 629574ca2a5df945712d3079857300b5e4da0236
 - name: github.com/go-sql-driver/mysql
   version: a0583e0143b1624142adab07e0e97fe106d99561
-- name: github.com/golang/protobuf
-  version: 5a0f697c9ed9d68fef0116532c6e05cfeae00e55
-  subpackages:
-  - proto
 - name: github.com/golang/snappy
   version: 553a641470496b2327abcac10b36396bd98e45c9
 - name: github.com/juju/errors
@@ -65,7 +61,7 @@ imports:
 - name: github.com/Sirupsen/logrus
   version: 5e5dc898656f695e2a086b8e12559febbfc01562
 - name: github.com/tinylib/msgp
-  version: 02d047e07459c5a7b02b1244161d0f2f6d8f660d
+  version: 1cce05a45012c07001dbfb1679c2f25ac0c189e6
   subpackages:
   - msgp
 - name: github.com/uber-common/bark
@@ -89,21 +85,6 @@ imports:
   version: b90f89a1e7a9c1f6b918820b3daa7f08488c8594
   subpackages:
   - unix
-- name: google.golang.org/appengine
-  version: a2f4131514e563cedfdb6e7d267df9ad48591e93
-  subpackages:
-  - datastore
-  - internal
-  - internal/app_identity
-  - internal/base
-  - internal/datastore
-  - internal/log
-  - internal/modules
-  - internal/remote_api
-- name: gopkg.in/vmihailenco/msgpack.v2
-  version: f4f8982de4ef0de18be76456617cc3f5d8d8141e
-  subpackages:
-  - codes
 - name: gopkg.in/yaml.v2
   version: cd8b52f8269e0feb286dfeef29f8fe4d5b397e0b
 testImports: []

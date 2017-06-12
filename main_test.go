@@ -114,7 +114,7 @@ func waitSnapshotToFinish(init bool, table string, t *testing.T) {
 	log.Debugf("Detected snapshot finished for %v", table)
 }
 
-func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResult []string, avroEncoder encoder.Encoder, t *testing.T) {
+func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResult []string, outEncoder encoder.Encoder, t *testing.T) {
 	var result []string
 	if format == "avro" {
 		result = avroResult
@@ -131,7 +131,12 @@ func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResu
 
 		var b []byte
 		if format == "avro" {
-			r, err := encoder.DecodeAvroRecord(avroEncoder, msg.([]byte))
+			r, err := encoder.DecodeAvroRecord(outEncoder, msg.([]byte))
+			test.CheckFail(err, t)
+			b, err = json.Marshal(r)
+			test.CheckFail(err, t)
+		} else if format == "msgpack" {
+			r, err := outEncoder.DecodeEvent(msg.([]byte))
 			test.CheckFail(err, t)
 			b, err = json.Marshal(r)
 			test.CheckFail(err, t)
@@ -209,6 +214,19 @@ func addSecondTable(init bool, t *testing.T) {
 	}
 }
 
+func prepareReferenceArray2(conn *sql.DB, keyShift int, resfmt []string, jsonResult2 *[]string, avroResult2 *[]string, t *testing.T) {
+	for i := 1 + keyShift; i < 10+keyShift; i++ {
+		test.ExecSQL(conn, t, resfmt[0], i)
+		seqno++
+		s := fmt.Sprintf(resfmt[1], i, seqno, i)
+		*jsonResult2 = append(*jsonResult2, s)
+		//Number before strconv is number of digits in i
+		keyLen := strconv.Itoa(len(strconv.Itoa(i)))
+		s = fmt.Sprintf(resfmt[2], i, seqno, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
+		*avroResult2 = append(*avroResult2, s)
+	}
+}
+
 func createSecondTable(init bool, conn *sql.DB, t *testing.T) {
 	if init {
 		test.ExecSQL(conn, t, "CREATE TABLE e2e_test_db1.e2e_test_table2(f1 int not null primary key, f3 int not null default 0, f4 int)")
@@ -222,6 +240,12 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	cfg.OutputPipeType = outPipeType
 	cfg.ReaderPipeType = inPipeType
 	cfg.ReaderOutputFormat = inPipeFormat
+	if inPipeFormat == "json" || inPipeFormat == "msgpack" {
+		cfg.InternalEncoding = inPipeFormat
+		var err error
+		encoder.Internal, err = encoder.InitEncoder(cfg.InternalEncoding, "", "", "")
+		test.CheckFail(err, t)
+	}
 	cfg.StateUpdateTimeout = 1
 	cfg.OutputTopicNameFormat = "hp-%s-%s-%s"
 	cfg.MaxNumProcs = 3
@@ -287,7 +311,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	addFirstTable(init, t)
 
-	avroEncoder, err := encoder.Create("avro", "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1")
+	outEncoder, err := encoder.Create(cfg.OutputFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1")
 	test.CheckFail(err, t)
 
 	/*Wait snapshot to finish before sending more data otherwise everything
@@ -380,7 +404,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	addSecondTable(init, t)
 
-	avroEncoder2, err := encoder.Create("avro", "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2")
+	outEncoder2, err := encoder.Create(cfg.OutputFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2")
 	test.CheckFail(err, t)
 
 	log.Debugf("Inserted second table")
@@ -394,34 +418,38 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	* read from binlog */
 	waitSnapshotToFinish(init, "e2e_test_table2", t)
 
-	for i := 1 + keyShift; i < 10+keyShift; i++ {
-		test.ExecSQL(conn, t, resfmt2[1][0], i)
-		seqno++
-		s := fmt.Sprintf(resfmt2[1][1], i, seqno, i)
-		jsonResult2 = append(jsonResult2, s)
-		//Number before strconv is number of digits in i
-		keyLen := strconv.Itoa(len(strconv.Itoa(i)))
-		s = fmt.Sprintf(resfmt2[1][2], i, seqno, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
-		avroResult2 = append(avroResult2, s)
-	}
+	prepareReferenceArray2(conn, keyShift, resfmt2[1], &jsonResult2, &avroResult2, t)
+	prepareReferenceArray2(conn, keyShift+1000, resfmt[5], &jsonResult, &avroResult, t)
+	/*
+		for i := 1 + keyShift; i < 10+keyShift; i++ {
+			test.ExecSQL(conn, t, resfmt2[1][0], i)
+			seqno++
+			s := fmt.Sprintf(resfmt2[1][1], i, seqno, i)
+			jsonResult2 = append(jsonResult2, s)
+			//Number before strconv is number of digits in i
+			keyLen := strconv.Itoa(len(strconv.Itoa(i)))
+			s = fmt.Sprintf(resfmt2[1][2], i, seqno, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
+			avroResult2 = append(avroResult2, s)
+		}
 
-	for i := 1 + keyShift; i < 10+keyShift; i++ {
-		test.ExecSQL(conn, t, resfmt[5][0], i+1000)
-		seqno++
-		s := fmt.Sprintf(resfmt[5][1], i+1000, seqno, i+1000)
-		jsonResult = append(jsonResult, s)
-		//Number before strconv is number of digits in i
-		keyLen := strconv.Itoa(len(strconv.Itoa(i + 1000)))
-		s = fmt.Sprintf(resfmt[5][2], i+1000, seqno, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i+1000))))
-		avroResult = append(avroResult, s)
-	}
+		for i := 1 + keyShift; i < 10+keyShift; i++ {
+			test.ExecSQL(conn, t, resfmt[5][0], i+1000)
+			seqno++
+			s := fmt.Sprintf(resfmt[5][1], i+1000, seqno, i+1000)
+			jsonResult = append(jsonResult, s)
+			//Number before strconv is number of digits in i
+			keyLen := strconv.Itoa(len(strconv.Itoa(i + 1000)))
+			s = fmt.Sprintf(resfmt[5][2], i+1000, seqno, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i+1000))))
+			avroResult = append(avroResult, s)
+		}
+	*/
 
 	time.Sleep(time.Millisecond * 1500) //Let binlog to see table deletion
 
 	log.Debugf("Start consuming events from %v", "hp-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
-	consumeEvents(c, cfg.OutputFormat, avroResult, jsonResult, avroEncoder, t)
+	consumeEvents(c, cfg.OutputFormat, avroResult, jsonResult, outEncoder, t)
 	log.Debugf("Start consuming events from %v", "hp-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
-	consumeEvents(c2, cfg.OutputFormat, avroResult2, jsonResult2, avroEncoder2, t)
+	consumeEvents(c2, cfg.OutputFormat, avroResult2, jsonResult2, outEncoder2, t)
 
 	test.CheckFail(p.CloseConsumer(c, true), t)
 	test.CheckFail(p.CloseConsumer(c2, true), t)

@@ -77,7 +77,7 @@ func TestType(t *testing.T) {
 	for encType := range encoders {
 		log.Debugf("Encoder: %v", t)
 
-		enc, err := initEncoder(encType, testServ, testDB, testTable)
+		enc, err := InitEncoder(encType, testServ, testDB, testTable)
 		test.CheckFail(err, t)
 
 		test.Assert(t, enc.Type() == encType, "type diff")
@@ -89,7 +89,7 @@ func TestMarshalUnmarshal(t *testing.T) {
 
 	for encType := range encoders {
 		log.Debugf("Encoder: %v", encType)
-		enc, err := initEncoder(encType, "", "", "")
+		enc, err := InitEncoder(encType, "", "", "")
 		test.CheckFail(err, t)
 
 		if enc.Type() == "avro" {
@@ -115,7 +115,7 @@ func TestUnmarshalError(t *testing.T) {
 
 	for encType := range encoders {
 		log.Debugf("Encoder: %v", t)
-		enc, err := initEncoder(encType, "", "", "")
+		enc, err := InitEncoder(encType, "", "", "")
 		test.CheckFail(err, t)
 
 		for _, encoded := range testErrorDecoding {

@@ -22,6 +22,7 @@ package binlog
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"os"
 	"reflect"
 	"sync/atomic"
@@ -242,7 +243,8 @@ var testDDLResult = []types.CommonFormatEvent{
 	{Type: "delete", Key: []interface{}{2.0}, SeqNo: 9.0, Timestamp: 0, Fields: nil},
 	{Type: "insert", Key: []interface{}{9.0}, SeqNo: 10.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 9.0}}},
 	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 11.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "text"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
-	{Type: "insert", Key: []interface{}{45676.0}, SeqNo: 12.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 45676.0}, {Name: "f3", Value: "ggg"}, {Name: "f4", Value: "dHR0"}, {Name: "f5", Value: "eXl5"}, {Name: "f6", Value: "vvv"}, {Name: "f7", Value: 7543.0}}},
+	//{Type: "insert", Key: []interface{}{45676.0}, SeqNo: 12.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 45676.0}, {Name: "f3", Value: "ggg"}, {Name: "f4", Value: "dHR0"}, {Name: "f5", Value: "eXl5"}, {Name: "f6", Value: "vvv"}, {Name: "f7", Value: 7543.0}}},
+	{Type: "insert", Key: []interface{}{45676.0}, SeqNo: 12.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 45676.0}, {Name: "f3", Value: "ggg"}, {Name: "f4", Value: []byte{116, 116, 116}}, {Name: "f5", Value: []byte{121, 121, 121}}, {Name: "f6", Value: "vvv"}, {Name: "f7", Value: 7543.0}}},
 	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 13.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "text"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
 	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 14.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "bigint(20)"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
 	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 15.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}}},
@@ -449,21 +451,42 @@ func initConsumeTableEvents(p pipe.Pipe, db string, table string, t *testing.T) 
 // them back as ints. Reason is MsgPack has ability for numbers to be ints
 // while json decodes back into float64. DeepEqual fails unless types
 // are also equal.
-func changeCfFields(cf *types.CommonFormatEvent) {
+func changeCfFields(cf *types.CommonFormatEvent, ref *types.CommonFormatEvent, t *testing.T) {
 	if encoder.Internal.Type() == "msgpack" {
 		// Fix to ensure that msgpack does float64
-		switch (cf.Key[0]).(type) {
-		case int64:
-			cf.Key[0] = float64(cf.Key[0].(int64))
+		for i := 0; i < len(cf.Key); i++ {
+			switch v := (cf.Key[i]).(type) {
+			case int64:
+				cf.Key[i] = float64(v)
+			}
 		}
 
 		if cf.Fields != nil {
 			for f := range *cf.Fields {
-				switch ((*cf.Fields)[f].Value).(type) {
+				switch val := ((*cf.Fields)[f].Value).(type) {
 				case int64:
-					val := ((*cf.Fields)[f].Value).(int64)
-					newFloat := float64(val)
-					(*cf.Fields)[f].Value = newFloat
+					(*cf.Fields)[f].Value = float64(val)
+				}
+			}
+		}
+	} else if encoder.Internal.Type() == "json" {
+		for i := 0; i < len(cf.Key); i++ {
+			switch (ref.Key[i]).(type) {
+			case []byte:
+				d, err := base64.StdEncoding.DecodeString(cf.Key[i].(string))
+				test.CheckFail(err, t)
+				cf.Key[i] = d
+			}
+		}
+
+		if cf.Fields != nil {
+			for f := range *cf.Fields {
+				switch (*ref.Fields)[f].Value.(type) {
+				case []byte:
+					v := &(*cf.Fields)[f]
+					var err error
+					v.Value, err = base64.StdEncoding.DecodeString(v.Value.(string))
+					test.CheckFail(err, t)
 				}
 			}
 		}
@@ -505,7 +528,7 @@ func consumeTableEvents(pc pipe.Consumer, db string, table string, result []type
 			}
 		}
 
-		changeCfFields(cf)
+		changeCfFields(cf, &v, t)
 
 		cf.SeqNo -= 1000000
 		cf.Timestamp = 0
@@ -535,13 +558,21 @@ func testName(t *testing.T) string {
 }
 */
 
-func CheckQueries(pipeType int, prepare []string, queries []string, result []types.CommonFormatEvent, t *testing.T) {
+func CheckQueries(pipeType int, prepare []string, queries []string, result []types.CommonFormatEvent, encoding string, t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 	if pipeType == pipe.Kafka {
 		test.SkipIfNoKafkaAvailable(t)
 	}
 
 	shutdown.Setup()
+
+	cfg.InternalEncoding = encoding
+	cfg.ReaderOutputFormat = encoding
+	var err error
+	encoder.Internal, err = encoder.InitEncoder(cfg.InternalEncoding, "", "", "")
+	test.CheckFail(err, t)
+
+	log.Debugf("Test encoding: %+v", encoding)
 
 	dbc, p := Prepare(pipeType, prepare, t)
 	defer func() { test.CheckFail(state.Close(), t) }()
@@ -596,32 +627,32 @@ func CheckQueries(pipeType int, prepare []string, queries []string, result []typ
 }
 
 func TestBasic(t *testing.T) {
-	CheckQueries(pipe.Local, testBasicPrepare, testBasic, testBasicResult, t)
+	CheckQueries(pipe.Local, testBasicPrepare, testBasic, testBasicResult, "json", t)
 }
 
 func TestUseDB(t *testing.T) {
-	CheckQueries(pipe.Local, testBasicPrepare, testUseDB, testUseDBResult, t)
+	CheckQueries(pipe.Local, testBasicPrepare, testUseDB, testUseDBResult, "json", t)
 }
 
 func TestMultiColumn(t *testing.T) {
-	CheckQueries(pipe.Local, testMultiColumnPrepare, testMultiColumn, testMultiColumnResult, t)
+	CheckQueries(pipe.Local, testMultiColumnPrepare, testMultiColumn, testMultiColumnResult, "json", t)
 }
 
 func TestMultiRow(t *testing.T) {
-	CheckQueries(pipe.Local, testMultiColumnPrepare, testMultiRow, testMultiRowResult, t)
+	CheckQueries(pipe.Local, testMultiColumnPrepare, testMultiRow, testMultiRowResult, "json", t)
 }
 
 func TestCompoundKey(t *testing.T) {
-	CheckQueries(pipe.Local, testCompoundKeyPrepare, testCompoundKey, testCompoundKeyResult, t)
+	CheckQueries(pipe.Local, testCompoundKeyPrepare, testCompoundKey, testCompoundKeyResult, "json", t)
 }
 
 func TestDDL(t *testing.T) {
-	CheckQueries(pipe.Local, testDDLPrepare, testDDL, testDDLResult, t)
+	CheckQueries(pipe.Local, testDDLPrepare, testDDL, testDDLResult, "json", t)
 }
 
 func TestMultiTable(t *testing.T) {
 	testName = "TestMultiTable"
-	CheckQueries(pipe.Local, testMultiTablePrepare, testMultiTable, testMultiTableResult1, t)
+	CheckQueries(pipe.Local, testMultiTablePrepare, testMultiTable, testMultiTableResult1, "json", t)
 	testName = ""
 }
 

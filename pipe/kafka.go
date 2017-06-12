@@ -576,3 +576,26 @@ func (p *KafkaConsumer) Pop() (interface{}, error) {
 func (p *KafkaConsumer) Close() error {
 	return nil
 }
+
+/*
+type saramaLogger struct {
+}
+
+var saramalogger saramaLogger
+
+func init() {
+	sarama.Logger = &saramalogger
+}
+
+func (s *saramaLogger) Print(v ...interface{}) {
+	log.Debugf("", v...)
+}
+
+func (s *saramaLogger) Printf(format string, v ...interface{}) {
+	log.Debugf(format, v...)
+}
+
+func (s *saramaLogger) Println(v ...interface{}) {
+	log.Debugf("", v...)
+}
+*/

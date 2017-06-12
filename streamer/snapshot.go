@@ -88,7 +88,7 @@ func (s *Streamer) commitWithRetry(snapshotMetrics *metrics.Snapshot) bool {
 }
 
 func (s *Streamer) pushSchema() bool {
-	if s.encoder.Type() == "json" {
+	if s.encoder.Type() == "json" || s.encoder.Type() == "msgpack" {
 		outMsg, err := s.encoder.Row(types.Schema, nil, 0)
 		if log.EL(s.log, err) {
 			return false

@@ -56,7 +56,8 @@ type Encoder interface {
 	DecodeEvent(b []byte) (*types.CommonFormatEvent, error)
 }
 
-func initEncoder(encType string, s string, d string, t string) (Encoder, error) {
+//InitEncoder constructs encoder without updating schema
+func InitEncoder(encType string, s string, d string, t string) (Encoder, error) {
 	init := encoders[strings.ToLower(encType)]
 
 	if init == nil {
@@ -74,7 +75,7 @@ func initEncoder(encType string, s string, d string, t string) (Encoder, error) 
 //Create is a factory which create encoder of given type for given service, db,
 //table
 func Create(encType string, s string, d string, t string) (Encoder, error) {
-	enc, err := initEncoder(encType, s, d, t)
+	enc, err := InitEncoder(encType, s, d, t)
 	if err != nil {
 		return nil, err
 	}

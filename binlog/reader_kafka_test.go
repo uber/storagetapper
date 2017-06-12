@@ -27,25 +27,25 @@ import (
 )
 
 func TestKafkaBasic(t *testing.T) {
-	CheckQueries(pipe.Kafka, testBasicPrepare, testBasic, testBasicResult, t)
+	CheckQueries(pipe.Kafka, testBasicPrepare, testBasic, testBasicResult, "json", t)
 }
 
 func TestKafkaUseDB(t *testing.T) {
-	CheckQueries(pipe.Kafka, testBasicPrepare, testUseDB, testUseDBResult, t)
+	CheckQueries(pipe.Kafka, testBasicPrepare, testUseDB, testUseDBResult, "json", t)
 }
 
 func TestKafkaMultiColumn(t *testing.T) {
-	CheckQueries(pipe.Kafka, testMultiColumnPrepare, testMultiColumn, testMultiColumnResult, t)
+	CheckQueries(pipe.Kafka, testMultiColumnPrepare, testMultiColumn, testMultiColumnResult, "json", t)
 }
 
 func TestKafkaMultiRow(t *testing.T) {
-	CheckQueries(pipe.Kafka, testMultiColumnPrepare, testMultiRow, testMultiRowResult, t)
+	CheckQueries(pipe.Kafka, testMultiColumnPrepare, testMultiRow, testMultiRowResult, "json", t)
 }
 
 func TestKafkaCompoundKey(t *testing.T) {
-	CheckQueries(pipe.Kafka, testCompoundKeyPrepare, testCompoundKey, testCompoundKeyResult, t)
+	CheckQueries(pipe.Kafka, testCompoundKeyPrepare, testCompoundKey, testCompoundKeyResult, "json", t)
 }
 
 func TestKafkaDDL(t *testing.T) {
-	CheckQueries(pipe.Kafka, testDDLPrepare, testDDL, testDDLResult, t)
+	CheckQueries(pipe.Kafka, testDDLPrepare, testDDL, testDDLResult, "json", t)
 }

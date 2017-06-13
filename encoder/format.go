@@ -22,11 +22,14 @@ package encoder
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"testing"
 	"time"
 
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/state"
+	"github.com/uber/storagetapper/test"
 	"github.com/uber/storagetapper/types"
 )
 
@@ -237,4 +240,52 @@ func (e *commonFormatEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonForm
 //DecodeEvent decodes JSON encoded array into CommonFormatEvent struct
 func (e *commonFormatEncoder) DecodeEvent(b []byte) (*types.CommonFormatEvent, error) {
 	return jsonDecode(b)
+}
+
+//ChangeCfFields is used by tests
+// This method is used to convert the resulting Field and Key interfaces
+// to float64 to match up the field values with floats rather than keeping
+// them back as ints. Reason is MsgPack has ability for numbers to be ints
+// while json decodes back into float64. DeepEqual fails unless types
+// are also equal.
+func ChangeCfFields(tp string, cf *types.CommonFormatEvent, ref *types.CommonFormatEvent, t *testing.T) {
+	if tp == "msgpack" {
+		// Fix to ensure that msgpack does float64
+		for i := 0; i < len(cf.Key); i++ {
+			switch v := (cf.Key[i]).(type) {
+			case int64:
+				cf.Key[i] = float64(v)
+			}
+		}
+
+		if cf.Fields != nil {
+			for f := range *cf.Fields {
+				switch val := ((*cf.Fields)[f].Value).(type) {
+				case int64:
+					(*cf.Fields)[f].Value = float64(val)
+				}
+			}
+		}
+	} else if tp == "json" {
+		for i := 0; i < len(cf.Key); i++ {
+			switch (ref.Key[i]).(type) {
+			case []byte:
+				d, err := base64.StdEncoding.DecodeString(cf.Key[i].(string))
+				test.CheckFail(err, t)
+				cf.Key[i] = d
+			}
+		}
+
+		if cf.Fields != nil {
+			for f := range *cf.Fields {
+				switch (*ref.Fields)[f].Value.(type) {
+				case []byte:
+					v := &(*cf.Fields)[f]
+					var err error
+					v.Value, err = base64.StdEncoding.DecodeString(v.Value.(string))
+					test.CheckFail(err, t)
+				}
+			}
+		}
+	}
 }

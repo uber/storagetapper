@@ -22,7 +22,6 @@ package binlog
 
 import (
 	"database/sql"
-	"encoding/base64"
 	"os"
 	"reflect"
 	"sync/atomic"
@@ -447,53 +446,6 @@ func initConsumeTableEvents(p pipe.Pipe, db string, table string, t *testing.T) 
 	return pc
 }
 
-// This method is used to convert the resulting Field and Key interfaces
-// to float64 to match up the field values with floats rather than keeping
-// them back as ints. Reason is MsgPack has ability for numbers to be ints
-// while json decodes back into float64. DeepEqual fails unless types
-// are also equal.
-func changeCfFields(cf *types.CommonFormatEvent, ref *types.CommonFormatEvent, t *testing.T) {
-	if encoder.Internal.Type() == "msgpack" {
-		// Fix to ensure that msgpack does float64
-		for i := 0; i < len(cf.Key); i++ {
-			switch v := (cf.Key[i]).(type) {
-			case int64:
-				cf.Key[i] = float64(v)
-			}
-		}
-
-		if cf.Fields != nil {
-			for f := range *cf.Fields {
-				switch val := ((*cf.Fields)[f].Value).(type) {
-				case int64:
-					(*cf.Fields)[f].Value = float64(val)
-				}
-			}
-		}
-	} else if encoder.Internal.Type() == "json" {
-		for i := 0; i < len(cf.Key); i++ {
-			switch (ref.Key[i]).(type) {
-			case []byte:
-				d, err := base64.StdEncoding.DecodeString(cf.Key[i].(string))
-				test.CheckFail(err, t)
-				cf.Key[i] = d
-			}
-		}
-
-		if cf.Fields != nil {
-			for f := range *cf.Fields {
-				switch (*ref.Fields)[f].Value.(type) {
-				case []byte:
-					v := &(*cf.Fields)[f]
-					var err error
-					v.Value, err = base64.StdEncoding.DecodeString(v.Value.(string))
-					test.CheckFail(err, t)
-				}
-			}
-		}
-	}
-}
-
 func consumeTableEvents(pc pipe.Consumer, db string, table string, result []types.CommonFormatEvent, t *testing.T) {
 	enc, err := encoder.Create(encoder.Internal.Type(), "test_svc1", db, table)
 
@@ -529,7 +481,7 @@ func consumeTableEvents(pc pipe.Consumer, db string, table string, result []type
 			}
 		}
 
-		changeCfFields(cf, &v, t)
+		encoder.ChangeCfFields(encoder.Internal.Type(), cf, &v, t)
 
 		cf.SeqNo -= 1000000
 		cf.Timestamp = 0

@@ -22,6 +22,8 @@ package encoder
 
 import (
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -29,6 +31,7 @@ import (
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/log"
+	"github.com/uber/storagetapper/schema"
 	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/test"
 	"github.com/uber/storagetapper/types"
@@ -48,6 +51,21 @@ var testBasicResult = []types.CommonFormatEvent{
 	{Type: "insert", Key: []interface{}{12.0}, SeqNo: 4.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 12.0}}},
 	{Type: "delete", Key: []interface{}{1.0}, SeqNo: 5.0, Timestamp: 0, Fields: nil},
 	{Type: "insert", Key: []interface{}{3.0}, SeqNo: 6.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 3.0}}},
+}
+
+type rowRec struct {
+	tp     int
+	fields []interface{}
+}
+
+var testBasicResultRow = []rowRec{
+	/* Test basic insert, update, delete */
+	{types.Insert, []interface{}{int64(1)}},
+	{types.Insert, []interface{}{int64(2)}},
+	{types.Delete, []interface{}{int64(2)}},
+	{types.Insert, []interface{}{int64(12)}},
+	{types.Delete, []interface{}{int64(1)}},
+	{types.Insert, []interface{}{int64(3)}},
 }
 
 var testErrorDecoding = [][]byte{
@@ -81,6 +99,89 @@ func TestType(t *testing.T) {
 		test.CheckFail(err, t)
 
 		test.Assert(t, enc.Type() == encType, "type diff")
+	}
+}
+
+func TestEncodeDecodeCommonFormat(t *testing.T) {
+	Prepare(t, testBasicPrepare)
+
+	for encType := range encoders {
+		log.Debugf("Encoder: %v", encType)
+		enc, err := Create(encType, "enc_test_svc1", "db1", "t1")
+		test.CheckFail(err, t)
+
+		for _, cf := range testBasicResult {
+			log.Debugf("Initial CF: %v\n", cf)
+			encoded, err := enc.CommonFormat(&cf)
+			test.CheckFail(err, t)
+
+			if enc.Type() == "avro" {
+				continue
+			}
+			decoded, err := enc.DecodeEvent(encoded)
+			log.Debugf("Post CF: %v\n", decoded)
+			test.CheckFail(err, t)
+
+			test.Assert(t, reflect.DeepEqual(&cf, decoded), "decoded different from initial")
+		}
+	}
+}
+
+func TestEncodeDecodeSchema(t *testing.T) {
+	Prepare(t, testBasicPrepare)
+
+	for encType := range encoders {
+		log.Debugf("Encoder: %v", encType)
+		enc, err := Create(encType, "enc_test_svc1", "db1", "t1")
+		test.CheckFail(err, t)
+
+		if enc.Type() == "avro" {
+			continue
+		}
+
+		encoded, err := enc.Row(types.Schema, nil, 0)
+		test.CheckFail(err, t)
+
+		decoded, err := enc.DecodeEvent(encoded)
+		test.CheckFail(err, t)
+		decoded.Timestamp = 0
+
+		ref := types.CommonFormatEvent{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 0.0, Timestamp: 0.0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}}}
+		test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
+	}
+}
+
+func TestEncodeDecodeRow(t *testing.T) {
+	Prepare(t, testBasicPrepare)
+
+	for encType := range encoders {
+		log.Debugf("Encoder: %v", encType)
+		enc, err := Create(encType, "enc_test_svc1", "db1", "t1")
+		test.CheckFail(err, t)
+
+		var seqno uint64
+		for _, row := range testBasicResultRow {
+			log.Debugf("Initial CF: %+v\n", row)
+			seqno++
+			encoded, err := enc.Row(row.tp, &row.fields, seqno)
+			test.CheckFail(err, t)
+
+			if enc.Type() == "avro" {
+				continue
+			}
+			decoded, err := enc.DecodeEvent(encoded)
+			decoded.Timestamp = 0
+
+			ref := &testBasicResult[seqno-1]
+
+			ChangeCfFields(encType, decoded, ref, t)
+			if decoded.Type != "delete" {
+				log.Debugf("Post CF: %+v Reference: %+v\n", reflect.TypeOf((*decoded.Fields)[0].Value), reflect.TypeOf((*testBasicResult[seqno-1].Fields)[0].Value))
+				test.CheckFail(err, t)
+			}
+
+			test.Assert(t, reflect.DeepEqual(ref, decoded), "decoded different from initial")
+		}
 	}
 }
 
@@ -132,10 +233,25 @@ func ExecSQL(db *sql.DB, t *testing.T, query string) {
 	test.CheckFail(util.ExecSQL(db, query), t)
 }
 
+func schemaGet(namespace string, schemaName string) (*types.AvroSchema, error) {
+	var err error
+	var a *types.AvroSchema
+
+	s := state.GetOutputSchema(schemaName)
+	if s != "" {
+		a = &types.AvroSchema{}
+		err = json.Unmarshal([]byte(s), a)
+	} else {
+		a, err = GetSchemaWebster(namespace, schemaName)
+	}
+
+	return a, err
+}
+
 func Prepare(t *testing.T, create []string) {
 	test.SkipIfNoMySQLAvailable(t)
 
-	dbc, err := db.OpenService(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1"}, "")
+	dbc, err := db.OpenService(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1"}, "")
 	test.CheckFail(err, t)
 
 	ExecSQL(dbc, t, "RESET MASTER")
@@ -143,6 +259,7 @@ func Prepare(t *testing.T, create []string) {
 	ExecSQL(dbc, t, "SET GLOBAL server_id=1")
 	ExecSQL(dbc, t, "DROP TABLE IF EXISTS "+types.MyDbName+".state")
 	ExecSQL(dbc, t, "DROP TABLE IF EXISTS "+types.MyDbName+".columns")
+	ExecSQL(dbc, t, "DROP TABLE IF EXISTS "+types.MyDbName+".outputSchema")
 
 	log.Debugf("Preparing database")
 	if !state.Init(cfg) {
@@ -153,9 +270,17 @@ func Prepare(t *testing.T, create []string) {
 		ExecSQL(dbc, t, s)
 	}
 
-	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1", "mysql", "") {
+	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1", Name: "db1"}, "t1", "mysql", "") {
 		t.FailNow()
 	}
+
+	avroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1", Name: "db1"}, "t1")
+	test.CheckFail(err, t)
+	n := fmt.Sprintf("hp-%s-%s-%s", "enc_test_svc1", "db1", "t1")
+	err = state.InsertSchema(n, string(avroSchema))
+	test.CheckFail(err, t)
+
+	GetLatestSchema = schemaGet
 }
 
 func TestMain(m *testing.M) {

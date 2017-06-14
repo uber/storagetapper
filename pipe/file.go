@@ -53,8 +53,8 @@ type file struct {
 	writer *bufio.Writer
 }
 
-// FileProducer synchronously pushes messages to File using topic specified during producer creation
-type FileProducer struct {
+// fileProducer synchronously pushes messages to File using topic specified during producer creation
+type fileProducer struct {
 	datadir string
 	topic   string
 	gen     string
@@ -64,8 +64,8 @@ type FileProducer struct {
 	maxFileSize int64
 }
 
-// FileConsumer consumes messages from File using topic and partition specified during consumer creation
-type FileConsumer struct {
+// fileConsumer consumes messages from File using topic and partition specified during consumer creation
+type fileConsumer struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	datadir string
@@ -85,7 +85,7 @@ func (p *FilePipe) Type() int {
 
 //RegisterProducer registers a new sync producer
 func (p *FilePipe) RegisterProducer(topic string) (Producer, error) {
-	return &FileProducer{p.datadir, topic, "", make(map[string]*file), 0, p.maxFileSize}, nil
+	return &fileProducer{p.datadir, topic, "", make(map[string]*file), 0, p.maxFileSize}, nil
 }
 
 // CloseProducer closes File producer
@@ -95,7 +95,7 @@ func (p *FilePipe) CloseProducer(pc Producer) error {
 
 //RegisterConsumer registers a new file consumer with context
 func (p *FilePipe) RegisterConsumer(topic string) (Consumer, error) {
-	c := &FileConsumer{nil, nil, p.datadir, topic, "", nil, nil, nil, nil}
+	c := &fileConsumer{nil, nil, p.datadir, topic, "", nil, nil, nil, nil}
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 
 	fn, offset, err := c.seek(topic, InitialOffset)
@@ -132,13 +132,13 @@ func (p *FilePipe) CloseConsumer(pc Consumer, graceful bool) error {
 
 //SetGen sets generation of the topic stream, separate directory with the string
 //representation of "gen" will be created inside the topic directory
-func (p *FileProducer) SetGen(gen int64) {
+func (p *fileProducer) SetGen(gen int64) {
 	p.gen = strconv.FormatInt(gen, 10)
 }
 
 //SetGen sets generation of the topic stream, separate directory with the string
 //representation of "gen" will be consumed
-func (p *FileConsumer) SetGen(gen int64) {
+func (p *fileConsumer) SetGen(gen int64) {
 	p.gen = strconv.FormatInt(gen, 10)
 }
 
@@ -162,16 +162,16 @@ func topicPath(datadir string, topic string, gen string) string {
 	return r
 }
 
-func (p *FileProducer) topicPath(topic string) string {
+func (p *fileProducer) topicPath(topic string) string {
 	return topicPath(p.datadir, topic, p.gen)
 }
 
-func (p *FileConsumer) topicPath(topic string) string {
+func (p *fileConsumer) topicPath(topic string) string {
 	return topicPath(p.datadir, topic, p.gen)
 }
 
 /*
-func (p *FileConsumer) parseFileName(name string) (string, int64, error) {
+func (p *fileConsumer) parseFileName(name string) (string, int64, error) {
 	ehint := "Expected file name format 'unixtimestamp.seqno.partitionkey'"
 
 	s := strings.Split(name, ".")
@@ -188,7 +188,7 @@ func (p *FileConsumer) parseFileName(name string) (string, int64, error) {
 }
 */
 
-func (p *FileConsumer) nextFile(topic string, curFile string) (string, error) {
+func (p *fileConsumer) nextFile(topic string, curFile string) (string, error) {
 	files, err := ioutil.ReadDir(p.topicPath(topic))
 	if err != nil {
 		switch e := err.(type) {
@@ -215,7 +215,7 @@ func (p *FileConsumer) nextFile(topic string, curFile string) (string, error) {
 	return "", nil
 }
 
-func (p *FileConsumer) seek(topic string, offset int64) (string, int64, error) {
+func (p *fileConsumer) seek(topic string, offset int64) (string, int64, error) {
 	files, err := ioutil.ReadDir(p.topicPath(topic))
 	if err != nil {
 		switch e := err.(type) {
@@ -243,12 +243,12 @@ func (p *FileConsumer) seek(topic string, offset int64) (string, int64, error) {
 	return "", 0, fmt.Errorf("Arbitrary offsets not supported, only OffsetOldest and OffsetNewest offsets supported")
 }
 
-func (p *FileProducer) newFileName(key string) string {
+func (p *fileProducer) newFileName(key string) string {
 	p.seqno++ //Precaution to not generate file with the same name if timestamps are equal
 	return fmt.Sprintf("%s%010d.%03d.%s.open", p.topicPath(p.topic), time.Now().Unix(), p.seqno, key)
 }
 
-func (p *FileProducer) newFile(key string) error {
+func (p *fileProducer) newFile(key string) error {
 	if err := os.MkdirAll(p.topicPath(p.topic), 0770); err != nil {
 		return err
 	}
@@ -272,7 +272,7 @@ func (p *FileProducer) newFile(key string) error {
 	return nil
 }
 
-func (p *FileProducer) getFile(key string) (*file, error) {
+func (p *fileProducer) getFile(key string) (*file, error) {
 	f := p.files[key]
 	if f == nil {
 		if err := p.newFile(key); err != nil {
@@ -283,7 +283,7 @@ func (p *FileProducer) getFile(key string) (*file, error) {
 	return f, nil
 }
 
-func (p *FileProducer) closeFile(f *file) error {
+func (p *fileProducer) closeFile(f *file) error {
 	var rerr error
 	if f != nil {
 		if err := f.writer.Flush(); log.E(err) {
@@ -301,7 +301,7 @@ func (p *FileProducer) closeFile(f *file) error {
 }
 
 //Push produces message to File topic
-func (p *FileProducer) push(key string, in interface{}, batch bool) error {
+func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 	var bytes []byte
 	switch in.(type) {
 	case []byte:
@@ -343,23 +343,23 @@ func (p *FileProducer) push(key string, in interface{}, batch bool) error {
 }
 
 //PushK sends a keyed message to File
-func (p *FileProducer) PushK(key string, in interface{}) error {
+func (p *fileProducer) PushK(key string, in interface{}) error {
 	return p.push(key, in, false)
 }
 
 //Push produces message to File topic
-func (p *FileProducer) Push(in interface{}) error {
+func (p *fileProducer) Push(in interface{}) error {
 	return p.push("default", in, false)
 }
 
 //PushBatch stashes a keyed message into batch which will be send to File by
 //PushBatchCommit
-func (p *FileProducer) PushBatch(key string, in interface{}) error {
+func (p *fileProducer) PushBatch(key string, in interface{}) error {
 	return p.push(key, in, true)
 }
 
 //PushBatchCommit commits currently queued messages in the producer
-func (p *FileProducer) PushBatchCommit() error {
+func (p *fileProducer) PushBatchCommit() error {
 	for _, v := range p.files {
 		log.E(v.writer.Flush())
 	}
@@ -367,7 +367,7 @@ func (p *FileProducer) PushBatchCommit() error {
 }
 
 // Close File Producer
-func (p *FileProducer) Close() error {
+func (p *fileProducer) Close() error {
 	var err error
 	var keys []string
 
@@ -388,7 +388,7 @@ func (p *FileProducer) Close() error {
 	return err
 }
 
-func (p *FileConsumer) waitForNextFilePrepare() (*fsnotify.Watcher, error) {
+func (p *fileConsumer) waitForNextFilePrepare() (*fsnotify.Watcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -407,7 +407,7 @@ func (p *FileConsumer) waitForNextFilePrepare() (*fsnotify.Watcher, error) {
 	return watcher, err
 }
 
-func (p *FileConsumer) waitForNextFile(watcher *fsnotify.Watcher) (bool, error) {
+func (p *fileConsumer) waitForNextFile(watcher *fsnotify.Watcher) (bool, error) {
 	log.Debugf("Waiting for directory events %v", p.topic)
 
 	for {
@@ -427,7 +427,7 @@ func (p *FileConsumer) waitForNextFile(watcher *fsnotify.Watcher) (bool, error) 
 }
 
 //FetchNext fetches next message from File and commits offset read
-func (p *FileConsumer) FetchNext() bool {
+func (p *fileConsumer) FetchNext() bool {
 	for {
 		//reader and file can be nil when directory is empty during
 		//RegisterConsumer
@@ -503,12 +503,12 @@ func (p *FileConsumer) FetchNext() bool {
 }
 
 //Pop pops pipe message
-func (p *FileConsumer) Pop() (interface{}, error) {
+func (p *fileConsumer) Pop() (interface{}, error) {
 	return p.msg, p.err
 }
 
 //Close closes consumer
-func (p *FileConsumer) Close() error {
+func (p *fileConsumer) Close() error {
 	log.Debugf("Close consumer: %v", p.topic)
 	p.cancel()
 	if p.file != nil {

@@ -34,8 +34,8 @@ type LocalPipe struct {
 	batchSize int
 }
 
-//LocalProducerConsumer implements both producer and consumer
-type LocalProducerConsumer struct {
+//localProducerConsumer implements both producer and consumer
+type localProducerConsumer struct {
 	ch      chan interface{}
 	ctx     context.Context
 	msg     interface{}
@@ -47,7 +47,7 @@ func (p *LocalPipe) Type() int {
 	return Local
 }
 
-func (p *LocalPipe) registerProducerConsumer(ctx context.Context, key string) (*LocalProducerConsumer, error) {
+func (p *LocalPipe) registerProducerConsumer(ctx context.Context, key string) (*localProducerConsumer, error) {
 	p.mutex.Lock()
 	ch := p.c[key]
 	if ch == nil {
@@ -55,7 +55,7 @@ func (p *LocalPipe) registerProducerConsumer(ctx context.Context, key string) (*
 		p.c[key] = ch
 	}
 	p.mutex.Unlock()
-	return &LocalProducerConsumer{ch, ctx, nil, make(chan bool)}, nil
+	return &localProducerConsumer{ch, ctx, nil, make(chan bool)}, nil
 }
 
 //RegisterConsumer registers consumer with the given pipe name
@@ -78,7 +78,7 @@ func (p *LocalPipe) RegisterProducer(key string) (Producer, error) {
 	return p.registerProducerConsumer(p.ctx, key)
 }
 
-func (p *LocalProducerConsumer) pushLow(b interface{}) error {
+func (p *localProducerConsumer) pushLow(b interface{}) error {
 	select {
 	case p.ch <- b:
 		return nil
@@ -89,25 +89,25 @@ func (p *LocalProducerConsumer) pushLow(b interface{}) error {
 }
 
 //Push pushes the given message to pipe
-func (p *LocalProducerConsumer) Push(b interface{}) error {
+func (p *localProducerConsumer) Push(b interface{}) error {
 	return p.pushLow(b)
 }
 
 //PushBatch stashes the given message in pipe buffer, all stashed messages will
 //be send by subsequent PushBatchCommit call
-func (p *LocalProducerConsumer) PushBatch(key string, b interface{}) error {
+func (p *localProducerConsumer) PushBatch(key string, b interface{}) error {
 	return p.pushLow(b)
 }
 
 //PushBatchCommit sends all stashed messages to pipe
-func (p *LocalProducerConsumer) PushBatchCommit() error {
+func (p *localProducerConsumer) PushBatchCommit() error {
 	//TODO: Drain the channel here
 	return nil
 }
 
 //FetchNext receives next message from pipe. It's a blocking call, message can
 //later be retreived by Pop call
-func (p *LocalProducerConsumer) FetchNext() bool {
+func (p *localProducerConsumer) FetchNext() bool {
 	select {
 	case p.msg = <-p.ch:
 		if p.msg == nil {
@@ -121,17 +121,17 @@ func (p *LocalProducerConsumer) FetchNext() bool {
 }
 
 //Pop retreives message fetched by FetchNext
-func (p *LocalProducerConsumer) Pop() (interface{}, error) {
+func (p *localProducerConsumer) Pop() (interface{}, error) {
 	return p.msg, nil
 }
 
 //PushK pushes keyed message to pipe
-func (p *LocalProducerConsumer) PushK(key string, b interface{}) error {
+func (p *localProducerConsumer) PushK(key string, b interface{}) error {
 	return p.Push(b)
 }
 
 //Close producer/consumer
-func (p *LocalProducerConsumer) Close() error {
+func (p *localProducerConsumer) Close() error {
 	close(p.closeCh)
 	return nil
 }

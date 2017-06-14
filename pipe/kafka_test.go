@@ -79,7 +79,7 @@ func consumeMessage(c Consumer, t *testing.T) string {
 	*/
 }
 
-func kafkaConsumer(p Pipe, key string, i int, n int, graceful bool, t *testing.T) {
+func kafkaConsumerWorker(p Pipe, key string, i int, n int, graceful bool, t *testing.T) {
 	log.Debugf("Consumer from %v start=%v count=%v", key, i, n)
 	c, err := p.RegisterConsumer(key)
 	if err != nil {
@@ -119,7 +119,7 @@ func kafkaConsumer(p Pipe, key string, i int, n int, graceful bool, t *testing.T
 }
 
 //pushPartition sends a keyed message to specific partition
-func (p *KafkaProducer) pushPartition(key string, partition int, in interface{}) error {
+func (p *kafkaProducer) pushPartition(key string, partition int, in interface{}) error {
 	var bytes []byte
 	switch in.(type) {
 	case []byte:
@@ -138,14 +138,14 @@ func (p *KafkaProducer) pushPartition(key string, partition int, in interface{})
 	return err
 }
 
-func kafkaProducer(p Pipe, key string, startFrom int, ptype int, nrecs int, t *testing.T) {
+func kafkaProducerWorker(p Pipe, key string, startFrom int, ptype int, nrecs int, t *testing.T) {
 	c, err := p.RegisterProducer(key)
 
-	log.Debugf("kafkaProducer started: %v", key)
+	log.Debugf("kafkaProducerWorker started: %v", key)
 
 	test.CheckFail(err, t)
 	for i := 0; i < nrecs; i++ {
-		log.Debugf("kafkaProducer %v %v", i, key)
+		log.Debugf("kafkaProducerWorker %v %v", i, key)
 		msg := key + "key" + "." + strconv.Itoa(i+startFrom)
 		b := []byte(msg)
 		if ptype == KEY {
@@ -155,7 +155,7 @@ func kafkaProducer(p Pipe, key string, startFrom int, ptype int, nrecs int, t *t
 			err = c.Push(b)
 			//err = c.(*KafkaProducer).pushPartition("", 0, b)
 		} else {
-			err = c.(*KafkaProducer).pushPartition(msg, ptype, b)
+			err = c.(*kafkaProducer).pushPartition(msg, ptype, b)
 		}
 		log.Debugf("Pushed: %v", msg)
 		test.CheckFail(err, t)
@@ -171,7 +171,7 @@ func startConsumers(p Pipe, nprocs int, startFrom int, n int, t *testing.T) {
 	log.Debugf("Starting %v consumers", nprocs)
 	wg.Add(nprocs)
 	for i := 0; i < nprocs; i++ {
-		go func(i int) { defer wg.Done(); kafkaConsumer(p, "topic"+strconv.Itoa(i), startFrom, n, true, t) }(i)
+		go func(i int) { defer wg.Done(); kafkaConsumerWorker(p, "topic"+strconv.Itoa(i), startFrom, n, true, t) }(i)
 	}
 }
 
@@ -179,7 +179,10 @@ func startProducers(p Pipe, startFrom int, t *testing.T, pt int) {
 	log.Debugf("Starting %v producers", numProcs)
 	wg.Add(numProcs)
 	for i := 0; i < int(numProcs); i++ {
-		go func(i int) { defer wg.Done(); kafkaProducer(p, "topic"+strconv.Itoa(i), startFrom, pt, numRecs, t) }(i)
+		go func(i int) {
+			defer wg.Done()
+			kafkaProducerWorker(p, "topic"+strconv.Itoa(i), startFrom, pt, numRecs, t)
+		}(i)
 	}
 }
 
@@ -347,14 +350,14 @@ func TestKafkaOffsets(t *testing.T) {
 		startConsumers(p, 1, 0, i, t) //this consumer and next producer is to persist current offset
 		<-startCh                     //wait consumers to start
 		log.Debugf("Started consumers")
-		kafkaProducer(p, "topic0", 0, KEY, i, t)
+		kafkaProducerWorker(p, "topic0", 0, KEY, i, t)
 		wg.Wait() // wait consumers to finish
 
 		o, err := p.getOffsets("topic0")
 		test.CheckFail(err, t)
 		log.Debugf("Produce %v event, Consume %v event and gracefully close. Current offsets: %+v", i, i, o)
-		kafkaProducer(p, "topic0", 100, KEY, i, t)
-		kafkaConsumer(p, "topic0", 100, i, true, t)
+		kafkaProducerWorker(p, "topic0", 100, KEY, i, t)
+		kafkaConsumerWorker(p, "topic0", 100, i, true, t)
 		<-startCh //pop so next kafka consumer doesn't block
 		o1, err := p.getOffsets("topic0")
 		test.CheckFail(err, t)
@@ -366,8 +369,8 @@ func TestKafkaOffsets(t *testing.T) {
 		o, err = p.getOffsets("topic0")
 		test.CheckFail(err, t)
 		log.Debugf("Produce %v event, Consume %v event and failure close", i, i)
-		kafkaProducer(p, "topic0", 1000, KEY, i*2, t)
-		kafkaConsumer(p, "topic0", 1000, i*2, false, t) //offsets of last batch should not be persisted
+		kafkaProducerWorker(p, "topic0", 1000, KEY, i*2, t)
+		kafkaConsumerWorker(p, "topic0", 1000, i*2, false, t) //offsets of last batch should not be persisted
 		<-startCh
 		o1, err = p.getOffsets("topic0")
 		test.CheckFail(err, t)
@@ -376,7 +379,7 @@ func TestKafkaOffsets(t *testing.T) {
 			t.Fatalf("Offset for %v consumed message(s) should NOT be persisted. Offset before %+v, offsets after: %v", i, o, o1)
 		}
 
-		kafkaConsumer(p, "topic0", 1000+i, i, true, t) //offsets should be persisted
+		kafkaConsumerWorker(p, "topic0", 1000+i, i, true, t) //offsets should be persisted
 		<-startCh
 		o1, err = p.getOffsets("topic0")
 		test.CheckFail(err, t)
@@ -388,7 +391,7 @@ func TestKafkaOffsets(t *testing.T) {
 		log.Debugf("Check that we can start consuming messages after graceful shutdown")
 		startConsumers(p, 1, 0, i, t) //this consumer and next producer is to persist current offset
 		<-startCh
-		kafkaProducer(p, "topic0", 0, KEY, i, t)
+		kafkaProducerWorker(p, "topic0", 0, KEY, i, t)
 		wg.Wait() // wait consumers to finish
 
 		log.Debugf("Check that we are not progressing offsets out of bound after graceful shutdown")
@@ -400,10 +403,10 @@ func TestKafkaOffsets(t *testing.T) {
 
 func testSimpleNto1(p Pipe, t *testing.T) {
 	wg.Add(1)
-	go func() { defer wg.Done(); kafkaConsumer(p, "topic3333", 0, numPartitions, true, t) }()
+	go func() { defer wg.Done(); kafkaConsumerWorker(p, "topic3333", 0, numPartitions, true, t) }()
 	<-startCh //wait consumers to start
 	for i := 0; i < numPartitions; i++ {
-		kafkaProducer(p, "topic3333", i, i, 1, t)
+		kafkaProducerWorker(p, "topic3333", i, i, 1, t)
 	}
 	wg.Wait() // wait consumers to finish
 }
@@ -431,7 +434,7 @@ func multiTestLoop(p Pipe, i int, t *testing.T) {
 	registerConsumers(p, pc, "topic3333", i+1, t)
 
 	for j := 0; j < numPartitions; j++ {
-		kafkaProducer(p, "topic3333", j*numMsgs, j, numMsgs, t)
+		kafkaProducerWorker(p, "topic3333", j*numMsgs, j, numMsgs, t)
 	}
 
 	j := 0
@@ -519,7 +522,7 @@ func TestKafkaMultiPartition(t *testing.T) {
 
 	//Write one message to every partition
 	for j := 0; j < numPartitions; j++ {
-		kafkaProducer(p, "topic3333", j, j, 1, t)
+		kafkaProducerWorker(p, "topic3333", j, j, 1, t)
 	}
 
 	for j := 0; j < numPartitions; j++ {

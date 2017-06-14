@@ -85,8 +85,8 @@ type KafkaPipe struct {
 	Config         *sarama.Config
 }
 
-// KafkaProducer synchronously pushes messages to Kafka using topic specified during producer creation
-type KafkaProducer struct {
+// kafkaProducer synchronously pushes messages to Kafka using topic specified during producer creation
+type kafkaProducer struct {
 	topic    string
 	ctx      context.Context
 	producer sarama.SyncProducer
@@ -94,8 +94,8 @@ type KafkaProducer struct {
 	batchPtr int
 }
 
-// KafkaConsumer consumes messages from Kafka using topic and partition specified during consumer creation
-type KafkaConsumer struct {
+// kafkaConsumer consumes messages from Kafka using topic and partition specified during consumer creation
+type kafkaConsumer struct {
 	pipe   *KafkaPipe
 	topic  string
 	ctx    context.Context
@@ -166,7 +166,7 @@ func (p *KafkaPipe) RegisterProducer(topic string) (Producer, error) {
 		return nil, err
 	}
 
-	return &KafkaProducer{topic, p.ctx, producer, make([]*sarama.ProducerMessage, p.batchSize), 0}, nil
+	return &kafkaProducer{topic, p.ctx, producer, make([]*sarama.ProducerMessage, p.batchSize), 0}, nil
 }
 
 func (p *KafkaPipe) getOffsets(topic string) (map[int32]kafkaPartition, error) {
@@ -351,7 +351,7 @@ func (p *KafkaPipe) RegisterConsumer(topic string) (Consumer, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	log.Debugf("Registered consumer %v", topic)
-	return &KafkaConsumer{p, topic, ctx, cancel, ch, nil, nil}, nil
+	return &kafkaConsumer{p, topic, ctx, cancel, ch, nil, nil}, nil
 }
 
 func (p *KafkaPipe) commitOffset(topic string, partition int32, offset int64, persistInterval int64) error {
@@ -393,7 +393,7 @@ func (p *KafkaPipe) CloseProducer(kc Producer) error {
 	return kc.Close()
 }
 
-func (p *KafkaConsumer) commitConsumerPartitionOffsets() error {
+func (p *kafkaConsumer) commitConsumerPartitionOffsets() error {
 	var v *kafkaPartition
 	for i := 0; i < len(p.pipe.consumers[p.topic].partitions); i++ {
 		v = &p.pipe.consumers[p.topic].partitions[i]
@@ -411,7 +411,7 @@ func (p *KafkaConsumer) commitConsumerPartitionOffsets() error {
 
 // CloseConsumer closes Kafka consumer
 func (p *KafkaPipe) CloseConsumer(pc Consumer, graceful bool) error {
-	kc := pc.(*KafkaConsumer)
+	kc := pc.(*kafkaConsumer)
 
 	kc.cancel() //Unblock FetchNext
 
@@ -465,7 +465,7 @@ func (p *KafkaPipe) CloseConsumer(pc Consumer, graceful bool) error {
 }
 
 //Push produces message to Kafka topic
-func (p *KafkaProducer) Push(in interface{}) error {
+func (p *kafkaProducer) Push(in interface{}) error {
 	var bytes []byte
 	switch in.(type) {
 	case []byte:
@@ -484,7 +484,7 @@ func (p *KafkaProducer) Push(in interface{}) error {
 }
 
 //PushK sends a keyed message to Kafka
-func (p *KafkaProducer) PushK(key string, in interface{}) error {
+func (p *kafkaProducer) PushK(key string, in interface{}) error {
 	var bytes []byte
 	switch in.(type) {
 	case []byte:
@@ -504,7 +504,7 @@ func (p *KafkaProducer) PushK(key string, in interface{}) error {
 
 //PushBatch stashes a keyed message into batch which will be send to Kafka by
 //PushBatchCommit
-func (p *KafkaProducer) PushBatch(key string, in interface{}) error {
+func (p *kafkaProducer) PushBatch(key string, in interface{}) error {
 	var bytes []byte
 	switch in.(type) {
 	case []byte:
@@ -531,7 +531,7 @@ func (p *KafkaProducer) PushBatch(key string, in interface{}) error {
 }
 
 //PushBatchCommit commits currently queued messages in the producer
-func (p *KafkaProducer) PushBatchCommit() error {
+func (p *kafkaProducer) PushBatchCommit() error {
 	if p.batchPtr == 0 {
 		return nil
 	}
@@ -550,14 +550,14 @@ func (p *KafkaProducer) PushBatchCommit() error {
 }
 
 // Close Kafka Producer
-func (p *KafkaProducer) Close() error {
+func (p *kafkaProducer) Close() error {
 	err := p.producer.Close()
 	log.E(err)
 	return err
 }
 
 //FetchNext fetches next message from Kafka and commits offset read
-func (p *KafkaConsumer) FetchNext() bool {
+func (p *kafkaConsumer) FetchNext() bool {
 	select {
 	case msg, ok := <-p.ch:
 		if !ok {
@@ -575,12 +575,12 @@ func (p *KafkaConsumer) FetchNext() bool {
 }
 
 //Pop pops pipe message
-func (p *KafkaConsumer) Pop() (interface{}, error) {
+func (p *kafkaConsumer) Pop() (interface{}, error) {
 	return p.msg.Value, p.err
 }
 
 //Close closes consumer
-func (p *KafkaConsumer) Close() error {
+func (p *kafkaConsumer) Close() error {
 	return nil
 }
 

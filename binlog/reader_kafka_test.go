@@ -20,32 +20,28 @@
 
 package binlog
 
-import (
-	"testing"
-
-	"github.com/uber/storagetapper/pipe"
-)
+import "testing"
 
 func TestKafkaBasic(t *testing.T) {
-	CheckQueries(pipe.Kafka, testBasicPrepare, testBasic, testBasicResult, "json", t)
+	CheckQueries("kafka", testBasicPrepare, testBasic, testBasicResult, "json", t)
 }
 
 func TestKafkaUseDB(t *testing.T) {
-	CheckQueries(pipe.Kafka, testBasicPrepare, testUseDB, testUseDBResult, "json", t)
+	CheckQueries("kafka", testBasicPrepare, testUseDB, testUseDBResult, "json", t)
 }
 
 func TestKafkaMultiColumn(t *testing.T) {
-	CheckQueries(pipe.Kafka, testMultiColumnPrepare, testMultiColumn, testMultiColumnResult, "json", t)
+	CheckQueries("kafka", testMultiColumnPrepare, testMultiColumn, testMultiColumnResult, "json", t)
 }
 
 func TestKafkaMultiRow(t *testing.T) {
-	CheckQueries(pipe.Kafka, testMultiColumnPrepare, testMultiRow, testMultiRowResult, "json", t)
+	CheckQueries("kafka", testMultiColumnPrepare, testMultiRow, testMultiRowResult, "json", t)
 }
 
 func TestKafkaCompoundKey(t *testing.T) {
-	CheckQueries(pipe.Kafka, testCompoundKeyPrepare, testCompoundKey, testCompoundKeyResult, "json", t)
+	CheckQueries("kafka", testCompoundKeyPrepare, testCompoundKey, testCompoundKeyResult, "json", t)
 }
 
 func TestKafkaDDL(t *testing.T) {
-	CheckQueries(pipe.Kafka, testDDLPrepare, testDDL, testDDLResult, "json", t)
+	CheckQueries("kafka", testDDLPrepare, testDDL, testDDLResult, "json", t)
 }

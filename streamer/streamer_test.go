@@ -115,11 +115,14 @@ func setupData(dbConn *sql.DB, t *testing.T) {
 }
 
 func setupWorker(t *testing.T) (pipe.Pipe, pipe.Pipe, pipe.Consumer) {
-	inP := pipe.Create(shutdown.Context, pipe.Local, 16, cfg, nil)
+	inP, err := pipe.Create(shutdown.Context, "local", 16, cfg, nil)
+	test.CheckFail(err, t)
 
 	outP := make(map[string]pipe.Pipe)
-	outP["kafka"] = pipe.Create(shutdown.Context, pipe.Kafka, 16, cfg, nil)
-	outP["file"] = pipe.Create(shutdown.Context, pipe.File, 16, cfg, nil)
+	for p := range pipe.Pipes {
+		outP[p], err = pipe.Create(shutdown.Context, p, cfg.PipeBatchSize, cfg, state.GetDB())
+		log.F(err)
+	}
 
 	pipe.KafkaConfig = sarama.NewConfig()
 	pipe.KafkaConfig.Producer.Partitioner = sarama.NewManualPartitioner

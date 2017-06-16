@@ -21,9 +21,12 @@
 package pipe
 
 import (
+	"database/sql"
 	"fmt"
-	"golang.org/x/net/context" //"context"
 	"sync"
+
+	"github.com/uber/storagetapper/config"
+	"golang.org/x/net/context" //"context"
 )
 
 //LocalPipe pipe based on channels
@@ -42,9 +45,17 @@ type localProducerConsumer struct {
 	closeCh chan bool
 }
 
+func init() {
+	registerPlugin("local", initLocalPipe)
+}
+
+func initLocalPipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
+	return &LocalPipe{c: make(map[string](chan interface{})), ctx: pctx, batchSize: batchSize}, nil
+}
+
 //Type returns type of the type
-func (p *LocalPipe) Type() int {
-	return Local
+func (p *LocalPipe) Type() string {
+	return "local"
 }
 
 func (p *LocalPipe) registerProducerConsumer(ctx context.Context, key string) (*localProducerConsumer, error) {

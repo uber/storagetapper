@@ -22,6 +22,7 @@ package pipe
 
 import (
 	"bufio"
+	"database/sql"
 	"fmt"
 	"golang.org/x/net/context" //"context"
 	"io"
@@ -34,6 +35,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/log"
 )
 
@@ -78,9 +80,17 @@ type fileConsumer struct {
 	err error
 }
 
+func init() {
+	registerPlugin("file", initFilePipe)
+}
+
+func initFilePipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
+	return &FilePipe{cfg.DataDir, cfg.MaxFileSize}, nil
+}
+
 // Type returns Pipe type as File
-func (p *FilePipe) Type() int {
-	return File
+func (p *FilePipe) Type() string {
+	return "file"
 }
 
 //RegisterProducer registers a new sync producer

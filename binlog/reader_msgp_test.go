@@ -1,61 +1,57 @@
 package binlog
 
-import (
-	"testing"
-
-	"github.com/uber/storagetapper/pipe"
-)
+import "testing"
 
 func TestMsgPackBasic(t *testing.T) {
-	CheckQueries(pipe.Local, testBasicPrepare, testBasic, testBasicResult, "msgpack", t)
+	CheckQueries("local", testBasicPrepare, testBasic, testBasicResult, "msgpack", t)
 }
 
 func TestMsgPackUseDB(t *testing.T) {
-	CheckQueries(pipe.Local, testBasicPrepare, testUseDB, testUseDBResult, "msgpack", t)
+	CheckQueries("local", testBasicPrepare, testUseDB, testUseDBResult, "msgpack", t)
 }
 
 func TestMsgPackMultiColumn(t *testing.T) {
-	CheckQueries(pipe.Local, testMultiColumnPrepare, testMultiColumn, testMultiColumnResult, "msgpack", t)
+	CheckQueries("local", testMultiColumnPrepare, testMultiColumn, testMultiColumnResult, "msgpack", t)
 }
 
 func TestMsgPackMultiRow(t *testing.T) {
-	CheckQueries(pipe.Local, testMultiColumnPrepare, testMultiRow, testMultiRowResult, "msgpack", t)
+	CheckQueries("local", testMultiColumnPrepare, testMultiRow, testMultiRowResult, "msgpack", t)
 }
 
 func TestMsgPackCompoundKey(t *testing.T) {
-	CheckQueries(pipe.Local, testCompoundKeyPrepare, testCompoundKey, testCompoundKeyResult, "msgpack", t)
+	CheckQueries("local", testCompoundKeyPrepare, testCompoundKey, testCompoundKeyResult, "msgpack", t)
 }
 
 func TestMsgPackDDL(t *testing.T) {
-	CheckQueries(pipe.Local, testDDLPrepare, testDDL, testDDLResult, "msgpack", t)
+	CheckQueries("local", testDDLPrepare, testDDL, testDDLResult, "msgpack", t)
 }
 
 func TestMsgPackMultiTable(t *testing.T) {
 	testName = "TestMultiTable"
-	CheckQueries(pipe.Local, testMultiTablePrepare, testMultiTable, testMultiTableResult1, "msgpack", t)
+	CheckQueries("local", testMultiTablePrepare, testMultiTable, testMultiTableResult1, "msgpack", t)
 	testName = ""
 }
 
 func TestMsgPackKafkaBasic(t *testing.T) {
-	CheckQueries(pipe.Kafka, testBasicPrepare, testBasic, testBasicResult, "msgpack", t)
+	CheckQueries("kafka", testBasicPrepare, testBasic, testBasicResult, "msgpack", t)
 }
 
 func TestMsgPackKafkaUseDB(t *testing.T) {
-	CheckQueries(pipe.Kafka, testBasicPrepare, testUseDB, testUseDBResult, "msgpack", t)
+	CheckQueries("kafka", testBasicPrepare, testUseDB, testUseDBResult, "msgpack", t)
 }
 
 func TestMsgPackKafkaMultiColumn(t *testing.T) {
-	CheckQueries(pipe.Kafka, testMultiColumnPrepare, testMultiColumn, testMultiColumnResult, "msgpack", t)
+	CheckQueries("kafka", testMultiColumnPrepare, testMultiColumn, testMultiColumnResult, "msgpack", t)
 }
 
 func TestMsgPackKafkaMultiRow(t *testing.T) {
-	CheckQueries(pipe.Kafka, testMultiColumnPrepare, testMultiRow, testMultiRowResult, "msgpack", t)
+	CheckQueries("kafka", testMultiColumnPrepare, testMultiRow, testMultiRowResult, "msgpack", t)
 }
 
 func TestMsgPackKafkaCompoundKey(t *testing.T) {
-	CheckQueries(pipe.Kafka, testCompoundKeyPrepare, testCompoundKey, testCompoundKeyResult, "msgpack", t)
+	CheckQueries("kafka", testCompoundKeyPrepare, testCompoundKey, testCompoundKeyResult, "msgpack", t)
 }
 
 func TestMsgPackKafkaDDL(t *testing.T) {
-	CheckQueries(pipe.Kafka, testDDLPrepare, testDDL, testDDLResult, "msgpack", t)
+	CheckQueries("kafka", testDDLPrepare, testDDL, testDDLResult, "msgpack", t)
 }

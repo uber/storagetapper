@@ -45,7 +45,7 @@ func (s *Streamer) streamBatch(snReader *snapshot.Reader, outProducer pipe.Produ
 
 		b += len(outMsg)
 
-		if s.outPipe.Type() == pipe.File {
+		if s.outPipe.Type() == "file" {
 			key = "snapshot"
 		}
 		err = outProducer.PushBatch(key, outMsg)

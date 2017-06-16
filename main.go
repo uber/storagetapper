@@ -124,13 +124,12 @@ func mainLow(cfg *config.AppConfig) {
 	go server.StartHTTPServer(cfg.PortDyn)
 
 	nprocs := uint(cfg.MaxNumProcs)
-	pipeType := pipe.Kafka
+
+	pipeType := "kafka"
 	if cfg.ReaderPipeType == "local" {
-		pipeType = pipe.Local
+		pipeType = "local"
 		nprocs = 1 /*Start binlog only, it'll control the size of the thread pool*/
 	}
-
-	outP := make(map[string]pipe.Pipe)
 
 	//Increasing batch size is important to prevent Pipes from preserving
 	//offsets before batch of the size batch_size has been committed to the
@@ -139,9 +138,14 @@ func mainLow(cfg *config.AppConfig) {
 	// * batch_size - in outP batch buffer
 	// * batch_size - in streamer helper channel buffer
 	// * +1 - waiting in streamer helper to be pushed when buffer is full
-	inP := pipe.Create(shutdown.Context, pipeType, 2*cfg.PipeBatchSize+1, cfg, state.GetDB())
-	outP["kafka"] = pipe.Create(shutdown.Context, pipe.Kafka, cfg.PipeBatchSize, cfg, state.GetDB())
-	outP["file"] = pipe.Create(shutdown.Context, pipe.File, cfg.PipeBatchSize, cfg, state.GetDB())
+	inP, err := pipe.Create(shutdown.Context, pipeType, 2*cfg.PipeBatchSize+1, cfg, state.GetDB())
+	log.F(err)
+
+	outP := make(map[string]pipe.Pipe)
+	for p := range pipe.Pipes {
+		outP[p], err = pipe.Create(shutdown.Context, p, cfg.PipeBatchSize, cfg, state.GetDB())
+		log.F(err)
+	}
 
 	tp := pool.Create()
 

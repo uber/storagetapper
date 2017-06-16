@@ -27,6 +27,7 @@ import (
 	"sync"
 
 	"github.com/Shopify/sarama"
+	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/types"
 	"github.com/uber/storagetapper/util"
@@ -105,9 +106,17 @@ type kafkaConsumer struct {
 	err    error
 }
 
+func init() {
+	registerPlugin("kafka", initKafkaPipe)
+}
+
+func initKafkaPipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
+	return &KafkaPipe{ctx: pctx, kafkaAddrs: cfg.KafkaAddrs, conn: db, batchSize: batchSize}, nil
+}
+
 // Type returns Pipe type as Kafka
-func (p *KafkaPipe) Type() int {
-	return Kafka
+func (p *KafkaPipe) Type() string {
+	return "kafka"
 }
 
 // Init initializes Kafka pipe creating kafka_offsets table

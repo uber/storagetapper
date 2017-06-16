@@ -214,7 +214,7 @@ func (b *reader) reloadState() bool {
 
 	b.metrics.NumTablesIngesting.Set(int64(c))
 
-	if b.pipe.Type() == pipe.Local {
+	if b.pipe.Type() == "local" {
 		b.tpool.Adjust(c + 1)
 	}
 
@@ -312,7 +312,7 @@ func (b *reader) produceRow(tp int, t *table, row *[]interface{}) error {
 		return fmt.Errorf("Failed to generate next seqno. Current seqno:%+v", b.seqNo)
 	}
 	key := encoder.GetRowKey(t.encoder.Schema(), row)
-	if b.pipe.Type() == pipe.Local {
+	if b.pipe.Type() == "local" {
 		err = t.producer.PushBatch(key, &types.RowMessage{Type: tp, Key: key, Data: row, SeqNo: seqno})
 	} else {
 		var bd []byte

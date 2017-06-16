@@ -109,7 +109,7 @@ func (s *Streamer) produceEvent(data interface{}) error {
 		return nil
 	}
 
-	if s.outPipe.Type() == pipe.File {
+	if s.outPipe.Type() == "file" {
 		key = "log"
 	}
 

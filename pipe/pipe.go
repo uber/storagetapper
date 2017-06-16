@@ -22,7 +22,9 @@ package pipe
 
 import (
 	"database/sql"
+	"fmt"
 	"golang.org/x/net/context" //"context"
+	"strings"
 
 	"github.com/uber/storagetapper/config"
 )
@@ -50,19 +52,26 @@ type Producer interface {
 
 //Pipe connects named producers and consumers
 type Pipe interface {
-	RegisterConsumer(key string) (Consumer, error)
-	RegisterProducer(key string) (Producer, error)
+	RegisterConsumer(topic string) (Consumer, error)
+	RegisterProducer(topic string) (Producer, error)
 	CloseConsumer(p Consumer, graceful bool) error
 	CloseProducer(p Producer) error
-	Type() int
+	Type() string
 }
 
-//TODO: Get this info from config, where testing config points to local
-const (
-	Local int = iota
-	File  int = iota
-	Kafka int = iota
-)
+type constructor func(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error)
+
+//Pipes is the list of registered pipes
+//Plugins insert their constructors into this map
+var Pipes map[string]constructor
+
+//registerPlugin should be called from plugin's init
+func registerPlugin(name string, init constructor) {
+	if Pipes == nil {
+		Pipes = make(map[string]constructor)
+	}
+	Pipes[name] = init
+}
 
 //Create is a pipe factory
 //Creates pipe of given type, with given buffer size
@@ -70,15 +79,17 @@ const (
 //db is used by Kafka pipe to save state
 //pctx is used to be able to cancel blocking calls inside pipe, like during
 //shutdown
-func Create(pctx context.Context, tp int, batchSize int, cfg *config.AppConfig, db *sql.DB) Pipe {
-	switch tp {
-	case Local:
-		return &LocalPipe{c: make(map[string](chan interface{})), ctx: pctx, batchSize: batchSize}
-	case Kafka:
-		return &KafkaPipe{ctx: pctx, kafkaAddrs: cfg.KafkaAddrs, conn: db, batchSize: batchSize}
-	case File:
-		return &FilePipe{cfg.DataDir, cfg.MaxFileSize}
-	default:
-		return &FilePipe{cfg.DataDir, cfg.MaxFileSize}
+func Create(pctx context.Context, pipeType string, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
+
+	init := Pipes[strings.ToLower(pipeType)]
+	if init == nil {
+		return nil, fmt.Errorf("Unsupported pipe: %s", strings.ToLower(pipeType))
 	}
+
+	pipe, err := init(pctx, batchSize, cfg, db)
+	if err != nil {
+		return nil, err
+	}
+
+	return pipe, nil
 }

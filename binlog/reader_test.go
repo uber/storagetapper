@@ -314,7 +314,7 @@ func ExecSQL(db *sql.DB, t *testing.T, query string) {
 	test.CheckFail(util.ExecSQL(db, query), t)
 }
 
-func Prepare(pipeType int, create []string, t *testing.T) (*sql.DB, pipe.Pipe) {
+func Prepare(pipeType string, create []string, t *testing.T) (*sql.DB, pipe.Pipe) {
 	dbc, err := db.OpenService(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1"}, "")
 	test.CheckFail(err, t)
 
@@ -335,9 +335,10 @@ func Prepare(pipeType int, create []string, t *testing.T) (*sql.DB, pipe.Pipe) {
 		ExecSQL(dbc, t, s)
 	}
 
-	p := pipe.Create(shutdown.Context, pipeType, 16, cfg, state.GetDB())
+	p, err := pipe.Create(shutdown.Context, pipeType, 16, cfg, state.GetDB())
+	test.CheckFail(err, t)
 
-	if pipeType == pipe.Kafka {
+	if pipeType == "kafka" {
 		//FIXME: Rewrite test so it doesn't require events to come out inorder
 		//Configure producer so as everything will go to one partition
 		pipe.InitialOffset = sarama.OffsetNewest
@@ -412,7 +413,7 @@ func CheckBinlogFormat(t *testing.T) {
 	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1") {
 		t.FailNow()
 	}
-	p := pipe.Create(pipe.Local, 16, cfg, state.GetDB(), shutdown.Context)
+	p := pipe.Create("local", 16, cfg, state.GetDB(), shutdown.Context)
 
 	tpool := pool.Create()
 
@@ -511,9 +512,9 @@ func testName(t *testing.T) string {
 }
 */
 
-func CheckQueries(pipeType int, prepare []string, queries []string, result []types.CommonFormatEvent, encoding string, t *testing.T) {
+func CheckQueries(pipeType string, prepare []string, queries []string, result []types.CommonFormatEvent, encoding string, t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
-	if pipeType == pipe.Kafka {
+	if pipeType == "kafka" {
 		test.SkipIfNoKafkaAvailable(t)
 	}
 
@@ -566,7 +567,7 @@ func CheckQueries(pipeType int, prepare []string, queries []string, result []typ
 	shutdown.Initiate()
 	shutdown.Wait()
 
-	if pipeType == pipe.Local {
+	if pipeType == "local" {
 		if (testName == "TestMultiTable" && globalTPoolProcs != 3) || (testName != "TestMultiTable" && globalTPoolProcs != 2) {
 			t.Errorf("Binlog reader should control number of streamers num=%v, pipe=%v", globalTPoolProcs, pipeType)
 			t.Fail()
@@ -580,32 +581,32 @@ func CheckQueries(pipeType int, prepare []string, queries []string, result []typ
 }
 
 func TestBasic(t *testing.T) {
-	CheckQueries(pipe.Local, testBasicPrepare, testBasic, testBasicResult, "json", t)
+	CheckQueries("local", testBasicPrepare, testBasic, testBasicResult, "json", t)
 }
 
 func TestUseDB(t *testing.T) {
-	CheckQueries(pipe.Local, testBasicPrepare, testUseDB, testUseDBResult, "json", t)
+	CheckQueries("local", testBasicPrepare, testUseDB, testUseDBResult, "json", t)
 }
 
 func TestMultiColumn(t *testing.T) {
-	CheckQueries(pipe.Local, testMultiColumnPrepare, testMultiColumn, testMultiColumnResult, "json", t)
+	CheckQueries("local", testMultiColumnPrepare, testMultiColumn, testMultiColumnResult, "json", t)
 }
 
 func TestMultiRow(t *testing.T) {
-	CheckQueries(pipe.Local, testMultiColumnPrepare, testMultiRow, testMultiRowResult, "json", t)
+	CheckQueries("local", testMultiColumnPrepare, testMultiRow, testMultiRowResult, "json", t)
 }
 
 func TestCompoundKey(t *testing.T) {
-	CheckQueries(pipe.Local, testCompoundKeyPrepare, testCompoundKey, testCompoundKeyResult, "json", t)
+	CheckQueries("local", testCompoundKeyPrepare, testCompoundKey, testCompoundKeyResult, "json", t)
 }
 
 func TestDDL(t *testing.T) {
-	CheckQueries(pipe.Local, testDDLPrepare, testDDL, testDDLResult, "json", t)
+	CheckQueries("local", testDDLPrepare, testDDL, testDDLResult, "json", t)
 }
 
 func TestMultiTable(t *testing.T) {
 	testName = "TestMultiTable"
-	CheckQueries(pipe.Local, testMultiTablePrepare, testMultiTable, testMultiTableResult1, "json", t)
+	CheckQueries("local", testMultiTablePrepare, testMultiTable, testMultiTableResult1, "json", t)
 	testName = ""
 }
 
@@ -617,7 +618,7 @@ func TestReaderShutdown(t *testing.T) {
 	save := cfg.StateUpdateTimeout
 	cfg.StateUpdateTimeout = 1
 
-	dbc, _ := Prepare(pipe.Local, testShutdownPrepare, t)
+	dbc, _ := Prepare("local", testShutdownPrepare, t)
 	defer func() { test.CheckFail(state.Close(), t) }()
 	defer func() { test.CheckFail(dbc.Close(), t) }()
 

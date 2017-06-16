@@ -127,8 +127,7 @@ func (b *reader) pushSchema(t *table) bool {
 		return false
 	}
 
-	//FIXME: Push to all partitions
-	err = t.producer.PushBatch("", bd)
+	err = t.producer.PushSchema("", bd)
 	log.Debugf("Pushed schema %v seqno=%v", t.id, seqno)
 
 	return !log.EL(b.log, err)

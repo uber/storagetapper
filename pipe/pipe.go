@@ -43,6 +43,7 @@ type Consumer interface {
 type Producer interface {
 	Push(data interface{}) error
 	PushK(key string, data interface{}) error
+	PushSchema(key string, data []byte) error
 	//PushBatch queues the messages instead of sending immediately
 	PushBatch(key string, data interface{}) error
 	//PushCommit writes out all the messages queued by PushBatch

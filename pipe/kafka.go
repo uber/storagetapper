@@ -558,6 +558,10 @@ func (p *kafkaProducer) PushBatchCommit() error {
 	return err
 }
 
+func (p *kafkaProducer) PushSchema(key string, data []byte) error {
+	return p.PushBatch(key, data)
+}
+
 // Close Kafka Producer
 func (p *kafkaProducer) Close() error {
 	err := p.producer.Close()

@@ -376,6 +376,19 @@ func (p *fileProducer) PushBatchCommit() error {
 	return nil
 }
 
+func (p *fileProducer) PushSchema(key string, data []byte) error {
+	if err := p.PushBatchCommit(); err != nil {
+		return err
+	}
+	if key == "" {
+		key = "default"
+	}
+	_ = p.closeFile(p.files[key])
+	p.files[key] = nil
+
+	return p.PushK(key, data)
+}
+
 // Close File Producer
 func (p *fileProducer) Close() error {
 	var err error

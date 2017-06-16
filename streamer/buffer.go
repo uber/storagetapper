@@ -60,6 +60,18 @@ func (s *Streamer) encodeCommonFormat(data []byte) (key string, outMsg []byte, e
 		}
 
 		key = encoder.GetCommonFormatKey(cfEvent)
+
+		if cfEvent.Type == "schema" && outMsg != nil {
+			if s.outPipe.Type() == "file" {
+				key = "log"
+			}
+
+			err = s.outProducer.PushSchema(key, outMsg)
+			log.EL(s.log, err)
+
+			outMsg = nil
+			return
+		}
 	} else if cfEvent.Type == s.outputFormat {
 		outMsg = payload
 		key = cfEvent.Key[0].(string)

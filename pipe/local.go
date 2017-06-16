@@ -100,20 +100,24 @@ func (p *localProducerConsumer) pushLow(b interface{}) error {
 }
 
 //Push pushes the given message to pipe
-func (p *localProducerConsumer) Push(b interface{}) error {
-	return p.pushLow(b)
+func (p *localProducerConsumer) Push(data interface{}) error {
+	return p.pushLow(data)
 }
 
 //PushBatch stashes the given message in pipe buffer, all stashed messages will
 //be send by subsequent PushBatchCommit call
-func (p *localProducerConsumer) PushBatch(key string, b interface{}) error {
-	return p.pushLow(b)
+func (p *localProducerConsumer) PushBatch(key string, data interface{}) error {
+	return p.pushLow(data)
 }
 
 //PushBatchCommit sends all stashed messages to pipe
 func (p *localProducerConsumer) PushBatchCommit() error {
 	//TODO: Drain the channel here
 	return nil
+}
+
+func (p *localProducerConsumer) PushSchema(key string, data []byte) error {
+	return p.PushBatch(key, data)
 }
 
 //FetchNext receives next message from pipe. It's a blocking call, message can

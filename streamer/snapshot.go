@@ -93,7 +93,7 @@ func (s *Streamer) pushSchema() bool {
 		if log.EL(s.log, err) {
 			return false
 		}
-		err = s.outProducer.Push(outMsg)
+		err = s.outProducer.PushSchema("", outMsg)
 		if log.EL(s.log, err) {
 			return false
 		}

@@ -34,11 +34,11 @@ import (
 )
 
 func init() {
-	registerPlugin("json", initCommonFormatEncoder)
+	registerPlugin("json", initJSONEncoder)
 }
 
-//commonFormatEncoder implements Encoder interface into common format
-type commonFormatEncoder struct {
+//jsonEncoder implements Encoder interface into common format
+type jsonEncoder struct {
 	Service   string
 	Db        string
 	Table     string
@@ -59,28 +59,28 @@ func genTime() int64 {
 //generator
 var GenTime GenTimeFunc = genTime
 
-func initCommonFormatEncoder(service string, db string, table string) (Encoder, error) {
-	return &commonFormatEncoder{Service: service, Db: db, Table: table}, nil
+func initJSONEncoder(service string, db string, table string) (Encoder, error) {
+	return &jsonEncoder{Service: service, Db: db, Table: table}, nil
 }
 
 //Type returns this encoder type
-func (e *commonFormatEncoder) Type() string {
+func (e *jsonEncoder) Type() string {
 	return "json"
 }
 
 //Schema returns table schema
-func (e *commonFormatEncoder) Schema() *types.TableSchema {
+func (e *jsonEncoder) Schema() *types.TableSchema {
 	return e.inSchema
 }
 
 //Row encodes row into CommonFormat
-func (e *commonFormatEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, error) {
+func (e *jsonEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, error) {
 	cf := e.convertRowToCommonFormat(tp, row, e.inSchema, seqno, e.filter)
 	return e.CommonFormatEncode(cf)
 }
 
 //CommonFormat encodes common format event into byte array
-func (e *commonFormatEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) {
+func (e *jsonEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) {
 	if cf.Type == "schema" {
 		err := e.UpdateCodec()
 		if err != nil {
@@ -93,7 +93,7 @@ func (e *commonFormatEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte,
 }
 
 /*UpdateCodec refreshes the schema from state DB */
-func (e *commonFormatEncoder) UpdateCodec() error {
+func (e *jsonEncoder) UpdateCodec() error {
 	schema, err := state.GetSchema(e.Service, e.Db, e.Table)
 	if err != nil {
 		return err
@@ -125,12 +125,12 @@ func jsonDecode(b []byte) (*types.CommonFormatEvent, error) {
 	return res, err
 }
 
-func (e *commonFormatEncoder) schemaDecode(b []byte) (*types.CommonFormatEvent, error) {
+func (e *jsonEncoder) schemaDecode(b []byte) (*types.CommonFormatEvent, error) {
 	return jsonDecode(b)
 }
 
 //CommonFormatEncode encodes CommonFormatEvent into byte array
-func (e *commonFormatEncoder) CommonFormatEncode(c *types.CommonFormatEvent) ([]byte, error) {
+func (e *jsonEncoder) CommonFormatEncode(c *types.CommonFormatEvent) ([]byte, error) {
 	return json.Marshal(c)
 }
 
@@ -168,7 +168,7 @@ func fillCommonFormatFields(c *types.CommonFormatEvent, row *[]interface{}, sche
 	c.Fields = &f
 }
 
-func (e *commonFormatEncoder) convertRowToCommonFormat(tp int, row *[]interface{}, schema *types.TableSchema, seqNo uint64, filter []int) *types.CommonFormatEvent {
+func (e *jsonEncoder) convertRowToCommonFormat(tp int, row *[]interface{}, schema *types.TableSchema, seqNo uint64, filter []int) *types.CommonFormatEvent {
 	var c types.CommonFormatEvent
 
 	//log.Debugf("cf %+v %+v %+v %+v", tp, row, s, seqNo)
@@ -195,7 +195,7 @@ func (e *commonFormatEncoder) convertRowToCommonFormat(tp int, row *[]interface{
 	return &c
 }
 
-func (e *commonFormatEncoder) prepareFilter() {
+func (e *jsonEncoder) prepareFilter() {
 	if e.outSchema == nil {
 		return
 	}
@@ -223,7 +223,7 @@ func (e *commonFormatEncoder) prepareFilter() {
 // UnwrapEvent splits the event header and payload
 // cfEvent is populated with the 'header' information aka the first decoding.
 // Data after the header returned in the payload parameter
-func (e *commonFormatEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent) (payload []byte, err error) {
+func (e *jsonEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent) (payload []byte, err error) {
 	buf := bytes.NewBuffer(data)
 	dec := json.NewDecoder(buf)
 	err = dec.Decode(cfEvent)
@@ -238,7 +238,7 @@ func (e *commonFormatEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonForm
 }
 
 //DecodeEvent decodes JSON encoded array into CommonFormatEvent struct
-func (e *commonFormatEncoder) DecodeEvent(b []byte) (*types.CommonFormatEvent, error) {
+func (e *jsonEncoder) DecodeEvent(b []byte) (*types.CommonFormatEvent, error) {
 	return jsonDecode(b)
 }
 

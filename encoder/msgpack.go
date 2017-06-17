@@ -32,13 +32,13 @@ func init() {
 }
 
 // msgPackEncoder implements Encoder interface into message pack format.
-// It inherits the methods from commonFormatEnocder.
+// It inherits the methods from jsonEnocder.
 type msgPackEncoder struct {
-	c commonFormatEncoder
+	c jsonEncoder
 }
 
 func initMsgPackEncoder(service string, db string, table string) (Encoder, error) {
-	return &msgPackEncoder{c: commonFormatEncoder{Service: service, Db: db, Table: table}}, nil
+	return &msgPackEncoder{c: jsonEncoder{Service: service, Db: db, Table: table}}, nil
 }
 
 //Schema returns table schema
@@ -77,7 +77,7 @@ func (e *msgPackEncoder) Type() string {
 
 // CommonFormatEncode encodes CommonFormatEvent into byte array based on the message pack
 // encoding system
-// By overriding these 2 methods we get full functionality of commonFormatEncoder
+// By overriding these 2 methods we get full functionality of jsonEncoder
 // that implements MessagePack
 func (e *msgPackEncoder) CommonFormatEncode(c *types.CommonFormatEvent) ([]byte, error) {
 	return c.MarshalMsg(nil)

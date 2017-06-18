@@ -63,6 +63,12 @@ func (e *avroEncoder) Schema() *types.TableSchema {
 	return e.inSchema
 }
 
+//EncodeSchema - encodes schema
+//Avro format doesn't support schema in the stream
+func (e *avroEncoder) EncodeSchema(seqno uint64) ([]byte, error) {
+	return nil, nil
+}
+
 //Row convert raw binary log event into Avro record
 func (e *avroEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, error) {
 	r, err := goavro.NewRecord(*e.setter)

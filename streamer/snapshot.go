@@ -30,7 +30,6 @@ import (
 	"github.com/uber/storagetapper/snapshot"
 	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/throttle"
-	"github.com/uber/storagetapper/types"
 )
 
 var numRetries = 5
@@ -88,17 +87,15 @@ func (s *Streamer) commitWithRetry(snapshotMetrics *metrics.Snapshot) bool {
 }
 
 func (s *Streamer) pushSchema() bool {
-	if s.encoder.Type() == "json" || s.encoder.Type() == "msgpack" {
-		outMsg, err := s.encoder.Row(types.Schema, nil, 0)
-		if log.EL(s.log, err) {
-			return false
-		}
-		err = s.outProducer.PushSchema("", outMsg)
-		if log.EL(s.log, err) {
-			return false
-		}
+	outMsg, err := s.encoder.EncodeSchema(0)
+	if log.EL(s.log, err) {
+		return false
 	}
-	return true
+	if outMsg == nil {
+		return true
+	}
+	err = s.outProducer.PushSchema("", outMsg)
+	return !log.EL(s.log, err)
 }
 
 // StreamFromConsistentSnapshot initializes and pulls event from the Snapshot reader, serializes

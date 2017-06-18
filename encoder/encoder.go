@@ -48,6 +48,7 @@ func registerPlugin(name string, init encoderConstructor) {
 type Encoder interface {
 	Row(tp int, row *[]interface{}, seqNo uint64) ([]byte, error)
 	CommonFormat(cf *types.CommonFormatEvent) ([]byte, error)
+	EncodeSchema(seqNo uint64) ([]byte, error)
 	UpdateCodec() error
 	Type() string
 	Schema() *types.TableSchema

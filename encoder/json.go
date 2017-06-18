@@ -73,6 +73,11 @@ func (e *jsonEncoder) Schema() *types.TableSchema {
 	return e.inSchema
 }
 
+//EncodeSchema encodes current output schema
+func (e *jsonEncoder) EncodeSchema(seqno uint64) ([]byte, error) {
+	return e.Row(types.Schema, nil, seqno)
+}
+
 //Row encodes row into CommonFormat
 func (e *jsonEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, error) {
 	cf := e.convertRowToCommonFormat(tp, row, e.inSchema, seqno, e.filter)

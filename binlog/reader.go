@@ -121,10 +121,14 @@ func (b *reader) pushSchema(t *table) bool {
 	}
 
 	log.Debugf("Pushing schema %v seqno=%v", t.id, seqno)
-	bd, err := t.encoder.Row(types.Schema, nil, seqno)
+	bd, err := t.encoder.EncodeSchema(seqno)
 	log.Debugf("Pushing schema after encode %v seqno=%v %+v", t.id, seqno, bd)
 	if log.EL(b.log, err) {
 		return false
+	}
+
+	if bd == nil {
+		return true
 	}
 
 	err = t.producer.PushSchema("", bd)

@@ -46,6 +46,11 @@ func (e *msgPackEncoder) Schema() *types.TableSchema {
 	return e.c.inSchema
 }
 
+//EncodeSchema encodes current output schema
+func (e *msgPackEncoder) EncodeSchema(seqno uint64) ([]byte, error) {
+	return e.Row(types.Schema, nil, seqno)
+}
+
 //Row encodes row into CommonFormat
 func (e *msgPackEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, error) {
 	cf := e.c.convertRowToCommonFormat(tp, row, e.c.inSchema, seqno, e.c.filter)

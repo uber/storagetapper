@@ -217,6 +217,10 @@ func (e *jsonEncoder) prepareFilter() {
 	e.filter = make([]int, nfiltered)
 	var j int
 	for i := 0; i < len(e.inSchema.Columns); i++ {
+		//Primary key cannot be filtered
+		if e.inSchema.Columns[i].Key == "PRI" {
+			continue
+		}
 		if (i-j) >= len(f) || e.inSchema.Columns[i].Name != f[i-j].Name {
 			e.filter[j] = i
 			j++

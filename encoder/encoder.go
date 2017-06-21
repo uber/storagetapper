@@ -57,6 +57,17 @@ type Encoder interface {
 	DecodeEvent(b []byte) (*types.CommonFormatEvent, error)
 }
 
+//Encoders return the list of encoders names
+func Encoders() []string {
+	r := make([]string, len(encoders))
+	i := 0
+	for k := range encoders {
+		r[i] = k
+		i++
+	}
+	return r
+}
+
 //InitEncoder constructs encoder without updating schema
 func InitEncoder(encType string, s string, d string, t string) (Encoder, error) {
 	init := encoders[strings.ToLower(encType)]

@@ -473,7 +473,7 @@ func TestBasic(t *testing.T) {
 	pipe.KafkaConfig.Consumer.MaxWaitTime = 10 * time.Millisecond
 
 	for _, p := range []string{"local", "kafka"} {
-		for _, enc := range []string{"json", "avro", "msgpack"} {
+		for _, enc := range encoder.Encoders() {
 			testStep(p, "json", "kafka", enc, true, 0, t)
 			testStep(p, "json", "kafka", enc, false, 100000, t)
 			testStep(p, enc, "kafka", enc, true, 0, t)

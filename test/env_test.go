@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/uber/storagetapper/db"
+	"github.com/uber/storagetapper/types"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -35,7 +36,7 @@ func TestBasic(t *testing.T) {
 
 	CheckFail(nil, t)
 
-	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: "root", Pwd: "", Db: ""})
+	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword})
 	CheckFail(err, t)
 
 	ExecSQL(conn, t, "SELECT 1")

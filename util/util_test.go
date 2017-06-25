@@ -29,6 +29,7 @@ import (
 	"testing"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/uber/storagetapper/types"
 )
 
 //checkFail is a copy from test package to avoid cyclic dependencies
@@ -42,7 +43,7 @@ func checkFail(err error, t *testing.T) {
 }
 
 func TestBasic(t *testing.T) {
-	conn, err := sql.Open("mysql", fmt.Sprintf("%v:%v@tcp(%v:%v)/%v", "root", "", "localhost", 3306, ""))
+	conn, err := sql.Open("mysql", fmt.Sprintf("%v:%v@tcp(%v:%v)/%v", types.TestMySQLUser, types.TestMySQLPassword, "localhost", 3306, ""))
 	if err != nil {
 		t.Skip("Can't connect to MySQL")
 	}

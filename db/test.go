@@ -20,7 +20,9 @@
 
 package db
 
+import "github.com/uber/storagetapper/types"
+
 //GetInfoForTest return address of local MySQL used by tests
 func GetInfoForTest(dbl *Loc, tp int) *Addr {
-	return &Addr{"localhost", 3306, "root", "", dbl.Name}
+	return &Addr{"localhost", 3306, types.TestMySQLUser, types.TestMySQLPassword, dbl.Name}
 }

@@ -24,6 +24,7 @@ import (
 	"database/sql"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/siddontang/go-mysql/mysql"
@@ -351,8 +352,8 @@ func TestStateSchema(t *testing.T) {
 		"  `field2` bigint(20) NOT NULL DEFAULT '0',\n" +
 		"  PRIMARY KEY (`field1`),\n" +
 		"  UNIQUE KEY `field2` (`field2`,`field1`)\n" +
-		") ENGINE=InnoDB DEFAULT CHARSET=latin1"
-	if tsRaw != tsRawRef {
+		") ENGINE=InnoDB"
+	if !strings.HasPrefix(tsRaw, tsRawRef) {
 		log.Errorf("Unexpected raw schema: '%+v'", tsRaw)
 		log.Errorf("Reference raw schema: '%+v'", tsRawRef)
 		t.FailNow()

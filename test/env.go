@@ -34,6 +34,7 @@ import (
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/metrics"
+	"github.com/uber/storagetapper/types"
 	"github.com/uber/storagetapper/util"
 )
 
@@ -57,7 +58,7 @@ func CheckFail(err error, t *testing.T) {
 
 //MySQLAvailable test if local MySQL instance is running
 func mysqlAvailable() bool {
-	d, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: "root"})
+	d, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword})
 	if err != nil {
 		return false
 	}

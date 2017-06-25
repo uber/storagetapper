@@ -166,7 +166,7 @@ func waitMainInitialized() {
 
 func initTestDB(init bool, t *testing.T) {
 	if init {
-		conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: "root", Pwd: "", Db: ""})
+		conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: ""})
 		test.CheckFail(err, t)
 
 		test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS "+types.MyDbName)
@@ -185,7 +185,7 @@ func initTestDB(init bool, t *testing.T) {
 func addFirstTable(init bool, t *testing.T) {
 	if init {
 		/*Insert some test cluster connection info */
-		err := util.HTTPPostJSON("http://localhost:7836/cluster", `{"cmd" : "add", "name" : "e2e_test_cluster1", "host" : "localhost", "port" : 3306, "user" : "root", "pw" : ""}`)
+		err := util.HTTPPostJSON("http://localhost:7836/cluster", `{"cmd" : "add", "name" : "e2e_test_cluster1", "host" : "localhost", "port" : 3306, "user" : "`+types.TestMySQLUser+`", "pw" : "`+types.TestMySQLPassword+`"}`)
 		test.CheckFail(err, t)
 		/*Register test table for ingestion */
 		err = util.HTTPPostJSON("http://localhost:7836/table", `{"cmd" : "add", "cluster" : "e2e_test_cluster1", "service" : "e2e_test_svc1", "db":"e2e_test_db1", "table":"e2e_test_table1"}`)
@@ -268,7 +268,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}]}`, 0))
 	}
 
-	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: "root", Pwd: "", Db: "e2e_test_db1"})
+	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: "e2e_test_db1"})
 	test.CheckFail(err, t)
 
 	for i := 101 + keyShift; i < 110+keyShift; i++ {

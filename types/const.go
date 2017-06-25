@@ -25,3 +25,9 @@ const MyDbName = "storagetapper"
 
 //MySvcName is a name of this service
 const MySvcName = "storagetapper"
+
+//TestMySQLUser is MySQL user used to connect to MySQL in test
+var TestMySQLUser = "root"
+
+//TestMySQLPassword is MySQL password used to connect to MySQL in test
+var TestMySQLPassword = ""

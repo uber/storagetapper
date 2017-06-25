@@ -38,7 +38,7 @@ func TestPprofBasic(t *testing.T) {
 
 	test.SkipIfNoMySQLAvailable(t)
 
-	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: "root", Pwd: "", Db: ""})
+	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword})
 	test.CheckFail(err, t)
 
 	test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS "+types.MyDbName)

@@ -495,7 +495,7 @@ func (p *fileConsumer) FetchNext() bool {
 				return true
 			}
 
-			log.Debugf("NextFn: %v", nextFn, p.topic)
+			log.Debugf("NextFn: %v %v", nextFn, p.topic)
 
 			if nextFn != "" && !strings.HasSuffix(nextFn, ".open") {
 				file, err := os.OpenFile(p.topicPath(p.topic)+nextFn, os.O_RDONLY, 0)

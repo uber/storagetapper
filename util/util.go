@@ -73,6 +73,13 @@ func HTTPPostJSON(url string, body string) error {
 	if err != nil {
 		return err
 	}
+	if resp.StatusCode != http.StatusOK {
+		b, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("%+v: %+v", resp.Status, string(b))
+	}
 	err = resp.Body.Close()
 	return err
 }

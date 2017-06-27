@@ -258,12 +258,16 @@ func parseRows(rows *sql.Rows) (Type, error) {
 	return res, nil
 }
 
+func allStateFields() string {
+	return "id, cluster, service, db, tablename, input, output, gtid, seqno, schemagtid, rawschema, needbootstrap"
+}
+
 //GetCond returns rows with given condition in the state
 func GetCond(cond string, args ...interface{}) (Type, error) {
 	if len(cond) != 0 {
 		cond = " WHERE " + cond
 	}
-	rows, err := util.QuerySQL(conn, "SELECT * FROM state"+cond, args...)
+	rows, err := util.QuerySQL(conn, "SELECT "+allStateFields()+" FROM state"+cond, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +281,7 @@ func GetForCluster(cluster string) (Type, error) {
 
 //Get returns all the rows in the state
 func Get() (Type, error) {
-	rows, err := util.QuerySQL(conn, "SELECT * FROM state")
+	rows, err := util.QuerySQL(conn, "SELECT "+allStateFields()+" FROM state")
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +314,7 @@ func TableRegistered(id int64) (bool, error) {
 
 //GetTable return state row for the given table id
 func GetTable(id int64) (Type, error) {
-	rows, err := util.QuerySQL(conn, "SELECT * FROM state WHERE id=?", id)
+	rows, err := util.QuerySQL(conn, "SELECT "+allStateFields()+" FROM state WHERE id=?", id)
 	if err != nil {
 		return nil, err
 	}

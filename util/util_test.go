@@ -85,7 +85,4 @@ func TestBytesToString(t *testing.T) {
 	if s != BytesToString([]byte(s)) {
 		t.Fatalf("Bad conversion to string")
 	}
-	if s != string([]byte(s)) {
-		t.Fatalf("Bad conversion to string")
-	}
 }

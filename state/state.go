@@ -292,7 +292,7 @@ func Get() (Type, error) {
 func GetCount() (int, error) {
 	var cnt int
 	err := util.QueryRowSQL(conn, "SELECT count(*) AS count FROM state").Scan(&cnt)
-	if err != nil {
+	if err != nil && err != sql.ErrNoRows {
 		return 0, err
 	}
 	return cnt, nil
@@ -506,7 +506,7 @@ func ConnectInfoGet(l *db.Loc, tp int) *db.Addr {
 
 	//FIXME:Select by type
 	err := util.QueryRowSQL(conn, "SELECT name,host,port,user,password FROM clusters WHERE name=?", c).Scan(&c, &a.Host, &a.Port, &a.User, &a.Pwd)
-	if log.E(err) {
+	if err == sql.ErrNoRows || log.E(err) {
 		return nil
 	}
 

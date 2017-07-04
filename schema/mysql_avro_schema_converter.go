@@ -46,7 +46,7 @@ var MySQLToAvroType = map[string]types.AvroPrimitiveType{
 
 	"FLOAT":   types.AvroFLOAT,
 	"DOUBLE":  types.AvroDOUBLE,
-	"DECIMAL": types.AvroSTRING,
+	"DECIMAL": types.AvroDOUBLE,
 	"BIT":     types.AvroBYTES,
 
 	"CHAR":    types.AvroSTRING,

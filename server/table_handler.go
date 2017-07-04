@@ -89,13 +89,11 @@ func handleListCmd(w http.ResponseWriter, t *tableCmdReq) error {
 		var resp []byte
 		for _, v := range rows {
 			var b []byte
-			if len(resp) != 0 {
-				resp = append(resp, '\n')
-			}
 			if b, err = json.Marshal(&tableListResponse{Cluster: v.Cluster, Service: v.Service, Db: v.Db, Table: v.Table}); err != nil {
 				break
 			}
 			resp = append(resp, b...)
+			resp = append(resp, '\n')
 		}
 		if err == nil {
 			_, err = w.Write(resp)

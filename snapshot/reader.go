@@ -123,7 +123,7 @@ func mySQLToDriverType(p *interface{}, mysql string) {
 		*p = new(sql.NullInt64)
 	case "bigint", "bit", "year":
 		*p = new(sql.NullInt64)
-	case "float", "double", "float64":
+	case "float", "double", "float64", "decimal":
 		*p = new(sql.NullFloat64)
 	case "char", "varchar":
 		*p = new(sql.NullString)

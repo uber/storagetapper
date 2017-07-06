@@ -123,7 +123,7 @@ func mySQLToDriverType(p *interface{}, mysql string) {
 		*p = new(sql.NullInt64)
 	case "bigint", "bit", "year":
 		*p = new(sql.NullInt64)
-	case "float", "double", "float64", "decimal":
+	case "float", "double", "decimal", "numeric":
 		*p = new(sql.NullFloat64)
 	case "char", "varchar":
 		*p = new(sql.NullString)
@@ -158,7 +158,11 @@ func driverTypeToGoType(p []interface{}, schema *types.TableSchema) []interface{
 			}
 		case *sql.NullFloat64:
 			if f.Valid {
-				v[i] = f.Float64
+				if schema.Columns[i].DataType == "float" {
+					v[i] = float32(f.Float64)
+				} else {
+					v[i] = f.Float64
+				}
 			}
 		case *sql.RawBytes:
 			if f != nil {

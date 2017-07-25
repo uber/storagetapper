@@ -113,11 +113,12 @@ func (m *myLock) IsLockedByMe() bool {
 	if m.conn == nil {
 		return false
 	}
-	err := m.conn.QueryRow(fmt.Sprintf("SELECT IS_USED_LOCK('%s.%s.%d'), connection_id()", types.MySvcName, m.name, m.n)).Scan(&lockedBy, &myConnID)
+	//Here we assume that connection_id() cannot be 0
+	err := m.conn.QueryRow(fmt.Sprintf("SELECT IFNULL(IS_USED_LOCK('%s.%s.%d'), 0), connection_id()", types.MySvcName, m.name, m.n)).Scan(&lockedBy, &myConnID)
 	log.Debugf("lock: lockedBy: %v myConnID: %v", lockedBy, myConnID)
 	if err != nil || myConnID == 0 || lockedBy != myConnID {
 		if err != nil {
-			log.Debugf("IsLockedByMe: error: " + err.Error())
+			log.Errorf("IsLockedByMe: error: " + err.Error())
 		} else {
 			log.Debugf("IsLockedByMe: lockedBy: %v, != myConnID: %v", lockedBy, myConnID)
 		}

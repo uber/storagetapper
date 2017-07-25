@@ -346,7 +346,6 @@ func (b *reader) handleRowsEvent(ev *replication.BinlogEvent, t *table) bool {
 	var err error
 
 	re := ev.Event.(*replication.RowsEvent)
-	b.metrics.TimeToEncounter.Record(time.Duration(time.Now().Unix()-int64(ev.Header.Timestamp)) * time.Second)
 
 	//	log.Debugf("Handle rows event %+v. tableid=%v, latency=%v, now=%v, timestamp=%v", ev.Header.EventType, t.id, time.Now().Unix()-int64(ev.Header.Timestamp), time.Now().Unix(), int64(ev.Header.Timestamp))
 
@@ -475,6 +474,7 @@ func (b *reader) incGTID(v *replication.GTIDEvent) bool {
 }
 
 func (b *reader) handleEvent(ev *replication.BinlogEvent) bool {
+	b.metrics.TimeToEncounter.Record(time.Duration(time.Now().Unix()-int64(ev.Header.Timestamp)) * time.Second)
 	switch v := ev.Event.(type) {
 	case *replication.FormatDescriptionEvent:
 		b.log.Infof("ServerVersion: %+v, BinlogFormatVersion: %+v, ChecksumAlgorithm: %+v", util.BytesToString(v.ServerVersion), v.Version, v.ChecksumAlgorithm)

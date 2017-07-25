@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"fmt"
 	"golang.org/x/net/context" //"context"
+	"math/rand"
 	"os"
 	"regexp"
 	"strings"
@@ -589,8 +590,12 @@ L:
 }
 
 func (b *reader) readEvents(c *db.Addr, stateUpdateTimeout int) {
+	id := rand.Uint32()
+	for id == 0 {
+		id = rand.Uint32()
+	}
 	cfg := replication.BinlogSyncerConfig{
-		ServerID: 100,
+		ServerID: id,
 		Flavor:   "mysql",
 		Host:     c.Host,
 		Port:     c.Port,

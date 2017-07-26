@@ -182,34 +182,22 @@ func initTestDB(init bool, t *testing.T) {
 	}
 }
 
-func addFirstTable(init bool, t *testing.T) {
+func addTable(init bool, format string, tableNum string, t *testing.T) {
+	table := "e2e_test_table" + tableNum
+
 	if init {
 		/*Insert some test cluster connection info */
-		err := util.HTTPPostJSON("http://localhost:7836/cluster", `{"cmd" : "add", "name" : "e2e_test_cluster1", "host" : "localhost", "port" : 3306, "user" : "`+types.TestMySQLUser+`", "pw" : "`+types.TestMySQLPassword+`"}`)
-		test.CheckFail(err, t)
+		if tableNum == "1" {
+			err := util.HTTPPostJSON("http://localhost:7836/cluster", `{"cmd" : "add", "name" : "e2e_test_cluster1", "host" : "localhost", "port" : 3306, "user" : "`+types.TestMySQLUser+`", "pw" : "`+types.TestMySQLPassword+`"}`)
+			test.CheckFail(err, t)
+		}
 		/*Register test table for ingestion */
-		err = util.HTTPPostJSON("http://localhost:7836/table", `{"cmd" : "add", "cluster" : "e2e_test_cluster1", "service" : "e2e_test_svc1", "db":"e2e_test_db1", "table":"e2e_test_table1"}`)
+		err := util.HTTPPostJSON("http://localhost:7836/table", `{"cmd" : "add", "cluster" : "e2e_test_cluster1", "service" : "e2e_test_svc1", "db":"e2e_test_db1", "table":"`+table+`"}`)
 		test.CheckFail(err, t)
 
 		/*Insert output Avro schema */
-		avroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "e2e_test_cluster1", Service: "e2e_test_svc1", Name: "e2e_test_db1"}, "e2e_test_table1")
-		test.CheckFail(err, t)
-		n := fmt.Sprintf("hp-%s-%s-%s", "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1")
-		err = util.HTTPPostJSON("http://localhost:7836/schema", `{"cmd" : "add", "name" : "`+n+`", "schema": `+strconv.Quote(string(avroSchema))+` }`)
-		test.CheckFail(err, t)
-	}
-}
-
-func addSecondTable(init bool, t *testing.T) {
-	if init {
-		log.Debugf("Inserting second table")
-		err := util.HTTPPostJSON("http://localhost:7836/table", `{"cmd" : "add", "cluster" : "e2e_test_cluster1", "service" : "e2e_test_svc1", "db":"e2e_test_db1", "table":"e2e_test_table2"}`)
-		test.CheckFail(err, t)
-		/*Insert output Avro schema for second table */
-		avroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "e2e_test_cluster1", Service: "e2e_test_svc1", Name: "e2e_test_db1"}, "e2e_test_table2")
-		test.CheckFail(err, t)
-		n := fmt.Sprintf("hp-%s-%s-%s", "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2")
-		err = util.HTTPPostJSON("http://localhost:7836/schema", `{"cmd" : "add", "name" : "`+n+`", "schema": `+strconv.Quote(string(avroSchema))+` }`)
+		dst := `, "dst" : "local"`
+		err = util.HTTPPostJSON("http://localhost:7836/schema", `{"cmd" : "register", "service" : "e2e_test_svc1", "db" : "e2e_test_db1", "table" : "`+table+`"`+dst+` }`)
 		test.CheckFail(err, t)
 	}
 }
@@ -310,7 +298,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	c2, err := p.RegisterConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
 	test.CheckFail(err, t)
 
-	addFirstTable(init, t)
+	addTable(init, outPipeFormat, "1", t)
 
 	outEncoder, err := encoder.Create(cfg.OutputFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1")
 	test.CheckFail(err, t)
@@ -403,7 +391,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		time.Sleep(time.Millisecond * 50)
 	}
 
-	addSecondTable(init, t)
+	addTable(init, outPipeFormat, "2", t)
 
 	outEncoder2, err := encoder.Create(cfg.OutputFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2")
 	test.CheckFail(err, t)

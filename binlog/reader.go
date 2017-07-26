@@ -474,7 +474,9 @@ func (b *reader) incGTID(v *replication.GTIDEvent) bool {
 }
 
 func (b *reader) handleEvent(ev *replication.BinlogEvent) bool {
-	b.metrics.TimeToEncounter.Record(time.Duration(time.Now().Unix()-int64(ev.Header.Timestamp)) * time.Second)
+	if ev.Header.Timestamp != 0 {
+		b.metrics.TimeToEncounter.Record(time.Duration(time.Now().Unix()-int64(ev.Header.Timestamp)) * time.Second)
+	}
 	switch v := ev.Event.(type) {
 	case *replication.FormatDescriptionEvent:
 		b.log.Infof("ServerVersion: %+v, BinlogFormatVersion: %+v, ChecksumAlgorithm: %+v", util.BytesToString(v.ServerVersion), v.Version, v.ChecksumAlgorithm)

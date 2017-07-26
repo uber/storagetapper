@@ -125,6 +125,7 @@ func (e *jsonEncoder) UpdateCodec() error {
 }
 
 func jsonDecode(b []byte) (*types.CommonFormatEvent, error) {
+	//FIXME: to properly handle integer need to use decoder and json.UseNumber
 	res := &types.CommonFormatEvent{}
 	err := json.Unmarshal(b, res)
 	return res, err
@@ -264,6 +265,8 @@ func ChangeCfFields(tp string, cf *types.CommonFormatEvent, ref *types.CommonFor
 			switch v := (cf.Key[i]).(type) {
 			case int64:
 				cf.Key[i] = float64(v)
+			case float32:
+				cf.Key[i] = float64(v)
 			}
 		}
 
@@ -271,6 +274,8 @@ func ChangeCfFields(tp string, cf *types.CommonFormatEvent, ref *types.CommonFor
 			for f := range *cf.Fields {
 				switch val := ((*cf.Fields)[f].Value).(type) {
 				case int64:
+					(*cf.Fields)[f].Value = float64(val)
+				case float32:
 					(*cf.Fields)[f].Value = float64(val)
 				}
 			}

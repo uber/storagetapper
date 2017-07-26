@@ -68,6 +68,18 @@ var testBasicResultRow = []rowRec{
 	{types.Insert, []interface{}{int64(3)}},
 }
 
+var testAllDataTypesResultRow = []rowRec{
+	//Test various data types
+	{types.Insert, []interface{}{int64(1), "asdf", "jkl;", []byte("abc"), "2017-07-06 11:55:57.8467835 -0700 PDT", "2017-07-06 11:55:57.846950724 -0700 PDT", "2017-07-06 11:55:57.846955766 -0700 PDT", int32(2017), int64(1) << 54, []byte("abc"), int32(8765), float32(1111), 2222.67, 3333.67, 4444.67}},
+	{types.Delete, []interface{}{int64(1)}},
+}
+
+var testAllDataTypesResult = []types.CommonFormatEvent{
+	/* Test basic insert, update, delete */
+	{Type: "insert", Key: []interface{}{1.0}, SeqNo: 1.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 1.0}, {Name: "f2", Value: "asdf"}, {Name: "f3", Value: "jkl;"}, {Name: "f4", Value: []byte("abc")}, {Name: "f5", Value: "2017-07-06 11:55:57.8467835 -0700 PDT"}, {Name: "f6", Value: "2017-07-06 11:55:57.846950724 -0700 PDT"}, {Name: "f7", Value: "2017-07-06 11:55:57.846955766 -0700 PDT"}, {Name: "f8", Value: 2017.0}, {Name: "f9", Value: 1.8014398509481984e+16}, {Name: "f10", Value: []byte("abc")}, {Name: "f11", Value: 8765.0}, {Name: "f12", Value: float64(1111)}, {Name: "f13", Value: 2222.67}, {Name: "f14", Value: 3333.67}, {Name: "f15", Value: 4444.67}}},
+	{Type: "delete", Key: []interface{}{1.0}, SeqNo: 2.0, Timestamp: 0, Fields: nil},
+}
+
 var testErrorDecoding = [][]byte{
 	[]byte("123234"),
 	[]byte("1231224212324132"),
@@ -83,14 +95,28 @@ var testBasicPrepare = []string{
 	`create table db1.t1 (
 		f1 bigint not null primary key
 	)`,
-	`create table db2.t1 (
-		f1 bigint not null primary key
+	`create table db1.t2 (
+		f1 bigint not null primary key,
+		f2 char(16),
+		f3 varchar(32),
+		f4 text,
+		f5 timestamp,
+		f6 date,
+		f7 time,
+		f8 year,
+		f9 bigint,
+		f10 binary,
+		f11 int,
+		f12 float,
+		f13 double,
+		f14 decimal,
+		f15 numeric
 	)`,
 }
 
 // TestGetType tests basic type method
 func TestType(t *testing.T) {
-	Prepare(t, testBasicPrepare)
+	Prepare(t, testBasicPrepare, "t1")
 
 	for encType := range encoders {
 		log.Debugf("Encoder: %v", t)
@@ -103,7 +129,7 @@ func TestType(t *testing.T) {
 }
 
 func TestEncodeDecodeCommonFormat(t *testing.T) {
-	Prepare(t, testBasicPrepare)
+	Prepare(t, testBasicPrepare, "t1")
 
 	for encType := range encoders {
 		log.Debugf("Encoder: %v", encType)
@@ -128,7 +154,7 @@ func TestEncodeDecodeCommonFormat(t *testing.T) {
 }
 
 func TestEncodeDecodeSchema(t *testing.T) {
-	Prepare(t, testBasicPrepare)
+	Prepare(t, testBasicPrepare, "t1")
 
 	for encType := range encoders {
 		log.Debugf("Encoder: %v", encType)
@@ -152,7 +178,7 @@ func TestEncodeDecodeSchema(t *testing.T) {
 }
 
 func TestEncodeDecodeRow(t *testing.T) {
-	Prepare(t, testBasicPrepare)
+	Prepare(t, testBasicPrepare, "t1")
 
 	for encType := range encoders {
 		log.Debugf("Encoder: %v", encType)
@@ -186,7 +212,7 @@ func TestEncodeDecodeRow(t *testing.T) {
 }
 
 func TestMarshalUnmarshal(t *testing.T) {
-	Prepare(t, testBasicPrepare)
+	Prepare(t, testBasicPrepare, "t1")
 
 	for encType := range encoders {
 		log.Debugf("Encoder: %v", encType)
@@ -212,7 +238,7 @@ func TestMarshalUnmarshal(t *testing.T) {
 }
 
 func TestUnmarshalError(t *testing.T) {
-	Prepare(t, testBasicPrepare)
+	Prepare(t, testBasicPrepare, "t1")
 
 	for encType := range encoders {
 		log.Debugf("Encoder: %v", t)
@@ -225,6 +251,77 @@ func TestUnmarshalError(t *testing.T) {
 		}
 	}
 
+}
+
+func TestEncodeDecodeCommonFormatAllDataTypes(t *testing.T) {
+	Prepare(t, testBasicPrepare, "t2")
+
+	for encType := range encoders {
+		log.Debugf("Encoder: %v", encType)
+		enc, err := Create(encType, "enc_test_svc1", "db1", "t2")
+		test.CheckFail(err, t)
+
+		for _, cf := range testBasicResult {
+			log.Debugf("Initial CF: %v\n", cf)
+			encoded, err := enc.CommonFormat(&cf)
+			test.CheckFail(err, t)
+
+			if enc.Type() == "avro" || enc.Type() == "heatpipe_avro" {
+				continue
+			}
+			decoded, err := enc.DecodeEvent(encoded)
+			log.Debugf("Post CF: %v\n", decoded)
+			test.CheckFail(err, t)
+
+			test.Assert(t, reflect.DeepEqual(&cf, decoded), "decoded different from initial")
+		}
+	}
+}
+
+func TestEncodeDecodeRowAllDataTypes(t *testing.T) {
+	Prepare(t, testBasicPrepare, "t2")
+
+	for encType := range encoders {
+		log.Debugf("Encoder: %v", encType)
+		enc, err := Create(encType, "enc_test_svc1", "db1", "t2")
+		test.CheckFail(err, t)
+
+		var seqno uint64
+		for _, row := range testAllDataTypesResultRow {
+			log.Debugf("Initial CF: %+v\n", row)
+			seqno++
+			encoded, err := enc.Row(row.tp, &row.fields, seqno)
+			test.CheckFail(err, t)
+
+			if enc.Type() == "avro" || enc.Type() == "heatpipe_avro" {
+				continue
+			}
+			decoded, err := enc.DecodeEvent(encoded)
+			decoded.Timestamp = 0
+
+			ref := &testAllDataTypesResult[seqno-1]
+
+			ChangeCfFields(encType, decoded, ref, t)
+
+			/*
+				log.Debugf("encoded: %+v", string(encoded))
+				log.Debugf("decoded: %+v", decoded.Fields)
+				log.Debugf("%+v", ref.Fields)
+
+				if decoded.Fields != nil {
+					for i, v := range *decoded.Fields {
+						log.Debugf("%v %v %v %v", v.Value, (*ref.Fields)[i].Value, reflect.TypeOf(v.Value), reflect.TypeOf((*ref.Fields)[i].Value))
+					}
+				}*/
+
+			if decoded.Type != "delete" {
+				log.Debugf("Post CF: %+v Reference: %+v\n", reflect.TypeOf((*decoded.Fields)[0].Value), reflect.TypeOf((*testBasicResult[seqno-1].Fields)[0].Value))
+				test.CheckFail(err, t)
+			}
+
+			test.Assert(t, reflect.DeepEqual(ref, decoded), "decoded different from initial")
+		}
+	}
 }
 
 //TODO: add test to ensure bad connection gives error and not panic in create
@@ -248,7 +345,7 @@ func schemaGet(namespace string, schemaName string) (*types.AvroSchema, error) {
 	return a, err
 }
 
-func Prepare(t *testing.T, create []string) {
+func Prepare(t *testing.T, create []string, table string) {
 	test.SkipIfNoMySQLAvailable(t)
 
 	dbc, err := db.OpenService(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1"}, "")
@@ -270,13 +367,13 @@ func Prepare(t *testing.T, create []string) {
 		ExecSQL(dbc, t, s)
 	}
 
-	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1", Name: "db1"}, "t1", "mysql", "") {
+	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1", Name: "db1"}, table, "mysql", "") {
 		t.FailNow()
 	}
 
-	avroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1", Name: "db1"}, "t1")
+	avroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1", Name: "db1"}, table)
 	test.CheckFail(err, t)
-	n := fmt.Sprintf("hp-%s-%s-%s", "enc_test_svc1", "db1", "t1")
+	n := fmt.Sprintf("hp-%s-%s-%s", "enc_test_svc1", "db1", table)
 	err = state.InsertSchema(n, string(avroSchema))
 	test.CheckFail(err, t)
 

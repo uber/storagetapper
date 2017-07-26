@@ -195,8 +195,31 @@ func TestMoreFieldTypes(t *testing.T) {
 	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f9 bigint")
 	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f10 binary")
 	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f11 int")
+	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f12 float")
+	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f13 double")
+	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f14 decimal")
+	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f15 numeric")
 
-	ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?,?,?,?,?,?,?,?,?)", 1567, strconv.Itoa(1567), float64(1567)/3, "testtextfield", time.Now(), time.Now(), time.Now(), time.Now(), 98878, []byte("testbinaryfield"), 827738)
+	//msgpack doesn't preserve int size, so all int32 became int64
+	expectedType := []string{
+		"int64",
+		"string",
+		"float64",
+		"[]uint8",
+		"string",
+		"string",
+		"string",
+		"int64", //int32
+		"int64",
+		"[]uint8",
+		"int64", //int32
+		"float32",
+		"float64",
+		"float64",
+		"float64",
+	}
+
+	ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", 1567, strconv.Itoa(1567), float64(1567)/3, "testtextfield", time.Now(), time.Now(), time.Now(), time.Now(), 98878, []byte("testbinaryfield"), 827738, 111.23, 222.34, 333.45, 444.56)
 
 	if !state.DeregisterTable("snap_test_svc1", "snap_test_db1", "snap_test_t1") {
 		t.FailNow()
@@ -208,7 +231,7 @@ func TestMoreFieldTypes(t *testing.T) {
 
 	s := Reader{}
 	var enc encoder.Encoder
-	enc, err = encoder.Create(encoder.Internal.Type(), "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	enc, err = encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
 	test.CheckFail(err, t)
 
 	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
@@ -216,11 +239,17 @@ func TestMoreFieldTypes(t *testing.T) {
 	defer s.End()
 
 	for s.HasNext() {
-		key, msg, err := s.GetNext()
+		_, msg, err := s.GetNext()
 		test.CheckFail(err, t)
-		d, err := encoder.Internal.DecodeEvent(msg)
+		d, err := enc.DecodeEvent(msg)
 		test.CheckFail(err, t)
-		log.Debugf("%+v %+v %+v %+v", key, d, d.Fields, err)
+		sch := enc.Schema()
+		for i, v := range *d.Fields {
+			if v.Value != nil && reflect.TypeOf(v.Value).String() != expectedType[i] {
+				log.Errorf("%v: got: %v expected: %v %v %v", v.Name, reflect.TypeOf(v.Value).String(), expectedType[i], sch.Columns[i].DataType, sch.Columns[i].Type)
+				t.FailNow()
+			}
+		}
 	}
 }
 

@@ -387,7 +387,7 @@ func (b *reader) handleQueryEvent(ev *replication.BinlogEvent) bool {
 		return true
 	}
 
-	if strings.HasPrefix(s, "UPDATE `heartbeat`.`heartbeat`") {
+	if strings.HasPrefix(s, "UPDATE `heartbeat`.`heartbeat`") || strings.HasPrefix(s, "FLUSH ") {
 		return true
 	}
 

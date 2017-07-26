@@ -114,7 +114,7 @@ func schemaCmd(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&s)
 	if err != nil {
 		//Will be handle in the next if
-	} else if len(s.Name) == 0 {
+	} else if len(s.Name) == 0 && s.Cmd != "register" && s.Cmd != "change" {
 		err = errors.New("Invalid command. Name cannot be empty")
 	} else if s.Cmd == "add" {
 		err = state.InsertSchema(s.Name, s.Schema)

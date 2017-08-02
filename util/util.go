@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/uber/storagetapper/log"
 )
 
@@ -98,6 +99,14 @@ func BytesToString(b []byte) string {
 func ExecSQL(d *sql.DB, query string, param ...interface{}) error {
 	log.Debugf("SQL: %v %v", query, param)
 	_, err := d.Exec(query, param...)
+	for i := 0; err != nil && i < 3; i++ {
+		merr, ok := err.(*mysql.MySQLError)
+		if !ok || merr.Number != 1213 {
+			return err
+		}
+		log.Debugf("SQL(retrying after deadlock): %v %v", query, param)
+		_, err = d.Exec(query, param...)
+	}
 	return err
 }
 

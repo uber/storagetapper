@@ -150,3 +150,8 @@ func (p *localProducerConsumer) Close() error {
 	close(p.closeCh)
 	return nil
 }
+
+//SaveOffset is not applicable for local pipe
+func (p *localProducerConsumer) SaveOffset() error {
+	return nil
+}

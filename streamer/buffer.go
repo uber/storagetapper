@@ -237,6 +237,12 @@ func (s *Streamer) StreamTable(consumer pipe.Consumer, bootstrapCh chan bool) bo
 				s.log.Warnf("Table removed from ingestion")
 				return true
 			}
+
+			if err := consumer.SaveOffset(); err != nil {
+				s.log.Errorf("Error persisting pipe position")
+				return true
+			}
+
 		case err := <-bootstrapCh:
 			if err {
 				return false

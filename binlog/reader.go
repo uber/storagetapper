@@ -441,7 +441,7 @@ func (b *reader) handleQueryEvent(ev *replication.BinlogEvent) bool {
 		}
 	}
 
-	b.log.Warnf("Unhandled query. Query: %+v, Schema: %+v", s, util.BytesToString(qe.Schema))
+	b.log.Debugf("Unhandled query. Query: %+v, Schema: %+v", s, util.BytesToString(qe.Schema))
 	return true
 }
 

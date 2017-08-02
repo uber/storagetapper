@@ -37,6 +37,8 @@ type Consumer interface {
 	  Message and error can be later retreived by Pop call.
 	  If it returns false this means EOF and no more Pops allowed */
 	FetchNext() bool
+	//Allows to explicitly persists current consumer position
+	SaveOffset() error
 }
 
 //Producer producer interface for pipe

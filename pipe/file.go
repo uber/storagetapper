@@ -40,6 +40,7 @@ import (
 )
 
 //TODO: Support reading file currently open by producer
+//TODO: Support offset persistence
 
 var delimiter byte = '\n'
 
@@ -538,5 +539,9 @@ func (p *fileConsumer) Close() error {
 		err := p.file.Close()
 		log.E(err)
 	}
+	return nil
+}
+
+func (p *fileConsumer) SaveOffset() error {
 	return nil
 }

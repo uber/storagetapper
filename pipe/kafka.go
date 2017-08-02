@@ -597,6 +597,13 @@ func (p *kafkaConsumer) Close() error {
 	return nil
 }
 
+func (p *kafkaConsumer) SaveOffset() error {
+	p.pipe.lock.Lock()
+	defer p.pipe.lock.Unlock()
+
+	return p.commitConsumerPartitionOffsets()
+}
+
 /*
 type saramaLogger struct {
 }

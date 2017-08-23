@@ -152,6 +152,12 @@ func (e *avroEncoder) UpdateCodec() error {
 		return err
 	}
 
+	if len(e.inSchema.Columns)-(len(e.outSchema.Fields)-numMetadataFields) < 0 {
+		err = fmt.Errorf("Input schema has less fields than output schema")
+		log.E(err)
+		return err
+	}
+
 	e.codec, e.setter, err = SchemaCodecHelper(e.outSchema)
 	if log.E(err) {
 		return err

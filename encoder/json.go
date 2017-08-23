@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -117,6 +118,12 @@ func (e *jsonEncoder) UpdateCodec() error {
 			//return fmt.Errorf("Broken schema in state for %v,%v,%v", e.Service, e.Db, e.Table)
 		}
 		e.outSchema = c
+
+		if len(e.inSchema.Columns)-(len(*e.outSchema.Fields)-numMetadataFields) < 0 {
+			err = fmt.Errorf("Input schema has less fields than output schema")
+			log.E(err)
+			return err
+		}
 	}
 
 	e.prepareFilter()

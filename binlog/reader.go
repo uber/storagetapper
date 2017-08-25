@@ -182,6 +182,17 @@ func (b *reader) removeDeletedTables() (count uint) {
 	return
 }
 
+func (b *reader) closeTableProducers() {
+	for _, d := range b.tables {
+		for n, t := range d {
+			b.log.Debugf("Closing producer for service=%v, table=%v", t.service, t.id)
+			err := b.pipe.CloseProducer(t.producer)
+			log.EL(b.log, err)
+			delete(d, n)
+		}
+	}
+}
+
 func (b *reader) reloadState() bool {
 	st, err := state.GetCond("cluster=? AND input='mysql'", b.dbl.Cluster)
 	if err != nil {
@@ -617,6 +628,7 @@ func (b *reader) readEvents(c *db.Addr, stateUpdateTimeout int) {
 	if !b.updateState(true) {
 		return
 	}
+	defer b.closeTableProducers()
 
 	b.log.WithFields(log.Fields{"gtid": b.gtidSet.String(), "SeqNo": b.seqNo}).Infof("Binlog start")
 

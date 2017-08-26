@@ -193,7 +193,7 @@ func TestMoreFieldTypes(t *testing.T) {
 	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f7 time")
 	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f8 year")
 	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f9 bigint")
-	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f10 binary")
+	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f10 binary(128)")
 	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f11 int")
 	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f12 float")
 	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f13 double")
@@ -219,7 +219,7 @@ func TestMoreFieldTypes(t *testing.T) {
 		"float64",
 	}
 
-	ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", 1567, strconv.Itoa(1567), float64(1567)/3, "testtextfield", time.Now(), time.Now(), time.Now(), time.Now(), 98878, []byte("testbinaryfield"), 827738, 111.23, 222.34, 333.45, 444.56)
+	ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", 1567, strconv.Itoa(1567), float64(1567)/3, "testtextfield", time.Now(), time.Now(), time.Now(), 2017, 98878, []byte("testbinaryfield"), 827738, 111.23, 222.34, 333.45, 444.56)
 
 	if !state.DeregisterTable("snap_test_svc1", "snap_test_db1", "snap_test_t1") {
 		t.FailNow()

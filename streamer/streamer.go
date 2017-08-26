@@ -172,7 +172,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes map[string]pipe.Pipe) b
 	s.lock = lock.Create(state.GetDbAddr(), cfg.OutputPipeConcurrency)
 
 	for _, row := range st {
-		if s.lock.Lock("service." + row.Service + ".db." + row.Db + ".table." + row.Table) {
+		if s.lock.Lock(fmt.Sprintf("table_id.%d", row.ID)) {
 			s.cluster = row.Cluster
 			s.svc = row.Service
 			s.db = row.Db

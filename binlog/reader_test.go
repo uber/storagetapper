@@ -223,7 +223,7 @@ var testDDL = []string{
 	"alter table t1 add f3 varchar(128), add f4 text, add f5 blob, add f6 varchar(32), add f7 int",
 	"insert into db1.t1 value (45676, 'ggg', 'ttt', 'yyy', 'vvv', 7543)",
 	"alter table t1 add index(f3,f6,f7)",
-	"ALTER TABLE t1 MODIFY f4 bigint(20)",
+	"ALTER TABLE t1 MODIFY f4 varchar(20)",
 	/*Test names in backticks */
 	"ALTER TABLE `t1` drop f7, drop f6, drop f5, drop f4",
 	"ALTER TABLE `db1`.`t1` drop f3",
@@ -245,7 +245,7 @@ var testDDLResult = []types.CommonFormatEvent{
 	//{Type: "insert", Key: []interface{}{45676.0}, SeqNo: 12.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 45676.0}, {Name: "f3", Value: "ggg"}, {Name: "f4", Value: "dHR0"}, {Name: "f5", Value: "eXl5"}, {Name: "f6", Value: "vvv"}, {Name: "f7", Value: 7543.0}}},
 	{Type: "insert", Key: []interface{}{45676.0}, SeqNo: 12.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 45676.0}, {Name: "f3", Value: "ggg"}, {Name: "f4", Value: []byte{116, 116, 116}}, {Name: "f5", Value: []byte{121, 121, 121}}, {Name: "f6", Value: "vvv"}, {Name: "f7", Value: 7543.0}}},
 	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 13.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "text"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 14.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "bigint(20)"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 14.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "varchar(20)"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
 	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 15.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}}},
 	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 16.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}}},
 }

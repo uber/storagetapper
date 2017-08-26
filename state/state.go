@@ -138,10 +138,10 @@ func create(cfg *config.AppConfig) bool {
 		tableName VARCHAR(128) NOT NULL,
 		input VARCHAR(128) NOT NULL,
 		output VARCHAR(128) NOT NULL,
-		gtid TEXT NOT NULL DEFAULT '',
+		gtid TEXT NOT NULL,
 		seqno BIGINT NOT NULL DEFAULT 0,
-		schemaGTID TEXT NOT NULL DEFAULT '',
-		rawSchema TEXT NOT NULL DEFAULT '',
+		schemaGTID TEXT NOT NULL,
+		rawSchema TEXT NOT NULL,
 		needBootstrap BOOLEAN NOT NULL DEFAULT TRUE,
 		PRIMARY KEY(id),
 		UNIQUE KEY(service, db, tableName),
@@ -391,7 +391,7 @@ func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema s
 		}
 	} else {
 		log.Debugf("Inserting schema for table %+v", s.TableName)
-		if _, err := tx.Exec("INSERT INTO state (service, cluster, db, tableName, schemaGTID, rawSchema, input, output) VALUES (?,?,?,?,?,?,?,?)", svc, cluster, s.DBName, s.TableName, gtid, rawSchema, input, output); err != nil {
+		if _, err := tx.Exec("INSERT INTO state (service, cluster, db, tableName, gtid, schemaGTID, rawSchema, input, output) VALUES (?,?,?,?,'',?,?,?,?)", svc, cluster, s.DBName, s.TableName, gtid, rawSchema, input, output); err != nil {
 			if err.(*mysql.MySQLError).Number == 1062 { //Duplicate key
 				log.Warnf("Newer schema version found in the state, my: (current: %v, new: %v), state: ?. service=%v, db=%v, table=%v", "", gtid, svc, s.DBName, s.TableName)
 				log.E(tx.Rollback())

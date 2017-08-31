@@ -25,8 +25,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
+	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/test"
 	"github.com/uber/storagetapper/types"
@@ -41,21 +43,36 @@ func serverTableInit(t *testing.T) {
 	_, err := conn.Exec("TRUNCATE TABLE " + types.MyDbName + ".state")
 	test.CheckFail(err, t)
 
-	err = util.ExecSQL(conn, `DROP DATABASE IF EXISTS db1_http_test`)
-	test.CheckFail(err, t)
-	err = util.ExecSQL(conn, `CREATE DATABASE IF NOT EXISTS db1_http_test`)
-	test.CheckFail(err, t)
+	for i := 0; i < 3; i++ {
+		err = util.ExecSQL(conn, `DROP DATABASE IF EXISTS st_table_http_test`+strconv.Itoa(i))
+		test.CheckFail(err, t)
+		err = util.ExecSQL(conn, `CREATE DATABASE IF NOT EXISTS st_table_http_test`+strconv.Itoa(i))
+		test.CheckFail(err, t)
 
-	err = util.ExecSQL(conn, `CREATE TABLE db1_http_test.table1_http_test (
-		field1 BIGINT PRIMARY KEY,
-		field2 BIGINT NOT NULL DEFAULT 0,
-		UNIQUE INDEX(field2, field1)
-	)`)
-	test.CheckFail(err, t)
+		err = util.ExecSQL(conn, `DROP DATABASE IF EXISTS st_table_http1_test`+strconv.Itoa(i))
+		test.CheckFail(err, t)
+		err = util.ExecSQL(conn, `CREATE DATABASE IF NOT EXISTS st_table_http1_test`+strconv.Itoa(i))
+		test.CheckFail(err, t)
+
+		for j := 0; j < 3; j++ {
+			err = util.ExecSQL(conn, `CREATE TABLE st_table_http_test`+strconv.Itoa(i)+`.table_http_test`+strconv.Itoa(j)+` (
+				field1 BIGINT PRIMARY KEY,
+				field2 BIGINT NOT NULL DEFAULT 0,
+				UNIQUE INDEX(field2, field1)
+			)`)
+			test.CheckFail(err, t)
+		}
+
+		err = util.ExecSQL(conn, `CREATE TABLE st_table_http_test`+strconv.Itoa(i)+`.table0_http_test (
+			field1 BIGINT PRIMARY KEY,
+			field2 BIGINT NOT NULL DEFAULT 0,
+			UNIQUE INDEX(field2, field1)
+		)`)
+		test.CheckFail(err, t)
+	}
 
 	err = conn.Close()
 	test.CheckFail(err, t)
-
 }
 
 func tableRequest(cmd tableCmdReq, code int, t *testing.T) *httptest.ResponseRecorder {
@@ -73,46 +90,51 @@ func addTable(cluster string, service string, db string, table string, t *testin
 	test.CheckFail(err, t)
 }
 
-func TestServerTableListCommands(t *testing.T) {
+func testServerTableListDelCommands(cmd string, t *testing.T) {
 	serverTableInit(t)
 
 	addTable("clst1", "svc1", "db1", "table1", t)
+	addTable("clst1", "svc1", "db1", "table2", t)
 	addTable("clst2", "svc1", "db2", "table2", t)
 	addTable("clst2", "svc1", "db3", "table3", t)
 	addTable("clst2", "svc1", "db4", "table3", t)
 	addTable("clst2", "svc2", "db1", "table4", t)
 	addTable("clst2", "svc2", "db2", "table5", t)
 
-	list := tableCmdReq{
-		Cmd:     "list",
+	req := tableCmdReq{
+		Cmd:     cmd,
 		Cluster: "clst2",
 		Service: "svc1",
 		Db:      "db1",
+		Table:   "*",
 	}
 
-	resp := tableRequest(list, http.StatusOK, t)
+	resp := tableRequest(req, http.StatusOK, t)
 	if string(resp.Body.Bytes()) != "" {
 		t.Fatalf("wrong response 1: '%v'", string(resp.Body.Bytes()))
 	}
 
-	list.Cluster = ""
-	resp = tableRequest(list, http.StatusOK, t)
+	req.Cluster = "*"
+	resp = tableRequest(req, http.StatusOK, t)
 	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":""}
+{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":""}
 ` {
 		t.Fatalf("wrong response 2: '%v'", string(resp.Body.Bytes()))
 	}
 
-	list.Service = ""
-	resp = tableRequest(list, http.StatusOK, t)
+	req.Service = "*"
+	log.Debugf("ref %+v", req)
+	resp = tableRequest(req, http.StatusOK, t)
 	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":""}
+{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":""}
 {"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":""}
 ` {
 		t.Fatalf("wrong response 3: '%v'", string(resp.Body.Bytes()))
 	}
 
-	list.Cluster = "clst2"
-	list.Db = ""
-	resp = tableRequest(list, http.StatusOK, t)
+	req.Cluster = "clst2"
+	req.Db = "*"
+	resp = tableRequest(req, http.StatusOK, t)
 	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":""}
 {"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":""}
 {"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":""}
@@ -122,11 +144,12 @@ func TestServerTableListCommands(t *testing.T) {
 		t.Fatalf("wrong response 4: '%v'", string(resp.Body.Bytes()))
 	}
 
-	list.Service = ""
-	list.Cluster = ""
-	list.Db = ""
-	resp = tableRequest(list, http.StatusOK, t)
+	req.Service = "*"
+	req.Cluster = "*"
+	req.Db = "*"
+	resp = tableRequest(req, http.StatusOK, t)
 	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":""}
+{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":""}
 {"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":""}
 {"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":""}
 {"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":""}
@@ -137,15 +160,158 @@ func TestServerTableListCommands(t *testing.T) {
 	}
 }
 
-func TestServerTableAddDelCommands(t *testing.T) {
+//Dry run del output is identical to output of list command
+func TestServerTableDelCommands(t *testing.T) {
+	testServerTableListDelCommands("del", t)
+}
+
+func TestServerTableListCommands(t *testing.T) {
+	testServerTableListDelCommands("list", t)
+}
+
+func TestServerTableDelApplyCommands(t *testing.T) {
+	serverTableInit(t)
+
+	addTable("clst1", "svc1", "db1", "table1", t)
+	addTable("clst1", "svc1", "db1", "table2", t)
+	addTable("clst2", "svc1", "db2", "table2", t)
+	addTable("clst2", "svc1", "db3", "table3", t)
+	addTable("clst2", "svc1", "db4", "table3", t)
+	addTable("clst2", "svc2", "db1", "table4", t)
+	addTable("clst2", "svc2", "db2", "table5", t)
+	addTable("clst3", "svc3", "db3", "table6", t)
+
+	req := tableCmdReq{
+		Cmd:     "del",
+		Cluster: "clst2",
+		Service: "svc1",
+		Db:      "db1",
+		Table:   "*",
+		Apply:   "yes",
+	}
+
+	resp := tableRequest(req, http.StatusOK, t)
+	if string(resp.Body.Bytes()) != "" {
+		t.Fatalf("wrong response 1: '%v'", string(resp.Body.Bytes()))
+	}
+
+	req.Cluster = "*"
+	resp = tableRequest(req, http.StatusOK, t)
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":""}
+{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":""}
+` {
+		t.Fatalf("wrong response 2: '%v'", string(resp.Body.Bytes()))
+	}
+
+	req.Service = "*"
+	resp = tableRequest(req, http.StatusOK, t)
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":""}
+` {
+		t.Fatalf("wrong response 3: '%v'", string(resp.Body.Bytes()))
+	}
+
+	req.Cluster = "clst2"
+	req.Db = "*"
+	resp = tableRequest(req, http.StatusOK, t)
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":""}
+{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":""}
+{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":""}
+{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":""}
+` {
+		t.Fatalf("wrong response 4: '%v'", string(resp.Body.Bytes()))
+	}
+
+	req.Service = "*"
+	req.Cluster = "*"
+	req.Db = "*"
+	resp = tableRequest(req, http.StatusOK, t)
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst3","Service":"svc3","Db":"db3","Table":"table6","Input":"","Output":""}
+` {
+		t.Fatalf("wrong response 5: '%v'", string(resp.Body.Bytes()))
+	}
+
+	resp = tableRequest(req, http.StatusOK, t)
+	if string(resp.Body.Bytes()) != `` {
+		t.Fatalf("wrong response 6: '%v'", string(resp.Body.Bytes()))
+	}
+}
+
+func TestServerAddCommand(t *testing.T) {
+	serverTableInit(t)
+
+	listReq := tableCmdReq{
+		Cmd: "list",
+	}
+
+	var ref string
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 3; j++ {
+			addReq := tableCmdReq{
+				Cmd:     "add",
+				Cluster: "clst1",
+				Service: "svc1",
+				Db:      "st_table_http_test" + strconv.Itoa(i),
+				Table:   "table_http_test" + strconv.Itoa(j),
+			}
+
+			tableRequest(addReq, http.StatusOK, t)
+
+			resp := tableRequest(listReq, http.StatusOK, t)
+
+			ref += `{"Cluster":"clst1","Service":"svc1","Db":"st_table_http_test` + strconv.Itoa(i) + `","Table":"table_http_test` + strconv.Itoa(j) + `","Input":"mysql","Output":"kafka"}
+`
+			log.Debugf("ref %+v", ref)
+
+			if string(resp.Body.Bytes()) != ref {
+				t.Fatalf("wrong response: '%v'", string(resp.Body.Bytes()))
+			}
+		}
+	}
+
+	delAllReq := tableCmdReq{
+		Cmd:     "del",
+		Cluster: "*",
+		Service: "*",
+		Db:      "*",
+		Table:   "*",
+		Apply:   "yes",
+	}
+	tableRequest(delAllReq, http.StatusOK, t)
+	resp := tableRequest(listReq, http.StatusOK, t)
+	if string(resp.Body.Bytes()) != `` {
+		t.Fatalf("wrong response1: '%v'", string(resp.Body.Bytes()))
+	}
+
+	addReq := tableCmdReq{
+		Cmd:     "add",
+		Service: "svc1",
+		Cluster: "clst1",
+		Db:      "st_table_http_test%",
+		Table:   "table_http_test%",
+	}
+	tableRequest(addReq, http.StatusOK, t)
+
+	resp = tableRequest(listReq, http.StatusOK, t)
+	if string(resp.Body.Bytes()) != ref {
+		t.Fatalf("wrong response: '%v'", string(resp.Body.Bytes()))
+	}
+
+	tableRequest(delAllReq, http.StatusOK, t)
+	resp = tableRequest(listReq, http.StatusOK, t)
+	if string(resp.Body.Bytes()) != `` {
+		t.Fatalf("wrong response1: '%v'", string(resp.Body.Bytes()))
+	}
+}
+
+func TestServerTableAddDelCommandsBasic(t *testing.T) {
 	serverTableInit(t)
 
 	add := tableCmdReq{
 		Cmd:     "add",
 		Cluster: "test_cluster_1",
 		Service: "test_service_1",
-		Db:      "db1_http_test",
-		Table:   "table1_http_test",
+		Db:      "st_table_http_test0",
+		Table:   "table_http_test0",
 	}
 
 	tableRequest(add, http.StatusOK, t)
@@ -158,8 +324,9 @@ func TestServerTableAddDelCommands(t *testing.T) {
 		Cmd:     "del",
 		Cluster: "test_cluster_1",
 		Service: "test_service_1",
-		Db:      "db1_http_test",
-		Table:   "table1_http_test",
+		Db:      "st_table_http_test0",
+		Table:   "table_http_test0",
+		Apply:   "yes",
 	}
 
 	tableRequest(del, http.StatusOK, t)

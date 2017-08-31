@@ -21,8 +21,11 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"errors"
 
@@ -32,6 +35,7 @@ import (
 	"github.com/uber/storagetapper/metrics"
 	"github.com/uber/storagetapper/pipe"
 	"github.com/uber/storagetapper/state"
+	"github.com/uber/storagetapper/util"
 )
 
 type tableCmdReq struct {
@@ -42,6 +46,7 @@ type tableCmdReq struct {
 	Table   string
 	Input   string
 	Output  string
+	Apply   string
 }
 
 //BufferTopicNameFormat is a copy of config variable, used in DeregisterTable.
@@ -55,12 +60,12 @@ func updateTableRegCnt() {
 	}
 }
 
-func addSQLCond(cond string, args []interface{}, name string, val string) (string, []interface{}) {
-	if len(val) != 0 {
+func addSQLCond(cond string, args []interface{}, name string, op string, val string) (string, []interface{}) {
+	if len(val) != 0 && val != "*" {
 		if len(cond) != 0 {
 			cond += "AND "
 		}
-		cond += name + "=? "
+		cond += name + " " + op + " " + "? "
 		args = append(args, val)
 	}
 	return cond, args
@@ -75,20 +80,81 @@ type tableListResponse struct {
 	Output  string
 }
 
-func handleListCmd(w http.ResponseWriter, t *tableCmdReq) error {
+func handleAddCmd(w http.ResponseWriter, t *tableCmdReq) error {
+	cfg := config.Get()
+	if t.Input == "" {
+		t.Input = cfg.DefaultInputType
+	}
+	if t.Output == "" {
+		t.Output = cfg.OutputPipeType
+	}
+
+	//no wildcards case
+	if len(t.Db) != 0 && len(t.Table) != 0 && t.Db != "*" && t.Table != "*" && !strings.ContainsAny(t.Db, "%") && !strings.ContainsAny(t.Table, "%") {
+		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: t.Db}, t.Table, t.Input, t.Output) {
+			return errors.New("Error registering table")
+		}
+		updateTableRegCnt()
+		return nil
+	}
+
+	conn, err := db.OpenService(&db.Loc{Service: t.Service, Cluster: t.Cluster, Name: ""}, "")
+	if err != nil {
+		return err
+	}
+
+	query := "SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'performance_schema', 'mysql', 'test')"
+
+	var args = make([]interface{}, 0)
+	query, args = addSQLCond(query, args, "table_schema", "LIKE", t.Db)
+	query, args = addSQLCond(query, args, "table_name", "LIKE", t.Table)
+
+	var rows *sql.Rows
+	rows, err = util.QuerySQL(conn, query, args...)
+	if err != nil {
+		return err
+	}
+	defer func() { log.E(rows.Close()) }()
+
+	var d, n string
+	for rows.Next() {
+		if err = rows.Scan(&d, &n); err != nil {
+			break
+		}
+		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: d}, n, t.Input, t.Output) {
+			err = fmt.Errorf("Error registering table: %v.%v", d, n)
+			break
+		}
+	}
+
+	updateTableRegCnt()
+
+	if err == nil {
+		err = rows.Err()
+	}
+
+	return err
+}
+
+func handleDelListCmd(w http.ResponseWriter, t *tableCmdReq, del bool) error {
 	var err error
 	var cond string
 	var args = make([]interface{}, 0)
 
-	cond, args = addSQLCond(cond, args, "cluster", t.Cluster)
-	cond, args = addSQLCond(cond, args, "service", t.Service)
-	cond, args = addSQLCond(cond, args, "db", t.Db)
+	cond, args = addSQLCond(cond, args, "cluster", "=", t.Cluster)
+	cond, args = addSQLCond(cond, args, "service", "=", t.Service)
+	cond, args = addSQLCond(cond, args, "db", "=", t.Db)
+	cond, args = addSQLCond(cond, args, "tableName", "=", t.Table)
 
 	var rows state.Type
 	if rows, err = state.GetCond(cond, args...); err == nil {
 		var resp []byte
 		for _, v := range rows {
 			var b []byte
+			if del && strings.ToLower(t.Apply) == "yes" && (!state.DeregisterTable(v.Service, v.Db, v.Table) || !pipe.DeleteKafkaOffsets(state.GetDB(), config.GetTopicName(BufferTopicNameFormat, v.Service, v.Db, v.Table))) {
+				err = fmt.Errorf("Error deregistering table: service=%v db=%v table=%v", v.Service, v.Db, v.Table)
+				break
+			}
 			if b, err = json.Marshal(&tableListResponse{Cluster: v.Cluster, Service: v.Service, Db: v.Db, Table: v.Table, Input: v.Input, Output: v.Output}); err != nil {
 				break
 			}
@@ -99,6 +165,8 @@ func handleListCmd(w http.ResponseWriter, t *tableCmdReq) error {
 			_, err = w.Write(resp)
 		}
 	}
+
+	updateTableRegCnt()
 
 	return err
 }
@@ -112,33 +180,20 @@ func tableCmd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if t.Cmd == "list" {
-		err = handleListCmd(w, &t)
-	} else if len(t.Cluster) == 0 || len(t.Service) == 0 || len(t.Db) == 0 || len(t.Table) == 0 {
-		err = errors.New("Invalid command. All fields(cluster,service,db,table) must not be empty")
-	} else if t.Cmd == "add" {
-		cfg := config.Get()
-		if t.Input == "" {
-			t.Input = cfg.DefaultInputType
-		}
-		if t.Output == "" {
-			t.Output = cfg.OutputPipeType
-		}
-		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: t.Db}, t.Table, t.Input, t.Output) {
-			err = errors.New("Error registering table")
-		} else {
-			updateTableRegCnt()
-		}
+		err = handleDelListCmd(w, &t, false)
+	} else if len(t.Service) == 0 || len(t.Cluster) == 0 || len(t.Db) == 0 || len(t.Table) == 0 {
+		err = errors.New("Invalid command. All fields(service,cluster,db,table) must not be empty")
+		//	} else if t.Service == "*" && t.Cluster == "*" && t.Db == "*" && t.Table == "*" {
+		//		err = errors.New("Invalid command. At least one of the fields(service,cluster,db,table) must not be a wildcard")
 	} else if t.Cmd == "del" {
-		if !state.DeregisterTable(t.Service, t.Db, t.Table) || !pipe.DeleteKafkaOffsets(state.GetDB(), config.GetTopicName(BufferTopicNameFormat, t.Service, t.Db, t.Table)) {
-			err = errors.New("Error deregistering table")
-		} else {
-			updateTableRegCnt()
-		}
+		err = handleDelListCmd(w, &t, true)
+	} else if t.Cmd == "add" {
+		err = handleAddCmd(w, &t)
 	} else {
 		err = errors.New("Unknown command (possible commands add/del/list)")
 	}
 	if err != nil {
-		log.Errorf("Table http: cmd=%v, cluster=%v, db=%v, error=%v", t.Cmd, t.Cluster, t.Db, err)
+		log.Errorf("Table http: cmd=%v, service=%v, cluster=%v, db=%v, table=%v, error=%v", t.Cmd, t.Service, t.Cluster, t.Db, t.Table, err)
 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -1,0 +1,9 @@
+[Unit]
+Description=StorageTapper realtime MySQL change data streaming
+
+[Service]
+User=storagetapper
+ExecStart=/usr/bin/storagetapper
+
+[Install]
+WantedBy=multi-user.target

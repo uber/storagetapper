@@ -1,0 +1,20 @@
+#!/bin/sh
+
+set -e
+
+if [ "$1" = "configure" ]; then
+	if ! getent passwd storagetapper >/dev/null; then
+		adduser --system --quiet --home / --no-create-home \
+		--shell /bin/false --group --gecos "storagetapper daemon user" storagetapper
+	fi
+
+	# Ensure configuration files are readable by the dedicated storagetapper user.
+	chgrp -R storagetapper /etc/storagetapper
+
+	# For upgrades: Ensure configuration files are not world-readable.
+	find /etc/storagetapper -perm -o+r -type f -exec chmod 640 '{}' \;
+fi
+
+#DEBHELPER#
+
+exit 0

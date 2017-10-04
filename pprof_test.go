@@ -21,6 +21,7 @@
 package main
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -45,7 +46,12 @@ func TestPprofBasic(t *testing.T) {
 	test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS e2e_test_db1")
 	test.ExecSQL(conn, t, "RESET MASTER")
 
-	go mainLow(cfg)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		mainLow(cfg)
+		wg.Done()
+	}()
 
 	/*Wait while it initializes */
 	for shutdown.NumProcs() <= 1 {
@@ -61,4 +67,5 @@ func TestPprofBasic(t *testing.T) {
 
 	shutdown.Initiate()
 	shutdown.Wait()
+	wg.Wait()
 }

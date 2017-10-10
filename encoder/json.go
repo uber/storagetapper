@@ -234,17 +234,20 @@ func (e *jsonEncoder) prepareFilter() {
 // cfEvent is populated with the 'header' information aka the first decoding.
 // Data after the header returned in the payload parameter
 func (e *jsonEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent) (payload []byte, err error) {
+	/* cfEvent prepends the payload, decode it here */
 	buf := bytes.NewBuffer(data)
 	dec := json.NewDecoder(buf)
 	err = dec.Decode(cfEvent)
 	if err != nil {
 		return
 	}
-	_, err = buf.ReadFrom(dec.Buffered())
+	/* Return everything after cfEvent as a payload */
+	var buf1 bytes.Buffer
+	_, err = buf1.ReadFrom(dec.Buffered())
 	if err != nil {
 		return
 	}
-	return buf.Bytes(), nil
+	return buf1.Bytes(), nil
 }
 
 //DecodeEvent decodes JSON encoded array into CommonFormatEvent struct

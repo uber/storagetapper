@@ -242,8 +242,14 @@ func (e *jsonEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent)
 		return
 	}
 	/* Return everything after cfEvent as a payload */
+	/* Append cached in json decoder */
 	var buf1 bytes.Buffer
 	_, err = buf1.ReadFrom(dec.Buffered())
+	if err != nil {
+		return
+	}
+	/* Append remainder of the original buffer not read by json decoder */
+	_, err = buf1.ReadFrom(buf)
 	if err != nil {
 		return
 	}

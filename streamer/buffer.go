@@ -229,7 +229,10 @@ func (s *Streamer) StreamTable(consumer pipe.Consumer, bootstrapCh chan bool) bo
 		case <-tickCh:
 			s.metrics.NumWorkers.Emit()
 
-			if !s.lock.Refresh() {
+			if !s.tableLock.Refresh() {
+				return true
+			}
+			if s.clusterLock != nil && !s.clusterLock.Refresh() {
 				return true
 			}
 			reg, _ := state.TableRegistered(s.id)

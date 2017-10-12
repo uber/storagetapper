@@ -50,6 +50,7 @@ type AppConfig struct {
 	BufferTopicNameFormat string   `yaml:"buffer_topic_name_format"`
 	PipeBatchSize         int      `yaml:"pipe_batch_size"`
 	OutputPipeConcurrency int      `yaml:"output_pipe_concurrency"`
+	ClusterConcurrency    int      `yaml:"cluster_concurrency"`
 	ForceMasterConnection bool     `yaml:"force_master_connection"`
 
 	ThrottleTargetMB   int64 `yaml:"throttle_target_mb"`
@@ -79,6 +80,7 @@ func GetDefaultConfig() *AppConfig {
 		BufferTopicNameFormat: types.MySvcName + ".service.%s.db.%s.table.%s",
 		PipeBatchSize:         256,
 		OutputPipeConcurrency: 1,
+		ClusterConcurrency:    0,
 		ForceMasterConnection: false,
 
 		LogType:  "std",

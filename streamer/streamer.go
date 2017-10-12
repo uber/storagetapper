@@ -60,7 +60,8 @@ type Streamer struct {
 	outputFormat       string
 	stateUpdateTimeout int
 	batchSize          int
-	lock               lock.Lock
+	tableLock          lock.Lock
+	clusterLock        lock.Lock
 }
 
 // ensureBinlogReaderStart ensures that Binlog reader worker has started publishing to Kafka buffer
@@ -169,10 +170,23 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes map[string]pipe.Pipe) b
 		log.Errorf("Error reading state: %v", err.Error())
 	}
 
-	s.lock = lock.Create(state.GetDbAddr(), cfg.OutputPipeConcurrency)
+	//If cluster concurrency is limited, try to get our ticket
+	if cfg.ClusterConcurrency != 0 {
+		s.clusterLock = lock.Create(state.GetDbAddr(), cfg.ClusterConcurrency)
+
+		if !s.clusterLock.Lock(fmt.Sprintf("%v.%v", s.svc, s.cluster)) {
+			log.Debugf("All cluster concurrency tickets are taken")
+			return false
+		}
+
+		defer s.clusterLock.Unlock()
+	}
+
+	s.tableLock = lock.Create(state.GetDbAddr(), cfg.OutputPipeConcurrency)
 
 	for _, row := range st {
-		if s.lock.Lock(fmt.Sprintf("table_id.%d", row.ID)) {
+		if s.tableLock.Lock(fmt.Sprintf("table_id.%d", row.ID)) {
+			defer s.tableLock.Unlock()
 			s.cluster = row.Cluster
 			s.svc = row.Service
 			s.db = row.Db
@@ -183,7 +197,6 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes map[string]pipe.Pipe) b
 				log.Errorf("Unknown output pipe type: %v", row.Output)
 				return true
 			}
-			defer s.lock.Unlock()
 			break
 		}
 	}

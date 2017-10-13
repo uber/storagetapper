@@ -33,6 +33,8 @@ import (
 type Consumer interface {
 	Pop() (interface{}, error)
 	Close() error
+	//CloseOnFailure doesn't save offsets
+	CloseOnFailure() error
 	/*FetchNext is a blocking call which receives a message.
 	  Message and error can be later retreived by Pop call.
 	  If it returns false this means EOF and no more Pops allowed */
@@ -55,10 +57,8 @@ type Producer interface {
 
 //Pipe connects named producers and consumers
 type Pipe interface {
-	RegisterConsumer(topic string) (Consumer, error)
-	RegisterProducer(topic string) (Producer, error)
-	CloseConsumer(p Consumer, graceful bool) error
-	CloseProducer(p Producer) error
+	NewConsumer(topic string) (Consumer, error)
+	NewProducer(topic string) (Producer, error)
 	Type() string
 }
 

@@ -81,11 +81,17 @@ func consumeMessage(c Consumer, t *testing.T) string {
 
 func kafkaConsumerWorker(p Pipe, key string, i int, n int, graceful bool, t *testing.T) {
 	log.Debugf("Consumer from %v start=%v count=%v", key, i, n)
-	c, err := p.RegisterConsumer(key)
+	c, err := p.NewConsumer(key)
 	if err != nil {
-		t.Fatalf("RegisterConsumer failed: %v", err.Error())
+		t.Fatalf("NewConsumer failed: %v", err.Error())
 	}
-	defer func() { log.E(p.CloseConsumer(c, graceful)) }()
+	defer func() {
+		if graceful {
+			log.E(c.Close())
+		} else {
+			log.E(c.CloseOnFailure())
+		}
+	}()
 
 	startCh <- true
 	log.Debugf("Pushed to start channel nrecs=%v startfrom=%v", n, i)
@@ -139,7 +145,7 @@ func (p *kafkaProducer) pushPartition(key string, partition int, in interface{})
 }
 
 func kafkaProducerWorker(p Pipe, key string, startFrom int, ptype int, nrecs int, t *testing.T) {
-	c, err := p.RegisterProducer(key)
+	c, err := p.NewProducer(key)
 
 	log.Debugf("kafkaProducerWorker started: %v", key)
 
@@ -161,7 +167,7 @@ func kafkaProducerWorker(p Pipe, key string, startFrom int, ptype int, nrecs int
 		test.CheckFail(err, t)
 	}
 
-	err = p.CloseProducer(c)
+	err = c.Close()
 	test.CheckFail(err, t)
 
 	log.Debugf("Producer finished %v", key)
@@ -280,9 +286,9 @@ func TestKafkaBigMessage(t *testing.T) {
 
 	p := createPipe(1)
 
-	consumer, err := p.RegisterConsumer("topic0")
+	consumer, err := p.NewConsumer("topic0")
 	test.CheckFail(err, t)
-	producer, err := p.RegisterProducer("topic0")
+	producer, err := p.NewProducer("topic0")
 	test.CheckFail(err, t)
 
 	buf := make([]byte, 16384)
@@ -314,9 +320,9 @@ func TestKafkaBigMessage(t *testing.T) {
 		}
 	}
 
-	err = p.CloseConsumer(consumer, true)
+	err = consumer.Close()
 	test.CheckFail(err, t)
-	err = p.CloseProducer(producer)
+	err = producer.Close()
 	test.CheckFail(err, t)
 }
 
@@ -414,14 +420,14 @@ func testSimpleNto1(p Pipe, t *testing.T) {
 func registerConsumers(p Pipe, pc []Consumer, topic string, n int, t *testing.T) {
 	var err error
 	for j := 0; j < n; j++ {
-		pc[j], err = p.RegisterConsumer(topic)
+		pc[j], err = p.NewConsumer(topic)
 		test.CheckFail(err, t)
 	}
 }
 
 func closeConsumers(p Pipe, pc []Consumer, n int, t *testing.T) {
 	for j := 0; j < n; j++ {
-		err := p.CloseConsumer(pc[j], true)
+		err := pc[j].Close()
 		test.CheckFail(err, t)
 	}
 }
@@ -536,7 +542,11 @@ func TestKafkaMultiPartition(t *testing.T) {
 	for j := 0; j < numPartitions/2; j++ {
 		g := j == 1
 		log.Debugf("Closing %v %v", j, g)
-		err = p.CloseConsumer(pc[j], g)
+		if g {
+			pc[j].Close()
+		} else {
+			pc[j].CloseOnFailure()
+		}
 		log.Debugf("Closed %v", j)
 		test.CheckFail(err, t)
 	}
@@ -550,7 +560,7 @@ func TestKafkaMultiPartition(t *testing.T) {
 
 	log.Debugf("Closed gracefully one of consumers")
 
-	pc[0], err = p.RegisterConsumer("topic3333")
+	pc[0], err = p.NewConsumer("topic3333")
 	test.CheckFail(err, t)
 
 	log.Debugf("Consuming messages for not gracefully closed consumers")
@@ -561,6 +571,6 @@ func TestKafkaMultiPartition(t *testing.T) {
 
 	log.Debugf("Gracefully closing consumer")
 
-	err = p.CloseConsumer(pc[0], true)
+	err = pc[0].Close()
 	test.CheckFail(err, t)
 }

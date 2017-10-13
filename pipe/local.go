@@ -69,23 +69,13 @@ func (p *LocalPipe) registerProducerConsumer(ctx context.Context, key string) (*
 	return &localProducerConsumer{ch, ctx, nil, make(chan bool)}, nil
 }
 
-//RegisterConsumer registers consumer with the given pipe name
-func (p *LocalPipe) RegisterConsumer(key string) (Consumer, error) {
+//NewConsumer registers consumer with the given pipe name
+func (p *LocalPipe) NewConsumer(key string) (Consumer, error) {
 	return p.registerProducerConsumer(p.ctx, key)
 }
 
-//CloseProducer closes given producer
-func (p *LocalPipe) CloseProducer(lp Producer) error {
-	return lp.Close()
-}
-
-//CloseConsumer closes give consumer
-func (p *LocalPipe) CloseConsumer(lp Consumer, graceful bool) error {
-	return lp.Close()
-}
-
-//RegisterProducer registers producer with the given pipe name
-func (p *LocalPipe) RegisterProducer(key string) (Producer, error) {
+//NewProducer registers producer with the given pipe name
+func (p *LocalPipe) NewProducer(key string) (Producer, error) {
 	return p.registerProducerConsumer(p.ctx, key)
 }
 
@@ -146,9 +136,17 @@ func (p *localProducerConsumer) PushK(key string, b interface{}) error {
 }
 
 //Close producer/consumer
-func (p *localProducerConsumer) Close() error {
+func (p *localProducerConsumer) close(graceful bool) error {
 	close(p.closeCh)
 	return nil
+}
+
+func (p *localProducerConsumer) Close() error {
+	return p.close(true)
+}
+
+func (p *localProducerConsumer) CloseOnFailure() error {
+	return p.close(false)
 }
 
 //SaveOffset is not applicable for local pipe

@@ -166,7 +166,7 @@ func (b *reader) addNewTable(st state.Type, i int) bool {
 		pn = cfg.GetOutputTopicName(t.Service, t.Db, t.Table)
 	}
 
-	p, err := pipe.RegisterProducer(pn)
+	p, err := pipe.NewProducer(pn)
 	if err != nil {
 		return false
 	}

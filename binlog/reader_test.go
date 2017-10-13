@@ -443,7 +443,7 @@ func CheckBinlogFormat(t *testing.T) {
 
 func initConsumeTableEvents(p pipe.Pipe, db string, table string, t *testing.T) pipe.Consumer {
 	tn := types.MySvcName + ".service.test_svc1.db." + db + ".table." + table
-	pc, err := p.RegisterConsumer(tn)
+	pc, err := p.NewConsumer(tn)
 	test.CheckFail(err, t)
 	log.Debugf("Start event consumer from: " + tn)
 	return pc

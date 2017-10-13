@@ -36,7 +36,7 @@ var cfg *config.AppConfig
 
 func localConsumer(p Pipe, key string, t *testing.T) {
 	defer wg.Done()
-	c, err := p.RegisterConsumer(key)
+	c, err := p.NewConsumer(key)
 	if err != nil {
 		t.FailNow()
 	}
@@ -64,7 +64,7 @@ func localConsumer(p Pipe, key string, t *testing.T) {
 
 func localProducer(p Pipe, key string, t *testing.T) {
 	defer wg.Done()
-	c, err := p.RegisterProducer(key)
+	c, err := p.NewProducer(key)
 	test.CheckFail(err, t)
 	for i := 0; i < 1000; i++ {
 		msg := key + "." + strconv.Itoa(i)

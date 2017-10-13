@@ -114,7 +114,7 @@ func setupData(dbConn *sql.DB, t *testing.T) {
 	}
 }
 
-func setupWorker(t *testing.T) (pipe.Pipe, pipe.Pipe, pipe.Consumer) {
+func setupWorker(t *testing.T) pipe.Consumer {
 	inP, err := pipe.Create(shutdown.Context, "local", 16, cfg, nil)
 	test.CheckFail(err, t)
 
@@ -129,18 +129,18 @@ func setupWorker(t *testing.T) (pipe.Pipe, pipe.Pipe, pipe.Consumer) {
 	pipe.KafkaConfig.Producer.Return.Successes = true
 	pipe.KafkaConfig.Consumer.MaxWaitTime = 10 * time.Millisecond
 
-	outPConsumer, err := outP["kafka"].RegisterConsumer(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl))
+	outPConsumer, err := outP["kafka"].NewConsumer(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl))
 
 	test.CheckFail(err, t)
 	shutdown.Register(1)
 	go EventWorker(cfg, inP, outP, t)
-	return inP, outP["kafka"], outPConsumer
+	return outPConsumer
 }
 
-func verifyFromOutputKafka(outP pipe.Pipe, outPConsumer pipe.Consumer, t *testing.T) {
+func verifyFromOutputKafka(outPConsumer pipe.Consumer, t *testing.T) {
 	codec, _, err := encoder.GetLatestSchemaCodec(TestSvc, TestDb, TestTbl)
 	test.Assert(t, err == nil, "Error getting codec for avro decoding: %v", err)
-	defer func() { test.CheckFail(outP.CloseConsumer(outPConsumer, true), t) }()
+	defer func() { test.CheckFail(outPConsumer.Close(), t) }()
 
 	lastRKey := int64(0)
 	for i := 0; i < 1000 && outPConsumer.FetchNext(); i++ {
@@ -202,10 +202,10 @@ func TestStreamer_StreamFromConsistentSnapshot(t *testing.T) {
 	dbConn := setupDB(t)
 	defer func() { test.CheckFail(dbConn.Close(), t) }()
 	setupData(dbConn, t)
-	_, outP, pc := setupWorker(t)
+	pc := setupWorker(t)
 
 	log.Debugf("Finishing")
-	verifyFromOutputKafka(outP, pc, t)
+	verifyFromOutputKafka(pc, t)
 	shutdown.Initiate()
 	shutdown.Wait()
 }
@@ -220,7 +220,7 @@ func TestStreamerShutdown(t *testing.T) {
 	dbConn := setupDB(t)
 	defer func() { test.CheckFail(dbConn.Close(), t) }()
 
-	_, outP, outConsumer := setupWorker(t)
+	outConsumer := setupWorker(t)
 
 	execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(0,'0')", TestDb, TestTbl))
 
@@ -239,7 +239,7 @@ func TestStreamerShutdown(t *testing.T) {
 		t.Fatalf("Streamer worker didn't finish %v", shutdown.NumProcs())
 	}
 
-	test.CheckFail(outP.CloseConsumer(outConsumer, true), t)
+	test.CheckFail(outConsumer.Close(), t)
 
 	if !test.WaitForNumProc(1, 80*200) {
 		t.Fatalf("Streamer worker didn't finish")

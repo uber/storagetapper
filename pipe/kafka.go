@@ -81,7 +81,7 @@ type KafkaPipe struct {
 	conn           *sql.DB
 	saramaConsumer sarama.Consumer
 	consumers      map[string]*topicConsumer
-	lock           sync.RWMutex //protects consumers map, which can be modified by concurrent RegisterConsumer/CloseConsumer
+	lock           sync.RWMutex //protects consumers map, which can be modified by concurrent NewConsumer/closeConsumer
 	batchSize      int
 	Config         *sarama.Config
 }
@@ -156,8 +156,8 @@ func DeleteKafkaOffsets(conn *sql.DB, topic string) bool {
 	return true
 }
 
-//RegisterProducer registers a new sync producer
-func (p *KafkaPipe) RegisterProducer(topic string) (Producer, error) {
+//NewProducer registers a new sync producer
+func (p *KafkaPipe) NewProducer(topic string) (Producer, error) {
 	var config *sarama.Config
 	if KafkaConfig != nil {
 		config = KafkaConfig
@@ -209,8 +209,6 @@ func (p *KafkaPipe) pushPartitionMsg(ctx context.Context, ch chan *sarama.Consum
 	select {
 	case ch <- t.nextMsg:
 		t.nextMsg = nil
-		//case <-shutdown.InitiatedCh():
-		//	return
 	case <-ctx.Done():
 		return false
 	}
@@ -229,9 +227,6 @@ func (p *KafkaPipe) redistributeConsumers(c *topicConsumer) {
 
 	var nparts = len(c.partitions)
 
-	//FIXME: Do not use shutdown here, rely on high level levels to call
-	//CloseConsumer
-	//shutdown.Register(int32(nparts))
 	c.wg.Add(nparts)
 
 	log.Debugf("Distributing %v partition(s) onto %v consumer(s)", nparts, len(c.consumers))
@@ -246,7 +241,6 @@ func (p *KafkaPipe) redistributeConsumers(c *topicConsumer) {
 		/* Partition 'i' messages goes to consumer 'j' */
 		go func(i int, outCh chan *sarama.ConsumerMessage, ctx context.Context) {
 			defer c.wg.Done()
-			//			defer shutdown.Done()
 
 			if c.partitions[i].nextMsg != nil && !p.pushPartitionMsg(ctx, outCh, &c.partitions[i]) {
 				return
@@ -273,8 +267,6 @@ func (p *KafkaPipe) redistributeConsumers(c *topicConsumer) {
 					if !p.pushPartitionMsg(ctx, outCh, &c.partitions[i]) {
 						return
 					}
-				//case <-shutdown.InitiatedCh():
-				//	return
 				case <-ctx.Done():
 					return
 				}
@@ -323,8 +315,8 @@ func (p *KafkaPipe) initTopicConsumer(topic string) error {
 	return nil
 }
 
-//RegisterConsumer registers a new kafka consumer
-func (p *KafkaPipe) RegisterConsumer(topic string) (Consumer, error) {
+//NewConsumer registers a new kafka consumer
+func (p *KafkaPipe) NewConsumer(topic string) (Consumer, error) {
 	log.Debugf("Registering consumer %v", topic)
 
 	p.lock.Lock()
@@ -397,11 +389,6 @@ func (p *KafkaPipe) commitOffset(topic string, partition int32, offset int64, pe
 	return nil
 }
 
-// CloseProducer closes Kafka producer
-func (p *KafkaPipe) CloseProducer(kc Producer) error {
-	return kc.Close()
-}
-
 func (p *kafkaConsumer) commitConsumerPartitionOffsets() error {
 	var v *kafkaPartition
 	for i := 0; i < len(p.pipe.consumers[p.topic].partitions); i++ {
@@ -418,12 +405,8 @@ func (p *kafkaConsumer) commitConsumerPartitionOffsets() error {
 	return p.err
 }
 
-// CloseConsumer closes Kafka consumer
-func (p *KafkaPipe) CloseConsumer(pc Consumer, graceful bool) error {
-	kc := pc.(*kafkaConsumer)
-
-	kc.cancel() //Unblock FetchNext
-
+// closeConsumer closes Kafka consumer
+func (p *KafkaPipe) closeConsumer(kc *kafkaConsumer, graceful bool) error {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
@@ -593,8 +576,20 @@ func (p *kafkaConsumer) Pop() (interface{}, error) {
 }
 
 //Close closes consumer
-func (p *kafkaConsumer) Close() error {
+func (p *kafkaConsumer) close(graceful bool) error {
+	p.cancel() //Unblock FetchNext
+
+	p.pipe.closeConsumer(p, graceful)
+
 	return nil
+}
+
+func (p *kafkaConsumer) Close() error {
+	return p.close(true)
+}
+
+func (p *kafkaConsumer) CloseOnFailure() error {
+	return p.close(false)
 }
 
 func (p *kafkaConsumer) SaveOffset() error {

@@ -94,18 +94,13 @@ func (p *FilePipe) Type() string {
 	return "file"
 }
 
-//RegisterProducer registers a new sync producer
-func (p *FilePipe) RegisterProducer(topic string) (Producer, error) {
+//NewProducer registers a new sync producer
+func (p *FilePipe) NewProducer(topic string) (Producer, error) {
 	return &fileProducer{p.datadir, topic, "", make(map[string]*file), 0, p.maxFileSize}, nil
 }
 
-// CloseProducer closes File producer
-func (p *FilePipe) CloseProducer(pc Producer) error {
-	return pc.Close()
-}
-
-//RegisterConsumer registers a new file consumer with context
-func (p *FilePipe) RegisterConsumer(topic string) (Consumer, error) {
+//NewConsumer registers a new file consumer with context
+func (p *FilePipe) NewConsumer(topic string) (Consumer, error) {
 	c := &fileConsumer{nil, nil, p.datadir, topic, "", nil, nil, nil, nil}
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 
@@ -134,11 +129,6 @@ func (p *FilePipe) RegisterConsumer(topic string) (Consumer, error) {
 	c.reader = bufio.NewReader(file)
 
 	return c, nil
-}
-
-// CloseConsumer closes File consumer
-func (p *FilePipe) CloseConsumer(pc Consumer, graceful bool) error {
-	return pc.Close()
 }
 
 //SetGen sets generation of the topic stream, separate directory with the string
@@ -454,7 +444,7 @@ func (p *fileConsumer) waitForNextFile(watcher *fsnotify.Watcher) (bool, error) 
 func (p *fileConsumer) FetchNext() bool {
 	for {
 		//reader and file can be nil when directory is empty during
-		//RegisterConsumer
+		//NewConsumer
 		if p.reader != nil {
 			p.msg, p.err = p.reader.ReadBytes(delimiter)
 			if p.err == nil {
@@ -532,7 +522,7 @@ func (p *fileConsumer) Pop() (interface{}, error) {
 }
 
 //Close closes consumer
-func (p *fileConsumer) Close() error {
+func (p *fileConsumer) close(graceful bool) error {
 	log.Debugf("Close consumer: %v", p.topic)
 	p.cancel()
 	if p.file != nil {
@@ -540,6 +530,16 @@ func (p *fileConsumer) Close() error {
 		log.E(err)
 	}
 	return nil
+}
+
+//Close closes consumer
+func (p *fileConsumer) Close() error {
+	return p.close(true)
+}
+
+//Close closes consumer
+func (p *fileConsumer) CloseOnFailure() error {
+	return p.close(false)
 }
 
 func (p *fileConsumer) SaveOffset() error {

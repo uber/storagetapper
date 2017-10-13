@@ -214,7 +214,11 @@ func (s *Streamer) StreamTable(consumer pipe.Consumer, bootstrapCh chan bool) bo
 	wg.Add(1)
 
 	defer func() {
-		log.EL(s.log, s.inPipe.CloseConsumer(consumer, saveOffsets))
+		if saveOffsets {
+			log.EL(s.log, consumer.Close())
+		} else {
+			log.EL(s.log, consumer.CloseOnFailure())
+		}
 		close(exitCh)
 		wg.Wait()
 	}()
@@ -241,6 +245,8 @@ func (s *Streamer) StreamTable(consumer pipe.Consumer, bootstrapCh chan bool) bo
 				return true
 			}
 
+			//Guarantee that we can loose no more than state_update_interval
+			//seconds of writes
 			if err := consumer.SaveOffset(); err != nil {
 				s.log.Errorf("Error persisting pipe position")
 				return true

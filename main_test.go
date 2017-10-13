@@ -293,9 +293,9 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	* produced */
 	p, err := pipe.Create(shutdown.Context, "kafka", cfg.PipeBatchSize, cfg, nil)
 	test.CheckFail(err, t)
-	c, err := p.RegisterConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
+	c, err := p.NewConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
 	test.CheckFail(err, t)
-	c2, err := p.RegisterConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
+	c2, err := p.NewConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
 	test.CheckFail(err, t)
 
 	addTable(init, outPipeFormat, "1", t)
@@ -440,8 +440,8 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	log.Debugf("Start consuming events from %v", "hp-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
 	consumeEvents(c2, cfg.OutputFormat, avroResult2, jsonResult2, outEncoder2, t)
 
-	test.CheckFail(p.CloseConsumer(c, true), t)
-	test.CheckFail(p.CloseConsumer(c2, true), t)
+	test.CheckFail(c.Close(), t)
+	test.CheckFail(c2.Close(), t)
 
 	log.Debugf("FINISHING STEP: %v, %v, %v, %v", inPipeType, inPipeFormat, outPipeType, outPipeFormat)
 }

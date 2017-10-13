@@ -107,11 +107,11 @@ func (s *Streamer) streamFromConsistentSnapshot(concurrent bool, throttleMB int6
 	outProducer := s.outProducer
 	if concurrent {
 		log.Debugf("Registered separate producer for concurrent snapshot")
-		outProducer, err := s.outPipe.RegisterProducer(s.topic)
+		outProducer, err := s.outPipe.NewProducer(s.topic)
 		if log.EL(s.log, err) {
 			return false
 		}
-		defer func() { log.EL(s.log, s.outPipe.CloseProducer(outProducer)) }()
+		defer func() { log.EL(s.log, outProducer.Close()) }()
 	}
 
 	s.log.Infof("Starting consistent snapshot streamer for: %v, %v concurrent: %v", s.topic, s.encoder.Type(), concurrent)

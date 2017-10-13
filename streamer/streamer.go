@@ -224,11 +224,11 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 
 	log.Debugf("Will be streaming to topic: %v", s.topic)
 
-	s.outProducer, err = s.outPipe.RegisterProducer(s.topic)
+	s.outProducer, err = s.outPipe.NewProducer(s.topic)
 	if log.E(err) {
 		return false
 	}
-	defer func() { log.EL(s.log, s.outPipe.CloseProducer(s.outProducer)) }()
+	defer func() { log.EL(s.log, s.outProducer.Close()) }()
 
 	// Ensures that some binlog reader worker has started reading log events for the cluster on
 	// which the table resides.
@@ -256,14 +256,14 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 
 	//Consumer should registered before snapshot started, so it sees all the
 	//event during the snapshot
-	consumer, err := s.inPipe.RegisterConsumer(config.GetTopicName(cfg.BufferTopicNameFormat, s.svc, s.db, s.table))
+	consumer, err := s.inPipe.NewConsumer(config.GetTopicName(cfg.BufferTopicNameFormat, s.svc, s.db, s.table))
 	if log.EL(s.log, err) {
 		return false
 	}
 
 	bootstrapCh := make(chan bool)
 	if !s.startBootstrap(needsBootstrap, bootstrapCh, cfg) {
-		log.E(s.inPipe.CloseConsumer(consumer, false))
+		log.E(consumer.CloseOnFailure())
 		return false
 	}
 

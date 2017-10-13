@@ -59,12 +59,12 @@ func idle(v int64, timeout int, tpool pool.Thread) {
 	//	}
 }
 
-func worker(ctx context.Context, cfg *config.AppConfig, inP pipe.Pipe, outP map[string]pipe.Pipe, tpool pool.Thread) {
+func worker(ctx context.Context, cfg *config.AppConfig, inP pipe.Pipe, outP *map[string]pipe.Pipe, tpool pool.Thread) {
 	log.Debugf("Started worker thread, Total: %+v", shutdown.NumProcs()+1)
 	for !shutdown.Initiated() && !tpool.Terminate() {
 		v := state.GetVersion()
 
-		if !binlog.Worker(ctx, cfg, inP, tpool) {
+		if !binlog.Worker(ctx, cfg, inP, outP, tpool) {
 			streamer.Worker(cfg, inP, outP)
 		}
 
@@ -125,9 +125,7 @@ func mainLow(cfg *config.AppConfig) {
 
 	nprocs := uint(cfg.MaxNumProcs)
 
-	pipeType := "kafka"
 	if cfg.ReaderPipeType == "local" {
-		pipeType = "local"
 		nprocs = 1 /*Start binlog only, it'll control the size of the thread pool*/
 	}
 
@@ -138,7 +136,7 @@ func mainLow(cfg *config.AppConfig) {
 	// * batch_size - in outP batch buffer
 	// * batch_size - in streamer helper channel buffer
 	// * +1 - waiting in streamer helper to be pushed when buffer is full
-	inP, err := pipe.Create(shutdown.Context, pipeType, 2*cfg.PipeBatchSize+1, cfg, state.GetDB())
+	inP, err := pipe.Create(shutdown.Context, cfg.ReaderPipeType, 2*cfg.PipeBatchSize+1, cfg, state.GetDB())
 	log.F(err)
 
 	outP := make(map[string]pipe.Pipe)
@@ -150,7 +148,7 @@ func mainLow(cfg *config.AppConfig) {
 	tp := pool.Create()
 
 	tp.Start(nprocs, func() {
-		worker(shutdown.Context, cfg, inP, outP, tp)
+		worker(shutdown.Context, cfg, inP, &outP, tp)
 	})
 
 	shutdown.Wait()

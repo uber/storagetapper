@@ -152,7 +152,7 @@ func (s *Streamer) startBootstrap(needsBootstrap bool, bootstrapCh chan bool, cf
 	return true
 }
 
-func (s *Streamer) start(cfg *config.AppConfig, outPipes map[string]pipe.Pipe) bool {
+func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) bool {
 	// Fetch Lock on a service-db-table entry in State.
 	// Currently, each event streamer worker handles a single table.
 	//TODO: Handle multiple tables per event streamer worker in future
@@ -192,7 +192,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes map[string]pipe.Pipe) b
 			s.db = row.Db
 			s.table = row.Table
 			s.id = row.ID
-			s.outPipe = outPipes[row.Output]
+			s.outPipe = (*outPipes)[row.Output]
 			if s.outPipe == nil {
 				log.Errorf("Unknown output pipe type: %v", row.Output)
 				return true
@@ -275,7 +275,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes map[string]pipe.Pipe) b
 }
 
 // Worker : Initializer function
-func Worker(cfg *config.AppConfig, inP pipe.Pipe, outPipes map[string]pipe.Pipe) bool {
+func Worker(cfg *config.AppConfig, inP pipe.Pipe, outPipes *map[string]pipe.Pipe) bool {
 	s := &Streamer{inPipe: inP}
 	return s.start(cfg, outPipes)
 }

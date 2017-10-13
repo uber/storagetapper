@@ -67,7 +67,8 @@ type reader struct {
 	masterCI        *db.Addr
 	tables          map[string]map[string]*table
 	numTables       int
-	pipe            pipe.Pipe
+	bufPipe         pipe.Pipe
+	outPipes        *map[string]pipe.Pipe
 	dbl             db.Loc
 	ctx             context.Context
 	log             log.Logger
@@ -151,8 +152,21 @@ func (b *reader) addNewTable(st state.Type, i int) bool {
 		return true
 	}
 
-	pn := config.GetTopicName(b.topicNameFormat, t.Service, t.Db, t.Table)
-	p, err := b.pipe.RegisterProducer(pn)
+	cfg := config.Get()
+	pn := config.GetTopicName(cfg.BufferTopicNameFormat, t.Service, t.Db, t.Table)
+	pipe := b.bufPipe
+
+	if !cfg.ReaderBuffer {
+		var ok bool
+		pipe, ok = (*b.outPipes)[t.Output]
+		if !ok {
+			b.log.Errorf("Service: %v Db: %v Table: %v. Unknown pipe: %v", t.Service, t.Db, t.Table, t.Output)
+			return false
+		}
+		pn = cfg.GetOutputTopicName(t.Service, t.Db, t.Table)
+	}
+
+	p, err := pipe.RegisterProducer(pn)
 	if err != nil {
 		return false
 	}
@@ -169,7 +183,7 @@ func (b *reader) removeDeletedTables() (count uint) {
 		for n, t := range d {
 			if t.dead {
 				b.log.Infof("Table with id %v removed from binlog reader", t.id)
-				err := b.pipe.CloseProducer(t.producer)
+				err := t.producer.Close()
 				log.EL(b.log, err)
 				delete(d, n)
 			} else {
@@ -186,7 +200,7 @@ func (b *reader) closeTableProducers() {
 	for _, d := range b.tables {
 		for n, t := range d {
 			b.log.Debugf("Closing producer for service=%v, table=%v", t.service, t.id)
-			err := b.pipe.CloseProducer(t.producer)
+			err := t.producer.Close()
 			log.EL(b.log, err)
 			delete(d, n)
 		}
@@ -214,7 +228,7 @@ func (b *reader) reloadState() bool {
 
 		/* Table was deleted and inserted again. Reinitialize */
 		if tbl != nil && tbl.id != t.ID {
-			err = b.pipe.CloseProducer(tbl.producer)
+			err = tbl.producer.Close()
 			log.EL(b.log, err)
 			delete(b.tables[t.Db], t.Table)
 		}
@@ -229,7 +243,7 @@ func (b *reader) reloadState() bool {
 
 	b.metrics.NumTablesIngesting.Set(int64(c))
 
-	if b.pipe.Type() == "local" {
+	if b.bufPipe.Type() == "local" {
 		b.tpool.Adjust(c + 1)
 	}
 
@@ -322,12 +336,13 @@ func (b *reader) wrapEvent(key string, bd []byte, seqno uint64) ([]byte, error) 
 
 func (b *reader) produceRow(tp int, t *table, row *[]interface{}) error {
 	var err error
+	buffered := config.Get().ReaderBuffer
 	seqno := b.nextSeqNo()
 	if seqno == 0 {
 		return fmt.Errorf("Failed to generate next seqno. Current seqno:%+v", b.seqNo)
 	}
 	key := encoder.GetRowKey(t.encoder.Schema(), row)
-	if b.pipe.Type() == "local" {
+	if buffered && b.bufPipe.Type() == "local" {
 		err = t.producer.PushBatch(key, &types.RowMessage{Type: tp, Key: key, Data: row, SeqNo: seqno})
 	} else {
 		var bd []byte
@@ -335,9 +350,11 @@ func (b *reader) produceRow(tp int, t *table, row *[]interface{}) error {
 		if log.EL(b.log, err) {
 			return err
 		}
-		bd, err = b.wrapEvent(key, bd, seqno)
-		if log.EL(b.log, err) {
-			return err
+		if buffered {
+			bd, err = b.wrapEvent(key, bd, seqno)
+			if log.EL(b.log, err) {
+				return err
+			}
 		}
 		err = t.producer.PushBatch(key, bd)
 	}
@@ -765,7 +782,7 @@ func (b *reader) start(cfg *config.AppConfig) bool {
 }
 
 /*Worker start the binlog reader main loop*/
-func Worker(c context.Context, cfg *config.AppConfig, p pipe.Pipe, tp pool.Thread) bool {
-	b := &reader{ctx: c, tpool: tp, pipe: p}
+func Worker(c context.Context, cfg *config.AppConfig, bufPipe pipe.Pipe, outPipes *map[string]pipe.Pipe, tp pool.Thread) bool {
+	b := &reader{ctx: c, tpool: tp, bufPipe: bufPipe, outPipes: outPipes}
 	return b.start(cfg)
 }

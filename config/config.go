@@ -37,21 +37,26 @@ type AppConfig struct {
 	Port        int    `yaml:"port"`
 	PortDyn     int
 
-	MaxNumProcs           int      `yaml:"max_num_procs"`
-	StateUpdateTimeout    int      `yaml:"state_update_timeout"`
-	StateConnectURL       string   `yaml:"state_connect_url"`
-	KafkaAddrs            []string `yaml:"kafka_addresses"`
-	ReaderPipeType        string   `yaml:"reader_pipe_type"`
-	OutputPipeType        string   `yaml:"output_pipe_type"`
-	ReaderOutputFormat    string   `yaml:"reader_output_format"`
-	OutputFormat          string   `yaml:"output_format"`
-	ConcurrentBootstrap   bool     `yaml:"concurrent_bootstrap"`
-	OutputTopicNameFormat string   `yaml:"output_topic_name_format"`
-	BufferTopicNameFormat string   `yaml:"buffer_topic_name_format"`
-	PipeBatchSize         int      `yaml:"pipe_batch_size"`
-	OutputPipeConcurrency int      `yaml:"output_pipe_concurrency"`
-	ClusterConcurrency    int      `yaml:"cluster_concurrency"`
-	ForceMasterConnection bool     `yaml:"force_master_connection"`
+	MaxNumProcs        int      `yaml:"max_num_procs"`
+	StateUpdateTimeout int      `yaml:"state_update_timeout"`
+	StateConnectURL    string   `yaml:"state_connect_url"`
+	KafkaAddrs         []string `yaml:"kafka_addresses"`
+
+	ReaderPipeType        string `yaml:"reader_pipe_type"`
+	ReaderOutputFormat    string `yaml:"reader_output_format"`
+	BufferTopicNameFormat string `yaml:"buffer_topic_name_format"`
+	ReaderBuffer          bool   `yaml:"reader_buffer"`
+
+	OutputPipeType        string `yaml:"output_pipe_type"`
+	OutputFormat          string `yaml:"output_format"`
+	ConcurrentBootstrap   bool   `yaml:"concurrent_bootstrap"`
+	OutputTopicNameFormat string `yaml:"output_topic_name_format"`
+	ClusterConcurrency    int    `yaml:"cluster_concurrency"`
+
+	PipeBatchSize int `yaml:"pipe_batch_size"`
+
+	OutputPipeConcurrency int  `yaml:"output_pipe_concurrency"`
+	ForceMasterConnection bool `yaml:"force_master_connection"`
 
 	ThrottleTargetMB   int64 `yaml:"throttle_target_mb"`
 	ThrottleTargetIOPS int64 `yaml:"throttle_target_iops"`
@@ -70,14 +75,18 @@ func GetDefaultConfig() *AppConfig {
 		Port:    7836,
 		PortDyn: 7836,
 
-		MaxNumProcs:           runtime.NumCPU(),
-		StateUpdateTimeout:    300,
+		MaxNumProcs:        runtime.NumCPU(),
+		StateUpdateTimeout: 300,
+
 		ReaderPipeType:        "kafka",
 		ReaderOutputFormat:    "json",
+		BufferTopicNameFormat: types.MySvcName + ".service.%s.db.%s.table.%s",
+		ReaderBuffer:          true,
+
 		OutputPipeType:        "kafka",
 		OutputFormat:          "avro",
 		OutputTopicNameFormat: "hp-%s-%s-%s",
-		BufferTopicNameFormat: types.MySvcName + ".service.%s.db.%s.table.%s",
+
 		PipeBatchSize:         256,
 		OutputPipeConcurrency: 1,
 		ClusterConcurrency:    0,

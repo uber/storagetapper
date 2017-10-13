@@ -63,7 +63,7 @@ var (
 func EventWorker(cfg *config.AppConfig, inP pipe.Pipe, outP map[string]pipe.Pipe, t *testing.T) {
 	defer shutdown.Done()
 	log.Debugf("Starting Event streamer reader")
-	Worker(cfg, inP, outP)
+	Worker(cfg, inP, &outP)
 	log.Debugf("Finished Event streamer reader")
 }
 

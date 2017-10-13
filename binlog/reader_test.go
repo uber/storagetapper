@@ -304,7 +304,9 @@ func worker(cfg *config.AppConfig, p pipe.Pipe, tpool pool.Thread, t *testing.T)
 	defer shutdown.Done()
 
 	log.Debugf("Starting binlog reader in test")
-	if !Worker(shutdown.Context, cfg, p, tpool) {
+	m := make(map[string]pipe.Pipe)
+	m[p.Type()] = p
+	if !Worker(shutdown.Context, cfg, p, &m, tpool) {
 		t.FailNow()
 	}
 	log.Debugf("Finished binlog worker in test")

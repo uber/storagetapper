@@ -306,9 +306,14 @@ func worker(cfg *config.AppConfig, p pipe.Pipe, tpool pool.Thread, t *testing.T)
 	log.Debugf("Starting binlog reader in test")
 	m := make(map[string]pipe.Pipe)
 	m[p.Type()] = p
-	if !Worker(shutdown.Context, cfg, p, &m, tpool) {
+
+	w, err := createMySQLReader(shutdown.Context, cfg, p, &m, tpool)
+	test.CheckFail(err, t)
+
+	if !w.Worker() {
 		t.FailNow()
 	}
+
 	log.Debugf("Finished binlog worker in test")
 }
 

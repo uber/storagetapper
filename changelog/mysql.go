@@ -61,7 +61,7 @@ type table struct {
 	encoder    encoder.Encoder
 }
 
-type reader struct {
+type mysqlReader struct {
 	gtidSet         *mysql.MysqlGTIDSet
 	seqNo           uint64
 	masterCI        *db.Addr
@@ -82,10 +82,18 @@ type reader struct {
 	lock            lock.Lock
 }
 
+func init() {
+	registerPlugin("mysql", createMySQLReader)
+}
+
+func createMySQLReader(c context.Context, cfg *config.AppConfig, bp pipe.Pipe, op *map[string]pipe.Pipe, tp pool.Thread) (Reader, error) {
+	return &mysqlReader{ctx: c, tpool: tp, bufPipe: bp, outPipes: op}, nil
+}
+
 var thisInstanceCluster string
 
 /*ThisInstanceCluster returns the cluster name name this instance's binlog
-* reader is working on. This is used by local streamers identify tables they
+* mysqlReader is working on. This is used by local streamers identify tables they
 * have to stream*/
 func ThisInstanceCluster() string {
 	return thisInstanceCluster
@@ -96,7 +104,7 @@ func getClusterTag(cName string) map[string]string {
 	return map[string]string{"cluster": cName}
 }
 
-func (b *reader) binlogFormat() string {
+func (b *mysqlReader) binlogFormat() string {
 	var rf string
 	masterDB, err := db.Open(b.masterCI)
 	if log.E(err) {
@@ -111,7 +119,7 @@ func (b *reader) binlogFormat() string {
 	return rf
 }
 
-func (b *reader) pushSchema(t *table) bool {
+func (b *mysqlReader) pushSchema(t *table) bool {
 	seqno := b.nextSeqNo()
 	if seqno == 0 {
 		log.Errorf("Failed to generate next seqno. Current seqno:%+v", b.seqNo)
@@ -139,7 +147,7 @@ func (b *reader) pushSchema(t *table) bool {
 	return !log.EL(b.log, err)
 }
 
-func (b *reader) addNewTable(st state.Type, i int) bool {
+func (b *mysqlReader) addNewTable(st state.Type, i int) bool {
 	t := st[i]
 
 	enc, err := encoder.Create(b.outputFormat, t.Service, t.Db, t.Table)
@@ -171,14 +179,14 @@ func (b *reader) addNewTable(st state.Type, i int) bool {
 		return false
 	}
 
-	b.log.Infof("New table added to binlog reader (%v,%v,%v), will produce to: %v", t.Service, t.Db, t.Table, pn)
+	b.log.Infof("New table added to MySQL binlog reader (%v,%v,%v), will produce to: %v", t.Service, t.Db, t.Table, pn)
 
 	b.tables[t.Db][t.Table] = &table{t.ID, false, p, t.RawSchema, t.SchemaGtid, t.Service, enc}
 
 	return true
 }
 
-func (b *reader) removeDeletedTables() (count uint) {
+func (b *mysqlReader) removeDeletedTables() (count uint) {
 	for _, d := range b.tables {
 		for n, t := range d {
 			if t.dead {
@@ -196,7 +204,7 @@ func (b *reader) removeDeletedTables() (count uint) {
 	return
 }
 
-func (b *reader) closeTableProducers() {
+func (b *mysqlReader) closeTableProducers() {
 	for _, d := range b.tables {
 		for n, t := range d {
 			b.log.Debugf("Closing producer for service=%v, table=%v", t.service, t.id)
@@ -207,7 +215,7 @@ func (b *reader) closeTableProducers() {
 	}
 }
 
-func (b *reader) reloadState() bool {
+func (b *mysqlReader) reloadState() bool {
 	st, err := state.GetCond("cluster=? AND input='mysql'", b.dbl.Cluster)
 	if err != nil {
 		b.log.Errorf("Failed to read state, Error: %v", err.Error())
@@ -259,7 +267,7 @@ func (b *reader) reloadState() bool {
 
 /* Generates next seqno, seqno is used as a logical time in the produced events */
 /* Saves seqno in the state every seqnoSaveInterval */
-func (b *reader) nextSeqNo() uint64 {
+func (b *mysqlReader) nextSeqNo() uint64 {
 	b.seqNo++
 	if b.seqNo%seqnoSaveInterval == 0 && !b.updateState(false) {
 		return 0
@@ -267,7 +275,7 @@ func (b *reader) nextSeqNo() uint64 {
 	return b.seqNo
 }
 
-func (b *reader) updateState(inc bool) bool {
+func (b *mysqlReader) updateState(inc bool) bool {
 	log.Debugf("Updating state")
 
 	if !b.lock.Refresh() {
@@ -311,7 +319,7 @@ func (b *reader) updateState(inc bool) bool {
 	return true
 }
 
-func (b *reader) wrapEvent(key string, bd []byte, seqno uint64) ([]byte, error) {
+func (b *mysqlReader) wrapEvent(key string, bd []byte, seqno uint64) ([]byte, error) {
 	akey := make([]interface{}, 1)
 	akey[0] = key
 
@@ -334,7 +342,7 @@ func (b *reader) wrapEvent(key string, bd []byte, seqno uint64) ([]byte, error) 
 	return buf.Bytes(), nil
 }
 
-func (b *reader) produceRow(tp int, t *table, row *[]interface{}) error {
+func (b *mysqlReader) produceRow(tp int, t *table, row *[]interface{}) error {
 	var err error
 	buffered := config.Get().ReaderBuffer
 	seqno := b.nextSeqNo()
@@ -370,7 +378,7 @@ func (b *reader) produceRow(tp int, t *table, row *[]interface{}) error {
 	return nil
 }
 
-func (b *reader) handleRowsEvent(ev *replication.BinlogEvent, t *table) bool {
+func (b *mysqlReader) handleRowsEvent(ev *replication.BinlogEvent, t *table) bool {
 	var err error
 
 	re := ev.Event.(*replication.RowsEvent)
@@ -407,7 +415,7 @@ func (b *reader) handleRowsEvent(ev *replication.BinlogEvent, t *table) bool {
 	return !log.E(err)
 }
 
-func (b *reader) handleQueryEvent(ev *replication.BinlogEvent) bool {
+func (b *mysqlReader) handleQueryEvent(ev *replication.BinlogEvent) bool {
 	qe := ev.Event.(*replication.QueryEvent)
 
 	s := util.BytesToString(qe.Query)
@@ -473,7 +481,7 @@ func (b *reader) handleQueryEvent(ev *replication.BinlogEvent) bool {
 	return true
 }
 
-func (b *reader) incGTID(v *replication.GTIDEvent) bool {
+func (b *mysqlReader) incGTID(v *replication.GTIDEvent) bool {
 	u, err := uuid.FromBytes(v.SID)
 	if log.E(err) {
 		return false
@@ -501,7 +509,7 @@ func (b *reader) incGTID(v *replication.GTIDEvent) bool {
 	return true
 }
 
-func (b *reader) handleEvent(ev *replication.BinlogEvent) bool {
+func (b *mysqlReader) handleEvent(ev *replication.BinlogEvent) bool {
 	if ev.Header.Timestamp != 0 {
 		b.metrics.TimeToEncounter.Record(time.Duration(time.Now().Unix()-int64(ev.Header.Timestamp)) * time.Second)
 	}
@@ -549,7 +557,7 @@ type result struct {
 	err error
 }
 
-func (b *reader) processBatch(msg *result, msgCh chan *result) bool {
+func (b *mysqlReader) processBatch(msg *result, msgCh chan *result) bool {
 	var i, s int
 L:
 	for {
@@ -599,7 +607,7 @@ L:
 }
 
 //eventFetcher is blocking call to buffered channel converter
-func (b *reader) eventFetcher(ctx context.Context, s *replication.BinlogStreamer, wg *sync.WaitGroup, msgCh chan *result, exitCh chan bool) {
+func (b *mysqlReader) eventFetcher(ctx context.Context, s *replication.BinlogStreamer, wg *sync.WaitGroup, msgCh chan *result, exitCh chan bool) {
 	defer wg.Done()
 L:
 	for {
@@ -616,10 +624,10 @@ L:
 			break L
 		}
 	}
-	log.Debugf("Finished binlog reader helper goroutine")
+	log.Debugf("Finished MySQL binlog reader helper goroutine")
 }
 
-func (b *reader) readEvents(c *db.Addr, stateUpdateTimeout int) {
+func (b *mysqlReader) readEvents(c *db.Addr, stateUpdateTimeout int) {
 	id := rand.Uint32()
 	for id == 0 {
 		id = rand.Uint32()
@@ -673,14 +681,14 @@ M:
 		}
 	}
 
-	b.log.Debugf("Finishing binlog reader")
+	b.log.Debugf("Finishing MySQL binlog reader")
 
 	if !log.EL(b.log, state.SaveBinlogState(&b.dbl, b.gtidSet.String(), b.seqNo)) {
 		b.log.WithFields(log.Fields{"gtid": b.gtidSet.String(), "SeqNo": b.seqNo}).Infof("Binlog state saved")
 	}
 }
 
-func (b *reader) lockCluster(lock lock.Lock, st *state.Type) bool {
+func (b *mysqlReader) lockCluster(lock lock.Lock, st *state.Type) bool {
 	for _, r := range *st {
 		ln := "cluster." + r.Cluster
 		log.Debugf("Trying to lock: " + ln)
@@ -695,7 +703,7 @@ func (b *reader) lockCluster(lock lock.Lock, st *state.Type) bool {
 	return false
 }
 
-func (b *reader) start(cfg *config.AppConfig) bool {
+func (b *mysqlReader) start(cfg *config.AppConfig) bool {
 	st, err := state.Get()
 	if log.E(err) {
 		return true
@@ -713,7 +721,7 @@ func (b *reader) start(cfg *config.AppConfig) bool {
 
 	bTags := getClusterTag(b.dbl.Cluster)
 	b.metrics = metrics.GetBinlogReaderMetrics(bTags)
-	log.Debugf("Initializing metrics for Binlog reader, tagged with tags: %v ", bTags)
+	log.Debugf("Initializing metrics for MySQL binlog reader, tagged with tags: %v ", bTags)
 
 	b.metrics.NumWorkers.Inc()
 	defer b.metrics.NumWorkers.Dec()
@@ -725,7 +733,7 @@ func (b *reader) start(cfg *config.AppConfig) bool {
 
 	b.log = log.WithFields(log.Fields{"cluster": b.dbl.Cluster})
 
-	b.log.Infof("Starting binlog reader")
+	b.log.Infof("Starting MySQL binlog reader")
 
 	/* Get Master's connection info */
 	b.masterCI = db.GetInfo(&b.dbl, db.Master)
@@ -776,13 +784,11 @@ func (b *reader) start(cfg *config.AppConfig) bool {
 
 	b.readEvents(b.masterCI, cfg.StateUpdateTimeout)
 
-	b.log.Infof("Binlog reader finished")
+	b.log.Infof("MySQL Binlog reader finished")
 
 	return true
 }
 
-/*Worker start the binlog reader main loop*/
-func Worker(c context.Context, cfg *config.AppConfig, bufPipe pipe.Pipe, outPipes *map[string]pipe.Pipe, tp pool.Thread) bool {
-	b := &reader{ctx: c, tpool: tp, bufPipe: bufPipe, outPipes: outPipes}
-	return b.start(cfg)
+func (b *mysqlReader) Worker() bool {
+	return b.start(config.Get())
 }

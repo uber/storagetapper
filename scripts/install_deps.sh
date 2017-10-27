@@ -11,3 +11,4 @@ go get github.com/alecthomas/gometalinter
 go get github.com/tinylib/msgp
 gometalinter --install
 /bin/sh scripts/install_kafka.sh
+/bin/sh scripts/install_hadoop.sh

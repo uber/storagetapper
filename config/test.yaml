@@ -8,4 +8,5 @@ state_update_timeout: 10
 state_connect_url: "root@localhost"
 kafka_addresses:
     - "localhost:9092"
+hadoop_address: "localhost:9000"
 

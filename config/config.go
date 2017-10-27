@@ -41,6 +41,7 @@ type AppConfig struct {
 	StateUpdateTimeout int      `yaml:"state_update_timeout"`
 	StateConnectURL    string   `yaml:"state_connect_url"`
 	KafkaAddrs         []string `yaml:"kafka_addresses"`
+	HadoopAddress      string   `yaml:"hadoop_address"`
 
 	ChangelogPipeType        string `yaml:"changelog_pipe_type"`
 	ChangelogOutputFormat    string `yaml:"changelog_output_format"`

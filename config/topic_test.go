@@ -21,9 +21,8 @@
 package config
 
 import (
+	"fmt"
 	"testing"
-
-	"github.com/ngaut/log"
 )
 
 var topicTests = [][]string{
@@ -37,8 +36,8 @@ var topicTests = [][]string{
 func TestTopicNameFormat(t *testing.T) {
 	for _, r := range topicTests {
 		if r[1] != GetTopicName(r[0], "p1", "p2", "p3") {
-			log.Errorf("Received : %v", GetTopicName(r[0], "p1", "p2", "p3"))
-			log.Errorf("Reference: %v", r[1])
+			fmt.Printf("Received : %v", GetTopicName(r[0], "p1", "p2", "p3"))
+			fmt.Printf("Reference: %v", r[1])
 		}
 	}
 }

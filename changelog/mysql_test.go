@@ -22,6 +22,7 @@ package changelog
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"reflect"
 	"sync/atomic"
@@ -358,12 +359,12 @@ func Prepare(pipeType string, create []string, t *testing.T) (*sql.DB, pipe.Pipe
 
 	log.Debugf("Starting binlog reader")
 
-	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1", "mysql", "") {
+	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1", "mysql", "kafka") {
 		t.FailNow()
 	}
 
 	if testName == "TestMultiTable" {
-		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", "") {
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", "kafka") {
 			t.FailNow()
 		}
 	}
@@ -447,7 +448,10 @@ func CheckBinlogFormat(t *testing.T) {
 */
 
 func initConsumeTableEvents(p pipe.Pipe, db string, table string, t *testing.T) pipe.Consumer {
-	tn := types.MySvcName + ".service.test_svc1.db." + db + ".table." + table
+	tn := fmt.Sprintf("%s.service.test_svc1.db.%s.table.%s", types.MySvcName, db, table)
+	if !cfg.ReaderBuffer {
+		tn = fmt.Sprintf("hp-%s-%s-%s", "test_svc1", db, table)
+	}
 	pc, err := p.NewConsumer(tn)
 	test.CheckFail(err, t)
 	log.Debugf("Start event consumer from: " + tn)
@@ -455,9 +459,12 @@ func initConsumeTableEvents(p pipe.Pipe, db string, table string, t *testing.T) 
 }
 
 func consumeTableEvents(pc pipe.Consumer, db string, table string, result []types.CommonFormatEvent, t *testing.T) {
-	enc, err := encoder.Create(encoder.Internal.Type(), "test_svc1", db, table)
-
+	enc, err := encoder.Create(cfg.ReaderOutputFormat, "test_svc1", db, table)
 	test.CheckFail(err, t)
+	if !cfg.ReaderBuffer {
+		enc, err = encoder.Create(cfg.OutputFormat, "test_svc1", db, table)
+		test.CheckFail(err, t)
+	}
 
 	for i, v := range result {
 		if !pc.FetchNext() {
@@ -474,7 +481,7 @@ func consumeTableEvents(pc pipe.Consumer, db string, table string, result []type
 		case *types.RowMessage:
 			b, err = enc.Row(m.Type, m.Data, m.SeqNo)
 			test.CheckFail(err, t)
-			cf, err = encoder.Internal.DecodeEvent(b.([]byte))
+			cf, err = enc.DecodeEvent(b.([]byte))
 			test.CheckFail(err, t)
 		case []byte:
 
@@ -482,14 +489,15 @@ func consumeTableEvents(pc pipe.Consumer, db string, table string, result []type
 			payload, err := encoder.Internal.UnwrapEvent(b.([]byte), cf)
 			test.CheckFail(err, t)
 
-			if cf.Type != "schema" {
+			if cf.Type != "insert" && cf.Type != "delete" && cf.Type != "schema" {
 				test.CheckFail(err, t)
-				cf, err = encoder.Internal.DecodeEvent(payload)
+				cf, err = enc.DecodeEvent(payload)
 				test.CheckFail(err, t)
+				test.Assert(t, false, "false")
 			}
 		}
 
-		encoder.ChangeCfFields(encoder.Internal.Type(), cf, &v, t)
+		encoder.ChangeCfFields(enc.Type(), cf, &v, t)
 
 		cf.SeqNo -= 1000000
 		cf.Timestamp = 0
@@ -615,6 +623,12 @@ func TestMultiTable(t *testing.T) {
 	testName = "TestMultiTable"
 	CheckQueries("local", testMultiTablePrepare, testMultiTable, testMultiTableResult1, "json", t)
 	testName = ""
+}
+
+func TestDirectOutput(t *testing.T) {
+	cfg.ReaderBuffer = false
+	cfg.OutputFormat = "msgpack" //set to different from "json" to check that reader output in final format and not in buffer format
+	CheckQueries("kafka", testBasicPrepare, testBasic, testBasicResult, "json", t)
 }
 
 func TestReaderShutdown(t *testing.T) {

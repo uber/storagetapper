@@ -168,7 +168,7 @@ func (b *mysqlReader) addNewTable(st state.Type, i int) bool {
 		var ok bool
 		pipe, ok = (*b.outPipes)[t.Output]
 		if !ok {
-			b.log.Errorf("Service: %v Db: %v Table: %v. Unknown pipe: %v", t.Service, t.Db, t.Table, t.Output)
+			b.log.Errorf("Service: %v Db: %v Table: %v. Unknown pipe: '%v'", t.Service, t.Db, t.Table, t.Output)
 			return false
 		}
 		pn = cfg.GetOutputTopicName(t.Service, t.Db, t.Table)
@@ -358,7 +358,7 @@ func (b *mysqlReader) produceRow(tp int, t *table, row *[]interface{}) error {
 		if log.EL(b.log, err) {
 			return err
 		}
-		if buffered {
+		if buffered && t.encoder.Type() != encoder.Internal.Type() {
 			bd, err = b.wrapEvent(key, bd, seqno)
 			if log.EL(b.log, err) {
 				return err

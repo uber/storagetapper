@@ -74,15 +74,16 @@ func HTTPPostJSON(url string, body string) error {
 	if err != nil {
 		return err
 	}
+	defer func() { log.E(resp.Body.Close()) }()
+	b, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	log.Debugf("RESPONSE: %v", string(b))
 	if resp.StatusCode != http.StatusOK {
-		b, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return err
-		}
 		return fmt.Errorf("%+v: %+v", resp.Status, string(b))
 	}
-	err = resp.Body.Close()
-	return err
+	return nil
 }
 
 //BytesToString converts zero terminated byte array to string

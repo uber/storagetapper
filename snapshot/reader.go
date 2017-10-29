@@ -24,7 +24,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/encoder"
@@ -46,34 +45,12 @@ type Reader struct {
 	err     error
 }
 
-//Prepare connects to the db and starts snapshot for the table
-func (s *Reader) Prepare(cluster string, svc string, dbs string, table string, enc encoder.Encoder) (lastGtid string, err error) {
-	ci := db.GetInfo(&db.Loc{Cluster: cluster, Service: svc, Name: dbs}, db.Slave)
-	if ci == nil {
-		return "", errors.New("No db info received")
-	}
-
-	s.log = log.WithFields(log.Fields{"host": ci.Host + ":" + strconv.Itoa(int(ci.Port)), "db": ci.Db, "table": table})
-
-	s.conn, err = db.Open(ci)
-	if log.E(err) {
-		return
-	}
+//PrepareFromTx starts snapshot from given tx
+func (s *Reader) PrepareFromTx(svc string, dbs string, table string, enc encoder.Encoder, tx *sql.Tx) (lastGtid string, err error) {
+	s.log = log.WithFields(log.Fields{"service": svc, "db": dbs, "table": table})
 
 	s.encoder = enc
-
-	/*Do we need a transaction at all? We can use seqno to separate snapshot and
-	* binlog data. Binlog is always newer. */
-	/* If we need it, we need to rely on MySQL instance transactioin isolation
-	* level or uncomment later if we have go1.8 */
-	/*BeginTx since go1.8 */
-	/*
-		s.trx, err = s.conn.BeginTx(shutdown.Context, sql.TxOptions{sql.LevelRepeatableRead, true})
-	*/
-	s.trx, err = s.conn.Begin()
-	if log.EL(s.log, err) {
-		return "", err
-	}
+	s.trx = tx
 
 	/* Get GTID which is earlier in time then any row we will read during
 	* snapshot */
@@ -83,7 +60,7 @@ func (s *Reader) Prepare(cluster string, svc string, dbs string, table string, e
 	}
 	/* Use approximate row count, so as it's for reporting progress only */
 
-	err = s.trx.QueryRow("SELECT table_rows FROM information_schema.tables WHERE table_schema=? AND table_name=?", ci.Db, table).Scan(&s.nrecs)
+	err = s.trx.QueryRow("SELECT table_rows FROM information_schema.tables WHERE table_schema=? AND table_name=?", dbs, table).Scan(&s.nrecs)
 	//	err = s.trx.QueryRow("SELECT COUNT(*) FROM `" + table + "`").Scan(&s.nrecs)
 	if log.EL(s.log, err) {
 		return
@@ -100,11 +77,46 @@ func (s *Reader) Prepare(cluster string, svc string, dbs string, table string, e
 	return
 }
 
-//End deinitializes snapshot reader
-func (s *Reader) End() {
+//Prepare connects to the db and starts snapshot for the table
+func (s *Reader) Prepare(cluster string, svc string, dbs string, table string, enc encoder.Encoder) (lastGtid string, err error) {
+	ci := db.GetInfo(&db.Loc{Cluster: cluster, Service: svc, Name: dbs}, db.Slave)
+	if ci == nil {
+		return "", errors.New("No db info received")
+	}
+
+	s.conn, err = db.Open(ci)
+	if log.E(err) {
+		return
+	}
+
+	/*Do we need a transaction at all? We can use seqno to separate snapshot and
+	* binlog data. Binlog is always newer. */
+	/* If we need it, we need to rely on MySQL instance transactioin isolation
+	* level or uncomment later if we have go1.8 */
+	/*BeginTx since go1.8 */
+	/*
+		s.trx, err = s.conn.BeginTx(shutdown.Context, sql.TxOptions{sql.LevelRepeatableRead, true})
+	*/
+	s.trx, err = s.conn.Begin()
+	if log.E(err) {
+		return "", err
+	}
+
+	return s.PrepareFromTx(svc, dbs, table, enc, s.trx)
+}
+
+//EndFromTx deinitializes reader started by PrepareFromTx
+func (s *Reader) EndFromTx() {
 	if s.rows != nil {
 		log.EL(s.log, s.rows.Close())
 	}
+	s.log.Infof("Snapshot reader finished")
+}
+
+//End deinitializes snapshot reader
+func (s *Reader) End() {
+	s.EndFromTx()
+
 	if s.trx != nil {
 		log.EL(s.log, s.trx.Rollback())
 	}

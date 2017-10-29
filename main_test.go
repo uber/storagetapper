@@ -191,7 +191,6 @@ func initTestDB(init bool, t *testing.T) {
 
 		err = conn.Close()
 		test.CheckFail(err, t)
-		seqno = 0
 	}
 }
 
@@ -212,6 +211,14 @@ func addTable(init bool, format string, tableNum string, t *testing.T) {
 		dst := `, "dst" : "local"`
 		err = util.HTTPPostJSON("http://localhost:7836/schema", `{"cmd" : "register", "service" : "e2e_test_svc1", "db" : "e2e_test_db1", "table" : "`+table+`"`+dst+` }`)
 		test.CheckFail(err, t)
+
+		if tableNum == "1" {
+			conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: ""})
+			test.CheckFail(err, t)
+			test.ExecSQL(conn, t, "UPDATE "+types.MyDbName+".state SET seqno=? WHERE tableName=?", seqno-1000000, table)
+			err = conn.Close()
+			test.CheckFail(err, t)
+		}
 	}
 }
 

@@ -121,3 +121,19 @@ func QueryRowSQL(d *sql.DB, query string, param ...interface{}) *sql.Row {
 	log.Debugf("SQL: %v %v", query, param)
 	return d.QueryRow(query, param...)
 }
+
+//CheckTxIsolation return nil if transaction isolation is "level"
+func CheckTxIsolation(tx *sql.Tx, level string) error {
+	var txLevel string
+
+	err := tx.QueryRow("select @@session.tx_isolation").Scan(&txLevel)
+	if err != nil {
+		return err
+	}
+
+	if txLevel != level {
+		err = fmt.Errorf("Transaction isolation level must be: %v, got: %v", level, txLevel)
+	}
+
+	return nil
+}

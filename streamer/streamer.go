@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/siddontang/go-mysql/mysql"
-	"github.com/uber/storagetapper/binlog"
+	"github.com/uber/storagetapper/changelog"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/encoder"
@@ -163,7 +163,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 	log.Debugf("Started streamer thread")
 
 	if cfg.ReaderPipeType == "local" {
-		st, err = state.GetForCluster(binlog.ThisInstanceCluster())
+		st, err = state.GetForCluster(changelog.ThisInstanceCluster())
 	} else {
 		st, err = state.Get()
 	}

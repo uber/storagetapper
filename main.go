@@ -25,7 +25,7 @@ import (
 	"golang.org/x/net/context" //"context"
 	"time"
 
-	"github.com/uber/storagetapper/binlog"
+	"github.com/uber/storagetapper/changelog"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/encoder"
@@ -64,7 +64,7 @@ func worker(ctx context.Context, cfg *config.AppConfig, inP pipe.Pipe, outP *map
 	for !shutdown.Initiated() && !tpool.Terminate() {
 		v := state.GetVersion()
 
-		if !binlog.Worker(ctx, cfg, inP, outP, tpool) {
+		if !changelog.Worker(ctx, cfg, inP, outP, tpool) {
 			streamer.Worker(cfg, inP, outP)
 		}
 
@@ -126,7 +126,7 @@ func mainLow(cfg *config.AppConfig) {
 	nprocs := uint(cfg.MaxNumProcs)
 
 	if cfg.ReaderPipeType == "local" {
-		nprocs = 1 /*Start binlog only, it'll control the size of the thread pool*/
+		nprocs = 1 /*Start changelog reader only, it'll control the size of the thread pool*/
 	}
 
 	//Increasing batch size is important to prevent Pipes from preserving

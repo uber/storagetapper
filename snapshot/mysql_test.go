@@ -82,7 +82,9 @@ func TestEmptyTable(t *testing.T) {
 		test.CheckFail(err, t)
 	}()
 
-	s := Reader{}
+	s, err := InitReader("mysql")
+	test.CheckFail(err, t)
+
 	var enc encoder.Encoder
 	if encoder.Internal.Type() == "msgpack" {
 		enc, err = encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
@@ -92,7 +94,7 @@ func TestEmptyTable(t *testing.T) {
 
 	test.CheckFail(err, t)
 
-	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
+	_, err = s.Start("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
 	test.CheckFail(err, t)
 	defer s.End()
 
@@ -126,13 +128,15 @@ func TestBasic(t *testing.T) {
 		ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?)", i, strconv.Itoa(i), float64(i)/3)
 	}
 
-	s := Reader{}
+	s, err := InitReader("mysql")
+	test.CheckFail(err, t)
+
 	var enc encoder.Encoder
 	enc, err = encoder.Create(encoder.Internal.Type(), "snap_test_svc1", "snap_test_db1", "snap_test_t1")
 
 	test.CheckFail(err, t)
 
-	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
+	_, err = s.Start("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
 	test.CheckFail(err, t)
 	defer s.End()
 
@@ -229,12 +233,14 @@ func TestMoreFieldTypes(t *testing.T) {
 		t.FailNow()
 	}
 
-	s := Reader{}
+	s, err := InitReader("mysql")
+	test.CheckFail(err, t)
+
 	var enc encoder.Encoder
 	enc, err = encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
 	test.CheckFail(err, t)
 
-	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
+	_, err = s.Start("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
 	test.CheckFail(err, t)
 	defer s.End()
 
@@ -303,12 +309,14 @@ func TestSnapshotConsistency(t *testing.T) {
 	ExecSQL(conn, t, "delete from snap_test_t1 where f1 > 700 && f1 < 800")
 	ExecSQL(conn, t, "delete from snap_test_t1 where f1 > 300 && f1 < 400")
 
-	s := Reader{}
+	s, err := InitReader("mysql")
+	test.CheckFail(err, t)
+
 	var enc encoder.Encoder
 	enc, err = encoder.Create(encoder.Internal.Type(), "snap_test_svc1", "snap_test_db1", "snap_test_t1")
 
 	test.CheckFail(err, t)
-	_, err = s.Prepare("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
+	_, err = s.Start("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
 	test.CheckFail(err, t)
 
 	var i int64

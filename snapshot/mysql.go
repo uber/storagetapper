@@ -31,8 +31,8 @@ import (
 	"github.com/uber/storagetapper/types"
 )
 
-//Reader is a snapshot reader structure
-type Reader struct {
+//MySQLmysqlReader is a snapshot reader structure
+type mysqlReader struct {
 	conn    *sql.DB
 	trx     *sql.Tx
 	rows    *sql.Rows
@@ -45,8 +45,16 @@ type Reader struct {
 	err     error
 }
 
+func init() {
+	registerPlugin("mysql", createMySQLReader)
+}
+
+func createMySQLReader() (Reader, error) {
+	return &mysqlReader{}, nil
+}
+
 //PrepareFromTx starts snapshot from given tx
-func (s *Reader) PrepareFromTx(svc string, dbs string, table string, enc encoder.Encoder, tx *sql.Tx) (lastGtid string, err error) {
+func (s *mysqlReader) StartFromTx(svc string, dbs string, table string, enc encoder.Encoder, tx *sql.Tx) (lastGtid string, err error) {
 	s.log = log.WithFields(log.Fields{"service": svc, "db": dbs, "table": table})
 
 	s.encoder = enc
@@ -78,7 +86,7 @@ func (s *Reader) PrepareFromTx(svc string, dbs string, table string, enc encoder
 }
 
 //Prepare connects to the db and starts snapshot for the table
-func (s *Reader) Prepare(cluster string, svc string, dbs string, table string, enc encoder.Encoder) (lastGtid string, err error) {
+func (s *mysqlReader) Start(cluster string, svc string, dbs string, table string, enc encoder.Encoder) (lastGtid string, err error) {
 	ci := db.GetInfo(&db.Loc{Cluster: cluster, Service: svc, Name: dbs}, db.Slave)
 	if ci == nil {
 		return "", errors.New("No db info received")
@@ -102,11 +110,11 @@ func (s *Reader) Prepare(cluster string, svc string, dbs string, table string, e
 		return "", err
 	}
 
-	return s.PrepareFromTx(svc, dbs, table, enc, s.trx)
+	return s.StartFromTx(svc, dbs, table, enc, s.trx)
 }
 
 //EndFromTx deinitializes reader started by PrepareFromTx
-func (s *Reader) EndFromTx() {
+func (s *mysqlReader) EndFromTx() {
 	if s.rows != nil {
 		log.EL(s.log, s.rows.Close())
 	}
@@ -114,7 +122,7 @@ func (s *Reader) EndFromTx() {
 }
 
 //End deinitializes snapshot reader
-func (s *Reader) End() {
+func (s *mysqlReader) End() {
 	s.EndFromTx()
 
 	if s.trx != nil {
@@ -187,13 +195,13 @@ func driverTypeToGoType(p []interface{}, schema *types.TableSchema) []interface{
 }
 
 //GetNext pops record fetched by HasNext
-func (s *Reader) GetNext() (string, []byte, error) {
+func (s *mysqlReader) GetNext() (string, []byte, error) {
 	return s.key, s.outMsg, s.err
 }
 
 //HasNext fetches the record from MySQL and encodes using encoder provided when
 //reader created
-func (s *Reader) HasNext() bool {
+func (s *mysqlReader) HasNext() bool {
 	if !s.rows.Next() {
 		if s.err = s.rows.Err(); log.EL(s.log, s.err) {
 			return true

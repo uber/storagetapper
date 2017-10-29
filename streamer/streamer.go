@@ -133,17 +133,17 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 	return true
 }
 
-func (s *Streamer) startBootstrap(needsBootstrap bool, bootstrapCh chan bool, cfg *config.AppConfig) bool {
+func (s *Streamer) startBootstrap(input string, needsBootstrap bool, bootstrapCh chan bool, cfg *config.AppConfig) bool {
 	if needsBootstrap {
 		if cfg.ConcurrentBootstrap {
 			s.log.Debugf("Starting concurrent snapshot")
 			shutdown.Register(1)
 			go func() {
 				defer shutdown.Done()
-				bootstrapCh <- s.streamFromConsistentSnapshot(true, cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS)
+				bootstrapCh <- s.streamFromConsistentSnapshot(input, true, cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS)
 			}()
 		} else {
-			if !s.streamFromConsistentSnapshot(false, cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS) {
+			if !s.streamFromConsistentSnapshot(input, false, cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS) {
 				return false
 			}
 		}
@@ -158,6 +158,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 	//TODO: Handle multiple tables per event streamer worker in future
 	var st state.Type
 	var err error
+	var input string
 
 	log.Debugf("Started streamer thread")
 
@@ -197,6 +198,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 				log.Errorf("Unknown output pipe type: %v", row.Output)
 				return true
 			}
+			input = row.Input
 			break
 		}
 	}
@@ -262,7 +264,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 	}
 
 	bootstrapCh := make(chan bool)
-	if !s.startBootstrap(needsBootstrap, bootstrapCh, cfg) {
+	if !s.startBootstrap(input, needsBootstrap, bootstrapCh, cfg) {
 		log.E(consumer.CloseOnFailure())
 		return false
 	}

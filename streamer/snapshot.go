@@ -34,7 +34,7 @@ import (
 
 var numRetries = 5
 
-func (s *Streamer) streamBatch(snReader *snapshot.Reader, outProducer pipe.Producer, batchSize int, snapshotMetrics *metrics.Snapshot) (bool, int64, int64, error) {
+func (s *Streamer) streamBatch(snReader snapshot.Reader, outProducer pipe.Producer, batchSize int, snapshotMetrics *metrics.Snapshot) (bool, int64, int64, error) {
 	var i, b int
 	for i < batchSize && snReader.HasNext() {
 		key, outMsg, err := snReader.GetNext()
@@ -100,8 +100,11 @@ func (s *Streamer) pushSchema() bool {
 
 // StreamFromConsistentSnapshot initializes and pulls event from the Snapshot reader, serializes
 // them in Avro format and publishes to output Kafka topic.
-func (s *Streamer) streamFromConsistentSnapshot(concurrent bool, throttleMB int64, throttleIOPS int64) bool {
-	snReader := snapshot.Reader{}
+func (s *Streamer) streamFromConsistentSnapshot(input string, concurrent bool, throttleMB int64, throttleIOPS int64) bool {
+	snReader, err := snapshot.InitReader(input)
+	if log.EL(s.log, err) {
+		return false
+	}
 	snapshotMetrics := metrics.GetSnapshotMetrics(s.getTag())
 
 	outProducer := s.outProducer
@@ -121,7 +124,7 @@ func (s *Streamer) streamFromConsistentSnapshot(concurrent bool, throttleMB int6
 		return false
 	}
 
-	_, err := snReader.Prepare(s.cluster, s.svc, s.db, s.table, s.encoder)
+	_, err = snReader.Start(s.cluster, s.svc, s.db, s.table, s.encoder)
 	if log.EL(s.log, err) {
 		return false
 	}
@@ -139,7 +142,7 @@ func (s *Streamer) streamFromConsistentSnapshot(concurrent bool, throttleMB int6
 
 	var t int64
 	for !shutdown.Initiated() {
-		next, nBytes, nEvents, err := s.streamBatch(&snReader, outProducer, s.batchSize, snapshotMetrics)
+		next, nBytes, nEvents, err := s.streamBatch(snReader, outProducer, s.batchSize, snapshotMetrics)
 
 		if log.EL(s.log, err) {
 			return false

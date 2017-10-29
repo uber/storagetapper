@@ -122,7 +122,7 @@ func TestGetCount(t *testing.T) {
 func TestGetTable(t *testing.T) {
 	initState(t)
 
-	c, err := GetTable(3)
+	c, err := GetTableByID(3)
 	test.CheckFail(err, t)
 	if len(c) != 0 {
 		t.Fatalf("There should be nothing in the state yet")
@@ -130,7 +130,7 @@ func TestGetTable(t *testing.T) {
 
 	insertStateRows(refST1, t)
 
-	c, err = GetTable(3)
+	c, err = GetTableByID(3)
 	test.CheckFail(err, t)
 	if len(c) != 1 {
 		t.Fatalf("There should be exactly one record for the table")

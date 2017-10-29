@@ -74,7 +74,7 @@ func (s *Streamer) ensureBinlogReaderStart() (string, error) {
 	for {
 		select {
 		case <-tickChan:
-			sRows, err := state.GetTable(s.id)
+			sRows, err := state.GetTableByID(s.id)
 			if len(sRows) == 0 {
 				return "", fmt.Errorf("State DB has no rows for %s", tblStr)
 			} else if err != nil {

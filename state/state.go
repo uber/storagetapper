@@ -279,6 +279,11 @@ func GetForCluster(cluster string) (Type, error) {
 	return GetCond("cluster=?", cluster)
 }
 
+//GetTable returns state rows for given service,db,table
+func GetTable(service string, db string, table string) (Type, error) {
+	return GetCond("service=? AND db=? AND tableName=?", service, db, table)
+}
+
 //Get returns all the rows in the state
 func Get() (Type, error) {
 	rows, err := util.QuerySQL(conn, "SELECT "+allStateFields()+" FROM state")
@@ -312,8 +317,8 @@ func TableRegistered(id int64) (bool, error) {
 	return true, nil
 }
 
-//GetTable return state row for the given table id
-func GetTable(id int64) (Type, error) {
+//GetTableByID return state row for the given table id
+func GetTableByID(id int64) (Type, error) {
 	rows, err := util.QuerySQL(conn, "SELECT "+allStateFields()+" FROM state WHERE id=?", id)
 	if err != nil {
 		return nil, err

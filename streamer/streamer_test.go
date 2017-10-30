@@ -108,42 +108,45 @@ func setupDB(t *testing.T) *sql.DB {
 	return dbConn
 }
 
-func setupData(dbConn *sql.DB, t *testing.T) {
-	for i := 0; i < 1000; i++ {
+func setupData(dbConn *sql.DB, shiftKey int, t *testing.T) {
+	for i := shiftKey; i < 1000+shiftKey; i++ {
 		execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(%v,'%v')", TestDb, TestTbl, i, strconv.Itoa(i)))
 	}
 }
 
-func setupWorker(t *testing.T) pipe.Consumer {
-	inP, err := pipe.Create(shutdown.Context, "local", 16, cfg, nil)
+func setupBufferData(producer pipe.Producer, shiftKey int, t *testing.T) {
+	enc, err := encoder.Create("json", TestSvc, TestDb, TestTbl)
 	test.CheckFail(err, t)
+	for i := shiftKey; i < 1000+shiftKey; i++ {
+		bd, err := enc.Row(types.Insert, &[]interface{}{i, strconv.Itoa(i)}, uint64(i))
+		test.CheckFail(err, t)
+		producer.Push(bd)
+	}
+}
 
-	outP := make(map[string]pipe.Pipe)
+func setupWorker(bufPipe pipe.Pipe, t *testing.T) pipe.Consumer {
+	var err error
+	outPipe := make(map[string]pipe.Pipe)
 	for p := range pipe.Pipes {
-		outP[p], err = pipe.Create(shutdown.Context, p, cfg.PipeBatchSize, cfg, state.GetDB())
+		outPipe[p], err = pipe.Create(shutdown.Context, p, cfg.PipeBatchSize, cfg, state.GetDB())
 		log.F(err)
 	}
 
-	pipe.KafkaConfig = sarama.NewConfig()
-	pipe.KafkaConfig.Producer.Partitioner = sarama.NewManualPartitioner
-	pipe.KafkaConfig.Producer.Return.Successes = true
-	pipe.KafkaConfig.Consumer.MaxWaitTime = 10 * time.Millisecond
-
-	outPConsumer, err := outP["kafka"].NewConsumer(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl))
+	outConsumer, err := outPipe["kafka"].NewConsumer(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl))
 
 	test.CheckFail(err, t)
 	shutdown.Register(1)
-	go EventWorker(cfg, inP, outP, t)
-	return outPConsumer
+	go EventWorker(cfg, bufPipe, outPipe, t)
+	return outConsumer
 }
 
-func verifyFromOutputKafka(outPConsumer pipe.Consumer, t *testing.T) {
+func verifyFromOutputKafka(shiftKey int, outPConsumer pipe.Consumer, t *testing.T) {
+	log.Debugf("verification started %v", shiftKey)
 	codec, _, err := encoder.GetLatestSchemaCodec(TestSvc, TestDb, TestTbl)
 	test.Assert(t, err == nil, "Error getting codec for avro decoding: %v", err)
-	defer func() { test.CheckFail(outPConsumer.Close(), t) }()
 
-	lastRKey := int64(0)
-	for i := 0; i < 1000 && outPConsumer.FetchNext(); i++ {
+	lastRKey := int64(shiftKey)
+	for i := shiftKey; i < 1000+shiftKey && outPConsumer.FetchNext(); i++ {
 		b, err := outPConsumer.Pop()
 		encodedMsg := b.([]byte)
 		test.CheckFail(err, t)
@@ -156,14 +159,22 @@ func verifyFromOutputKafka(outPConsumer pipe.Consumer, t *testing.T) {
 		rKey, err := record.Get("ref_key")
 		test.Assert(t, err == nil, "Error fetching ref key from decoded Avro record: %v", err)
 		r := rKey.(int64)
-		if r >= lastRKey {
-			lastRKey = r
-		} else {
+		if (shiftKey != 0 && r != lastRKey) || (shiftKey == 0 && r != 0) {
 			t.Errorf("Events out of order when consuming from output Kafka! "+
-				"Current event ref key(%v) lower than previous highest ref key (%v)",
+				"Current event ref key(%v) != expected (%v)",
 				r, lastRKey)
 		}
+		f1, err := record.Get("f1")
+		test.Assert(t, err == nil, "Error fetching f1 key from decoded Avro record: %v", err)
+		f := int64(f1.(int32))
+		if f != lastRKey {
+			t.Errorf("Events out of order when consuming from output Kafka! "+
+				"Current event f1 field(%v) != expected (%v)",
+				f, lastRKey)
+		}
+		lastRKey++
 	}
+	log.Debugf("verification finished %v", shiftKey)
 }
 
 // getSchemaTest: for testing purposes fetches avro schema from local db
@@ -195,22 +206,38 @@ func getSchemaTest(namespace string, schemaName string) (*types.AvroSchema, erro
 }
 
 func TestStreamer_StreamFromConsistentSnapshot(t *testing.T) {
+	log.Debugf("TestStreamer_StreamFromConsistentSnapshot")
 	test.SkipIfNoMySQLAvailable(t)
 	test.SkipIfNoKafkaAvailable(t)
 
 	shutdown.Setup()
+
 	dbConn := setupDB(t)
 	defer func() { test.CheckFail(dbConn.Close(), t) }()
-	setupData(dbConn, t)
-	pc := setupWorker(t)
 
-	log.Debugf("Finishing")
-	verifyFromOutputKafka(pc, t)
+	bufPipe, err := pipe.Create(shutdown.Context, "kafka", 16, cfg, nil)
+	test.CheckFail(err, t)
+	producer, err := bufPipe.NewProducer(config.GetTopicName(cfg.BufferTopicNameFormat, TestSvc, TestDb, TestTbl))
+
+	setupData(dbConn, 0, t)
+
+	consumer := setupWorker(bufPipe, t)
+
+	verifyFromOutputKafka(0, consumer, t)
+
+	setupBufferData(producer, 1000, t)
+
+	verifyFromOutputKafka(1000, consumer, t)
+
+	test.CheckFail(consumer.Close(), t)
+	test.CheckFail(producer.Close(), t)
+
 	shutdown.Initiate()
 	shutdown.Wait()
 }
 
 func TestStreamerShutdown(t *testing.T) {
+	log.Debugf("TestStreamerShutdown")
 	test.SkipIfNoMySQLAvailable(t)
 	test.SkipIfNoKafkaAvailable(t)
 
@@ -220,7 +247,10 @@ func TestStreamerShutdown(t *testing.T) {
 	dbConn := setupDB(t)
 	defer func() { test.CheckFail(dbConn.Close(), t) }()
 
-	outConsumer := setupWorker(t)
+	bufPipe, err := pipe.Create(shutdown.Context, "local", 16, cfg, nil)
+	test.CheckFail(err, t)
+
+	outConsumer := setupWorker(bufPipe, t)
 
 	execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(0,'0')", TestDb, TestTbl))
 
@@ -253,7 +283,12 @@ func TestStreamerShutdown(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	encoder.GetLatestSchema = getSchemaTest
-	pipe.InitialOffset = pipe.OffsetNewest
+
+	pipe.KafkaConfig = sarama.NewConfig()
+	pipe.KafkaConfig.Producer.Partitioner = sarama.NewManualPartitioner
+	pipe.KafkaConfig.Producer.Return.Successes = true
+	pipe.KafkaConfig.Consumer.MaxWaitTime = 10 * time.Millisecond
+
 	cfg = test.LoadConfig()
 	DbConn, err := db.OpenService(&db.Loc{Service: TestSvc, Name: TestDb}, "")
 	if err != nil {

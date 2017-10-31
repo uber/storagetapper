@@ -136,19 +136,24 @@ func TestEncodeDecodeCommonFormat(t *testing.T) {
 		enc, err := Create(encType, "enc_test_svc1", "db1", "t1")
 		test.CheckFail(err, t)
 
-		for _, cf := range testBasicResult {
-			log.Debugf("Initial CF: %v\n", cf)
-			encoded, err := enc.CommonFormat(&cf)
+		for _, ref := range testBasicResult {
+			log.Debugf("Initial CF: %v %+v\n", ref, ref.Fields)
+			encoded, err := enc.CommonFormat(&ref)
 			test.CheckFail(err, t)
 
-			if enc.Type() == "avro" {
-				continue
-			}
 			decoded, err := enc.DecodeEvent(encoded)
-			log.Debugf("Post CF: %v\n", decoded)
+			log.Debugf("Post CF: %v %+v\n", decoded, decoded.Fields)
 			test.CheckFail(err, t)
 
-			test.Assert(t, reflect.DeepEqual(&cf, decoded), "decoded different from initial")
+			ChangeCfFields(encType, decoded, &ref, t)
+
+			if enc.Type() == "avro" && ref.Type == "delete" {
+				key := GetCommonFormatKey(&ref)
+				ref.Key = make([]interface{}, 0)
+				ref.Key = append(ref.Key, key)
+			}
+
+			test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
 		}
 	}
 }
@@ -161,6 +166,7 @@ func TestEncodeDecodeSchema(t *testing.T) {
 		enc, err := Create(encType, "enc_test_svc1", "db1", "t1")
 		test.CheckFail(err, t)
 
+		// Avro doesn't support schema in the stream
 		if enc.Type() == "avro" {
 			continue
 		}
@@ -192,21 +198,24 @@ func TestEncodeDecodeRow(t *testing.T) {
 			encoded, err := enc.Row(row.tp, &row.fields, seqno)
 			test.CheckFail(err, t)
 
-			if enc.Type() == "avro" {
-				continue
-			}
 			decoded, err := enc.DecodeEvent(encoded)
+			test.CheckFail(err, t)
 			decoded.Timestamp = 0
 
-			ref := &testBasicResult[seqno-1]
+			ref := testBasicResult[seqno-1]
+			log.Debugf("Initial CF: %+v %+v\n", ref, ref.Fields)
 
-			ChangeCfFields(encType, decoded, ref, t)
-			if decoded.Type != "delete" {
-				log.Debugf("Post CF: %+v Reference: %+v\n", reflect.TypeOf((*decoded.Fields)[0].Value), reflect.TypeOf((*testBasicResult[seqno-1].Fields)[0].Value))
-				test.CheckFail(err, t)
+			ChangeCfFields(encType, decoded, &ref, t)
+
+			if enc.Type() == "avro" && ref.Type == "delete" {
+				key := GetCommonFormatKey(&ref)
+				ref.Key = make([]interface{}, 0)
+				ref.Key = append(ref.Key, key)
 			}
 
-			test.Assert(t, reflect.DeepEqual(ref, decoded), "decoded different from initial")
+			log.Debugf("Post CF: %v %v\n", decoded, decoded.Fields)
+
+			test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
 		}
 	}
 }
@@ -245,6 +254,10 @@ func TestUnmarshalError(t *testing.T) {
 		enc, err := InitEncoder(encType, "", "", "")
 		test.CheckFail(err, t)
 
+		if enc.Type() == "avro" {
+			continue
+		}
+
 		for _, encoded := range testErrorDecoding {
 			_, err := enc.DecodeEvent(encoded)
 			test.Assert(t, err != nil, "not getting an error from garbage input")
@@ -261,19 +274,28 @@ func TestEncodeDecodeCommonFormatAllDataTypes(t *testing.T) {
 		enc, err := Create(encType, "enc_test_svc1", "db1", "t2")
 		test.CheckFail(err, t)
 
-		for _, cf := range testBasicResult {
-			log.Debugf("Initial CF: %v\n", cf)
-			encoded, err := enc.CommonFormat(&cf)
+		for _, ref := range testBasicResult {
+			log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
+
+			encoded, err := enc.CommonFormat(&ref)
 			test.CheckFail(err, t)
 
-			if enc.Type() == "avro" || enc.Type() == "heatpipe_avro" {
-				continue
-			}
 			decoded, err := enc.DecodeEvent(encoded)
-			log.Debugf("Post CF: %v\n", decoded)
+			test.CheckFail(err, t)
+			decoded.Timestamp = 0
+
+			ChangeCfFields(enc.Type(), decoded, &ref, t)
+
+			if enc.Type() == "avro" && ref.Type == "delete" {
+				key := GetCommonFormatKey(&ref)
+				ref.Key = make([]interface{}, 0)
+				ref.Key = append(ref.Key, key)
+			}
+
+			log.Debugf("1Post CF: %v %v\n", decoded, decoded.Fields)
 			test.CheckFail(err, t)
 
-			test.Assert(t, reflect.DeepEqual(&cf, decoded), "decoded different from initial")
+			test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
 		}
 	}
 }
@@ -293,33 +315,32 @@ func TestEncodeDecodeRowAllDataTypes(t *testing.T) {
 			encoded, err := enc.Row(row.tp, &row.fields, seqno)
 			test.CheckFail(err, t)
 
-			if enc.Type() == "avro" || enc.Type() == "heatpipe_avro" {
-				continue
-			}
 			decoded, err := enc.DecodeEvent(encoded)
+			test.CheckFail(err, t)
 			decoded.Timestamp = 0
 
-			ref := &testAllDataTypesResult[seqno-1]
+			ref := testAllDataTypesResult[seqno-1]
 
-			ChangeCfFields(encType, decoded, ref, t)
+			ChangeCfFields(encType, decoded, &ref, t)
+
+			if enc.Type() == "avro" && ref.Type == "delete" {
+				key := GetCommonFormatKey(&ref)
+				ref.Key = make([]interface{}, 0)
+				ref.Key = append(ref.Key, key)
+			}
 
 			/*
-				log.Debugf("encoded: %+v", string(encoded))
-				log.Debugf("decoded: %+v", decoded.Fields)
-				log.Debugf("%+v", ref.Fields)
-
 				if decoded.Fields != nil {
 					for i, v := range *decoded.Fields {
 						log.Debugf("%v %v %v %v", v.Value, (*ref.Fields)[i].Value, reflect.TypeOf(v.Value), reflect.TypeOf((*ref.Fields)[i].Value))
 					}
-				}*/
+				}
+			*/
 
-			if decoded.Type != "delete" {
-				log.Debugf("Post CF: %+v Reference: %+v\n", reflect.TypeOf((*decoded.Fields)[0].Value), reflect.TypeOf((*testBasicResult[seqno-1].Fields)[0].Value))
-				test.CheckFail(err, t)
-			}
+			//log.Debugf("decoded: %+v %+v", decoded, decoded.Fields)
+			//log.Debugf("%+v %+v", ref, ref.Fields)
 
-			test.Assert(t, reflect.DeepEqual(ref, decoded), "decoded different from initial")
+			test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
 		}
 	}
 }

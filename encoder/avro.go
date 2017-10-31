@@ -249,6 +249,11 @@ func fillAvroFields(r *goavro.Record, row *[]interface{}, s *types.TableSchema, 
 				v = b
 			}
 		}
+		//TODO: Consider passing primary key as fields in delete event, instead
+		//of separate row_key field
+		//if keyOnly && s.Columns[i].Key != "PRI" {
+		//	continue
+		//}
 		_ = r.Set(s.Columns[i].Name, v)
 	}
 }
@@ -265,6 +270,7 @@ func convertRowToAvroFormat(tp int, row *[]interface{}, s *types.TableSchema, se
 		_ = r.Set("is_deleted", false)
 	case types.Delete:
 		fillAvroKey(r, row, s)
+		//		fillAvroFields(r, row, s, filter, true)
 		_ = r.Set("is_deleted", true)
 	default:
 		panic("unknown event type")
@@ -313,6 +319,79 @@ func (e *avroEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent)
 	return nil, fmt.Errorf("Avro encoder doesn't support decoding")
 }
 
+func (e *avroEncoder) decodeEventFields(c *types.CommonFormatEvent, r *goavro.Record) error {
+	hasNonNil := false
+	c.Fields = new([]types.CommonFormatField)
+
+	for i := 0; i < len(e.inSchema.Columns); i++ {
+		n := e.inSchema.Columns[i].Name
+		v, err := r.Get(e.inSchema.Columns[i].Name)
+		if err != nil {
+			return err
+		}
+		if v != nil {
+			hasNonNil = true
+		}
+		*c.Fields = append(*c.Fields, types.CommonFormatField{Name: n, Value: v})
+		if e.inSchema.Columns[i].Key == "PRI" && v != nil {
+			c.Key = append(c.Key, v)
+		}
+	}
+
+	if !hasNonNil {
+		c.Fields = nil
+	}
+
+	return nil
+}
+
 func (e *avroEncoder) DecodeEvent(b []byte) (*types.CommonFormatEvent, error) {
-	return nil, fmt.Errorf("Avro encoder doesn't support decoding")
+	var c types.CommonFormatEvent
+
+	rec, err := e.codec.Decode(bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+
+	r := rec.(*goavro.Record)
+
+	log.Debugf("%+v", r)
+
+	c.Type = "insert"
+	c.Key = make([]interface{}, 0)
+
+	del, err := r.Get("is_deleted")
+	if err != nil {
+		return nil, err
+	}
+	if v, ok := del.(bool); ok && v {
+		c.Type = "delete"
+		// row key is needed by delete only
+		rowKey, err := r.Get("row_key")
+		if err != nil {
+			return nil, err
+		}
+		if v, ok := rowKey.([]uint8); ok {
+			c.Key = append(c.Key, string(v))
+		} else {
+			return nil, fmt.Errorf("type of row_key field should be []uint8")
+		}
+	} else if !ok {
+		return nil, fmt.Errorf("type of is_deleted field should be bool")
+	}
+
+	seqno, err := r.Get("ref_key")
+	if err != nil {
+		return nil, err
+	}
+	if v, ok := seqno.(int64); ok {
+		c.SeqNo = uint64(v)
+	} else {
+		return nil, fmt.Errorf("type of ref_key field should be int64")
+	}
+	c.Timestamp = 0
+
+	err = e.decodeEventFields(&c, r)
+
+	return &c, err
 }

@@ -115,14 +115,37 @@ func waitSnapshotToFinish(init bool, table string, t *testing.T) {
 }
 
 func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResult []string, outEncoder encoder.Encoder, t *testing.T) {
-	var result []string
-	if format == "avro" {
-		result = avroResult
-	} else {
-		result = jsonResult
-	}
+	result := jsonResult
 
 	for _, v := range result {
+		//We can't notify "avro" encoder about schema changed by "ALTER"
+		//so remove new "f2" field "avro" encoded doesn't know of
+		if format == "avro" {
+			var r types.CommonFormatEvent
+			err := json.Unmarshal([]byte(v), &r)
+			test.CheckFail(err, t)
+
+			if r.Fields != nil {
+				k := 0
+				for k < len(*r.Fields) && (*r.Fields)[k].Name != "f2" {
+					k++
+				}
+				if k < len(*r.Fields) {
+					//"f2" field, if present, should be last field in the fields array
+					*r.Fields = (*r.Fields)[:k]
+				}
+			}
+
+			if format == "avro" && r.Type == "delete" {
+				key := encoder.GetCommonFormatKey(&r)
+				r.Key = make([]interface{}, 0)
+				r.Key = append(r.Key, key)
+			}
+
+			b, err := json.Marshal(r)
+			v = string(b)
+			test.CheckFail(err, t)
+		}
 		if !c.FetchNext() {
 			return
 		}
@@ -130,12 +153,12 @@ func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResu
 		test.CheckFail(err, t)
 
 		var b []byte
-		if format == "avro" {
+		/* if format == "avro" {
 			r, err := encoder.DecodeAvroRecord(outEncoder, msg.([]byte))
 			test.CheckFail(err, t)
 			b, err = json.Marshal(r)
 			test.CheckFail(err, t)
-		} else if format == "msgpack" {
+		} else */if format == "msgpack" || format == "avro" {
 			r, err := outEncoder.DecodeEvent(msg.([]byte))
 			test.CheckFail(err, t)
 			b, err = json.Marshal(r)
@@ -235,6 +258,22 @@ func prepareReferenceArray2(conn *sql.DB, keyShift int, resfmt []string, jsonRes
 	}
 }
 
+func prepareReferenceArray(conn *sql.DB, init bool, keyShift int, resfmt []string, jsonResult *[]string, avroResult *[]string, t *testing.T) {
+	for i := 101 + keyShift; i < 110+keyShift; i++ {
+		test.ExecSQL(conn, t, resfmt[0], i)
+		sq := 0
+		if !init {
+			seqno++
+			sq = seqno
+		}
+		s := fmt.Sprintf(resfmt[1], i, sq, i)
+		*jsonResult = append(*jsonResult, s)
+		keyLen := strconv.Itoa(len(strconv.Itoa(i)))
+		s = fmt.Sprintf(resfmt[2], i, sq, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
+		*avroResult = append(*avroResult, s)
+	}
+}
+
 func createSecondTable(init bool, conn *sql.DB, t *testing.T) {
 	if init {
 		test.ExecSQL(conn, t, "CREATE TABLE e2e_test_db1.e2e_test_table2(f1 int not null primary key, f3 int not null default 0, f4 int)")
@@ -277,26 +316,14 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	seqno += 1000000
 	sseqno := seqno
 
-	if init {
+	if init && cfg.OutputFormat != "avro" {
 		jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}]}`, 0))
 	}
 
 	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: "e2e_test_db1"})
 	test.CheckFail(err, t)
 
-	for i := 101 + keyShift; i < 110+keyShift; i++ {
-		test.ExecSQL(conn, t, resfmt[0][0], i)
-		sq := 0
-		if !init {
-			seqno++
-			sq = seqno
-		}
-		s := fmt.Sprintf(resfmt[0][1], i, sq, i)
-		jsonResult = append(jsonResult, s)
-		keyLen := strconv.Itoa(len(strconv.Itoa(i)))
-		s = fmt.Sprintf(resfmt[0][2], i, sq, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
-		avroResult = append(avroResult, s)
-	}
+	prepareReferenceArray(conn, init, keyShift, resfmt[0], &jsonResult, &avroResult, t)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -350,7 +377,9 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	test.ExecSQL(conn, t, "ALTER TABLE e2e_test_table1 ADD f2 varchar(32)")
 	seqno++
-	jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"},{"Name":"f2","Value":"varchar(32)"}]}`, seqno))
+	if cfg.OutputFormat != "avro" {
+		jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"},{"Name":"f2","Value":"varchar(32)"}]}`, seqno))
+	}
 
 	for i := 11 + keyShift; i < 30+keyShift; i++ {
 		test.ExecSQL(conn, t, resfmt[2][0], i, i)
@@ -366,7 +395,9 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	test.ExecSQL(conn, t, "ALTER TABLE e2e_test_table1 DROP f2")
 	seqno++
-	jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}]}`, seqno))
+	if cfg.OutputFormat != "avro" {
+		jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}]}`, seqno))
+	}
 
 	test.ExecSQL(conn, t, resfmt[3][0], 100+keyShift, 111+keyShift)
 	for i := 101 + keyShift; i < 110+keyShift; i++ {
@@ -387,23 +418,11 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	createSecondTable(init, conn, t)
 
-	if init {
+	if init && cfg.OutputFormat != "avro" {
 		jsonResult2 = append(jsonResult2, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}]}`, 0))
 	}
 
-	for i := 101 + keyShift; i < 110+keyShift; i++ {
-		test.ExecSQL(conn, t, resfmt2[0][0], i)
-		sq := 0
-		if !init {
-			seqno++
-			sq = seqno
-		}
-		s := fmt.Sprintf(resfmt2[0][1], i, sq, i)
-		jsonResult2 = append(jsonResult2, s)
-		keyLen := strconv.Itoa(len(strconv.Itoa(i)))
-		s = fmt.Sprintf(resfmt2[0][2], i, sq, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
-		avroResult2 = append(avroResult2, s)
-	}
+	prepareReferenceArray(conn, init, keyShift, resfmt2[0], &jsonResult2, &avroResult2, t)
 
 	/*Wait while binlog skips above inserts before registering table*/
 	for {
@@ -493,6 +512,7 @@ func TestBasic(t *testing.T) {
 
 	for _, p := range []string{"local", "kafka"} {
 		for _, enc := range encoder.Encoders() {
+			//for _, enc := range []string{"avro"} {
 			testStep(p, "json", "kafka", enc, true, 0, t)
 			testStep(p, "json", "kafka", enc, false, 100000, t)
 			testStep(p, enc, "kafka", enc, true, 0, t)

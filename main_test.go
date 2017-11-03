@@ -164,6 +164,19 @@ func waitMainInitialized() {
 	}
 }
 
+func waitAllEventsStreamed(format string, c pipe.Consumer, sseqno int, seqno int) int {
+	//Only json and msgpack push schema to stream, skip schema events for others
+	if format != "json" && format != "msgpack" {
+		sseqno++
+	}
+
+	for ; sseqno < seqno; sseqno++ {
+		_ = c.FetchNext()
+	}
+
+	return sseqno
+}
+
 func initTestDB(init bool, t *testing.T) {
 	if init {
 		conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: ""})
@@ -248,9 +261,14 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	var jsonResult, avroResult []string = make([]string, 0), make([]string, 0)
 	var jsonResult2, avroResult2 []string = make([]string, 0), make([]string, 0)
 
+	trackingPipe, err := pipe.Create(shutdown.Context, "kafka", cfg.PipeBatchSize, cfg, nil)
+	test.CheckFail(err, t)
+	trackingConsumer, err := trackingPipe.NewConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
+
 	initTestDB(init, t)
 
 	seqno += 1000000
+	sseqno := seqno
 
 	if init {
 		jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}]}`, 0))
@@ -319,6 +337,10 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		avroResult = append(avroResult, s)
 	}
 
+	//This makes sure that both changelog reader and streamer has read old
+	//schema
+	sseqno = waitAllEventsStreamed(cfg.OutputFormat, trackingConsumer, sseqno, seqno)
+
 	test.ExecSQL(conn, t, "ALTER TABLE e2e_test_table1 ADD f2 varchar(32)")
 	seqno++
 	jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"},{"Name":"f2","Value":"varchar(32)"}]}`, seqno))
@@ -332,6 +354,8 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		s = fmt.Sprintf(resfmt[2][2], i, seqno, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
 		avroResult = append(avroResult, s)
 	}
+
+	sseqno = waitAllEventsStreamed(cfg.OutputFormat, trackingConsumer, sseqno, seqno)
 
 	test.ExecSQL(conn, t, "ALTER TABLE e2e_test_table1 DROP f2")
 	seqno++

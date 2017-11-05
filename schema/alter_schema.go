@@ -36,7 +36,7 @@ import (
 // GetAvroSchemaFromAlterTable is called by the schema change endpoint. It takes in an ALTER TABLE
 // statement as an input along with db and table name and creates the new resultant schema and
 // returns it in Avro format
-func GetAvroSchemaFromAlterTable(dbl *db.Loc, tblName string,
+func GetAvroSchemaFromAlterTable(dbl *db.Loc, tblName string, typ string,
 	alterTblStmt string) ([]byte, error) {
 
 	CreateTempTable := "CREATE TEMPORARY TABLE %s LIKE %s"
@@ -69,7 +69,7 @@ func GetAvroSchemaFromAlterTable(dbl *db.Loc, tblName string,
 	}
 
 	//If ALTER TABLE succeeds, get the Avro schema of the corresponding MySQL schema of temp table
-	avroSchema, err := ConvertToAvro(dbl, tblName)
+	avroSchema, err := ConvertToAvro(dbl, tblName, typ)
 	if log.E(err) {
 		return nil, err
 	}

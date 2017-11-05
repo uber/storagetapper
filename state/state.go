@@ -185,6 +185,7 @@ func create(cfg *config.AppConfig) bool {
 	}
 	err = util.ExecSQL(nodbconn, `CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.outputSchema (
 		name varchar(128) NOT NULL,
+		type varchar(128) NOT NULL,
 		schemaBody TEXT NOT NULL,
 		primary key(name)
 	) ENGINE=INNODB`)
@@ -526,8 +527,8 @@ func ConnectInfoGet(l *db.Loc, tp int) *db.Addr {
 }
 
 //InsertSchema inserts output schema into state
-func InsertSchema(name string, schema string) error {
-	err := util.ExecSQL(conn, "INSERT INTO outputSchema VALUES(?, ?)", name, schema)
+func InsertSchema(name string, typ string, schema string) error {
+	err := util.ExecSQL(conn, "INSERT INTO outputSchema VALUES(?, ?, ?)", name, typ, schema)
 	if log.E(err) {
 		return err
 	}
@@ -536,8 +537,8 @@ func InsertSchema(name string, schema string) error {
 }
 
 //UpdateSchema inserts output schema into state
-func UpdateSchema(name string, schema string) error {
-	err := util.ExecSQL(conn, "UPDATE outputSchema SET schemaBody=? WHERE name=?", schema, name)
+func UpdateSchema(name string, typ string, schema string) error {
+	err := util.ExecSQL(conn, "UPDATE outputSchema SET schemaBody=? WHERE name=? AND type=?", schema, name, typ)
 	if log.E(err) {
 		return err
 	}
@@ -546,8 +547,8 @@ func UpdateSchema(name string, schema string) error {
 }
 
 //DeleteSchema deletes output schema from the state
-func DeleteSchema(name string) error {
-	err := util.ExecSQL(conn, "DELETE FROM outputSchema WHERE name=?", name)
+func DeleteSchema(name string, typ string) error {
+	err := util.ExecSQL(conn, "DELETE FROM outputSchema WHERE name=? AND type=?", name, typ)
 	if log.E(err) {
 		return err
 	}
@@ -556,10 +557,10 @@ func DeleteSchema(name string) error {
 }
 
 //GetOutputSchema returns output schema from the state
-func GetOutputSchema(name string) string {
+func GetOutputSchema(name string, typ string) string {
 	var body string
 
-	err := util.QueryRowSQL(conn, "SELECT schemaBody FROM outputSchema WHERE name=?", name).Scan(&body)
+	err := util.QueryRowSQL(conn, "SELECT schemaBody FROM outputSchema WHERE name=? and type=?", name, typ).Scan(&body)
 
 	if err != nil {
 		if err.Error() != "sql: no rows in result set" {

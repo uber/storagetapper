@@ -35,14 +35,14 @@ const (
 )
 
 //GetLatestSchemaFunc is a type to implement schema resolver polymorphism
-type GetLatestSchemaFunc func(namespace string, schemaName string) (*types.AvroSchema, error)
+type GetLatestSchemaFunc func(namespace string, schemaName string, typ string) (*types.AvroSchema, error)
 
 //GetLatestSchema is the pointer to schema resolver
 var GetLatestSchema GetLatestSchemaFunc = GetSchemaWebster
 
 // GetSchemaWebster makes a GET HTTP call to webster schema service to get the latest schema version
 // for a given namespace and schema name.
-func GetSchemaWebster(namespace string, schemaName string) (*types.AvroSchema, error) {
+func GetSchemaWebster(namespace string, schemaName string, typ string) (*types.AvroSchema, error) {
 	resp, err := util.HTTPGet(websterURL + fmt.Sprintf("%s/%s/", namespace, schemaName))
 	if err != nil {
 		return nil, err
@@ -69,8 +69,8 @@ func SchemaCodecHelper(avroSchema *types.AvroSchema) (goavro.Codec, *goavro.Reco
 }
 
 //GetLatestSchemaCodec resolves schema and converts it to Avro codec and setter
-func GetLatestSchemaCodec(service string, db string, table string) (goavro.Codec, *goavro.RecordSetter, error) {
-	avroSchema, err := GetLatestSchema(namespace, GetOutputSchemaName(service, db, table))
+func GetLatestSchemaCodec(service string, db string, table string, typ string) (goavro.Codec, *goavro.RecordSetter, error) {
+	avroSchema, err := GetLatestSchema(namespace, GetOutputSchemaName(service, db, table), typ)
 	if err != nil {
 		return nil, nil, err
 	}

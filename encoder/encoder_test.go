@@ -351,16 +351,16 @@ func ExecSQL(db *sql.DB, t *testing.T, query string) {
 	test.CheckFail(util.ExecSQL(db, query), t)
 }
 
-func schemaGet(namespace string, schemaName string) (*types.AvroSchema, error) {
+func schemaGet(namespace string, schemaName string, typ string) (*types.AvroSchema, error) {
 	var err error
 	var a *types.AvroSchema
 
-	s := state.GetOutputSchema(schemaName)
+	s := state.GetOutputSchema(schemaName, typ)
 	if s != "" {
 		a = &types.AvroSchema{}
 		err = json.Unmarshal([]byte(s), a)
 	} else {
-		a, err = GetSchemaWebster(namespace, schemaName)
+		a, err = GetSchemaWebster(namespace, schemaName, typ)
 	}
 
 	return a, err
@@ -392,10 +392,10 @@ func Prepare(t *testing.T, create []string, table string) {
 		t.FailNow()
 	}
 
-	avroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1", Name: "db1"}, table)
+	avroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1", Name: "db1"}, table, "avro")
 	test.CheckFail(err, t)
 	n := fmt.Sprintf("hp-%s-%s-%s", "enc_test_svc1", "db1", table)
-	err = state.InsertSchema(n, string(avroSchema))
+	err = state.InsertSchema(n, "avro", string(avroSchema))
 	test.CheckFail(err, t)
 
 	GetLatestSchema = schemaGet

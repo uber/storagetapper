@@ -61,8 +61,8 @@ func TestServer_HealthCheck(t *testing.T) {
 	test.Assert(t, res.Body.String() == "OK", "Not OK")
 }
 
-func createTestSchemaTable() error {
-	_, err := DbConn.Exec(`CREATE TABLE IF NOT EXISTS ` + types.MyDbName + `.test_schema (
+func createTestSchemaTable(t *testing.T) {
+	test.ExecSQL(DbConn, t, `CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.test_schema (
 		bi BIGINT NOT NULL,
 		i INT NOT NULL,
 		vc VARCHAR(20) NOT NULL,
@@ -74,7 +74,6 @@ func createTestSchemaTable() error {
 		ts TIMESTAMP,
 		PRIMARY KEY(bi)
 	) ENGINE=INNODB`)
-	return err
 }
 
 func dropTestSchemaTable() error {
@@ -89,13 +88,14 @@ func performSchemaRegister(t *testing.T, tbl string) *httptest.ResponseRecorder 
 		Service: TestSvc,
 		Db:      TestDb,
 		Table:   tbl,
+		Type:    "avro",
 	}
 	bodyBytes, _ := json.Marshal(body)
 	req, err := http.NewRequest("POST", "/schema", bytes.NewReader(bodyBytes))
 	test.Assert(t, err == nil, "Error creating request object: %v", err)
 	res := httptest.NewRecorder()
 	schemaCmd(res, req)
-	err = state.DeleteSchema(encoder.GetOutputSchemaName(TestSvc, TestDb, tbl))
+	err = state.DeleteSchema(encoder.GetOutputSchemaName(TestSvc, TestDb, tbl), "avro")
 	test.CheckFail(err, t)
 	return res
 }
@@ -109,6 +109,7 @@ func performSchemaChange(t *testing.T, alterStmt string) *httptest.ResponseRecor
 		Db:      TestDb,
 		Table:   TestTbl,
 		Alter:   alterStmt,
+		Type:    "avro",
 	}
 	bodyBytes, _ := json.Marshal(body)
 	req, err := http.NewRequest("PUT", "/schema", bytes.NewReader(bodyBytes))
@@ -120,8 +121,7 @@ func performSchemaChange(t *testing.T, alterStmt string) *httptest.ResponseRecor
 
 //TestSchemaHandler_SchemaRegister_Success tests Schema Register endpoint - success case
 func TestSchemaHandler_SchemaRegister(t *testing.T) {
-	err := createTestSchemaTable()
-	test.Assert(t, err == nil, fmt.Sprintf("Error creating test_schema table for testing: %v", err))
+	createTestSchemaTable(t)
 	res := performSchemaRegister(t, TestTbl)
 	test.Assert(t, res.Code == http.StatusOK,
 		"Schema register did not return 200 HTTP code")
@@ -144,8 +144,7 @@ func TestSchemaHandler_SchemaRegister_Failure(t *testing.T) {
 
 //TestSchemaHandler_SchemaChange_Compatible tests SchemaChange for a compatible schema change
 func TestSchemaHandler_SchemaChange(t *testing.T) {
-	err := createTestSchemaTable()
-	test.Assert(t, err == nil, "Error creating test_schema table for testing: %v", err)
+	createTestSchemaTable(t)
 	res := performSchemaRegister(t, TestTbl)
 	test.Assert(t, http.StatusOK == res.Code,
 		"Schema register in schema change test did not return 200 HTTP code")
@@ -163,8 +162,7 @@ func TestSchemaHandler_SchemaChange(t *testing.T) {
 
 //TestSchemaHandler_SchemaChange_Incompatible tests SchemaChange raises error for incompatible schema change
 func TestSchemaHandler_SchemaChange_Incompatible(t *testing.T) {
-	err := createTestSchemaTable()
-	test.Assert(t, err == nil, "Error creating test_schema table for testing: %v", err)
+	createTestSchemaTable(t)
 	res := performSchemaRegister(t, TestTbl)
 	test.Assert(t, http.StatusOK == res.Code,
 		"Schema register in schema change test did not return 200 HTTP code")

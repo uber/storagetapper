@@ -217,7 +217,7 @@ func initTestDB(init bool, t *testing.T) {
 	}
 }
 
-func addTable(init bool, format string, tableNum string, t *testing.T) {
+func addTable(init bool, format string, tableNum string, typ string, t *testing.T) {
 	table := "e2e_test_table" + tableNum
 
 	if init {
@@ -232,7 +232,7 @@ func addTable(init bool, format string, tableNum string, t *testing.T) {
 
 		/*Insert output Avro schema */
 		dst := `, "dst" : "local"`
-		err = util.HTTPPostJSON("http://localhost:7836/schema", `{"cmd" : "register", "service" : "e2e_test_svc1", "db" : "e2e_test_db1", "table" : "`+table+`"`+dst+` }`)
+		err = util.HTTPPostJSON("http://localhost:7836/schema", `{"cmd" : "register", "service" : "e2e_test_svc1", "db" : "e2e_test_db1", "type" : "`+typ+`", "table" : "`+table+`"`+dst+` }`)
 		test.CheckFail(err, t)
 
 		if tableNum == "1" {
@@ -350,7 +350,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	c2, err := p.NewConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
 	test.CheckFail(err, t)
 
-	addTable(init, outPipeFormat, "1", t)
+	addTable(init, outPipeFormat, "1", outPipeFormat, t)
 
 	outEncoder, err := encoder.Create(cfg.OutputFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1")
 	test.CheckFail(err, t)
@@ -441,7 +441,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		time.Sleep(time.Millisecond * 50)
 	}
 
-	addTable(init, outPipeFormat, "2", t)
+	addTable(init, outPipeFormat, "2", outPipeFormat, t)
 
 	outEncoder2, err := encoder.Create(cfg.OutputFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2")
 	test.CheckFail(err, t)

@@ -78,16 +78,16 @@ func connectInfoGet(dbl *db.Loc, tp int) *db.Addr {
 	return ci
 }
 
-func schemaGet(namespace string, schemaName string) (*types.AvroSchema, error) {
+func schemaGet(namespace string, schemaName string, typ string) (*types.AvroSchema, error) {
 	var err error
 	var a *types.AvroSchema
 
-	s := state.GetOutputSchema(schemaName)
+	s := state.GetOutputSchema(schemaName, typ)
 	if s != "" {
 		a = &types.AvroSchema{}
 		err = json.Unmarshal([]byte(s), a)
 	} else {
-		a, err = encoder.GetSchemaWebster(namespace, schemaName)
+		a, err = encoder.GetSchemaWebster(namespace, schemaName, typ)
 	}
 
 	return a, err

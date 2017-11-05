@@ -74,7 +74,7 @@ var MySQLToAvroType = map[string]types.AvroPrimitiveType{
 }
 
 // ConvertToAvroFromSchema converts a MySQL schema to an Avro schema
-func ConvertToAvroFromSchema(dbl *db.Loc, tblSchema *types.TableSchema) ([]byte, error) {
+func ConvertToAvroFromSchema(dbl *db.Loc, typ string, tblSchema *types.TableSchema) ([]byte, error) {
 	avroSchema := &types.AvroSchema{
 		Name:      fmt.Sprintf("%s-%s", tblSchema.DBName, tblSchema.TableName),
 		Type:      types.AvroRECORD,
@@ -122,10 +122,10 @@ func ConvertToAvroFromSchema(dbl *db.Loc, tblSchema *types.TableSchema) ([]byte,
 }
 
 // ConvertToAvro converts a MySQL schema to an Avro schema
-func ConvertToAvro(dbl *db.Loc, tableName string) ([]byte, error) {
+func ConvertToAvro(dbl *db.Loc, tableName string, typ string) ([]byte, error) {
 	tblSchema, err := Get(dbl, tableName)
 	if err != nil {
 		return nil, err
 	}
-	return ConvertToAvroFromSchema(dbl, tblSchema)
+	return ConvertToAvroFromSchema(dbl, typ, tblSchema)
 }

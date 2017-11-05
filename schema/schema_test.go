@@ -113,7 +113,7 @@ func TestConvertToAvroSchema(t *testing.T) {
 
 	err := createTestSchemaTable()
 	test.CheckFail(err, t)
-	serAvroSchema, err := ConvertToAvro(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl)
+	serAvroSchema, err := ConvertToAvro(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, "avro")
 	test.CheckFail(err, t)
 
 	avroSchema := &types.AvroSchema{}

@@ -49,6 +49,7 @@ func TestSchemaInfoAddDelCommands(t *testing.T) {
 		Cmd:    "add",
 		Name:   "test_schema_name1",
 		Schema: "fake_schema_body", //TODO: No validation currently
+		Type:   "avro",
 	}
 	body, _ := json.Marshal(add)
 	req, err := http.NewRequest("POST", "/schema", bytes.NewReader(body))
@@ -65,6 +66,7 @@ func TestSchemaInfoAddDelCommands(t *testing.T) {
 	del := schemaReq{
 		Cmd:  "del",
 		Name: "test_schema_name1",
+		Type: "avro",
 	}
 	body, _ = json.Marshal(del)
 	_, err = http.NewRequest("POST", "/schema", bytes.NewReader(body))
@@ -89,6 +91,7 @@ func TestSchemaInfoNegative(t *testing.T) {
 		Cmd:    "add",
 		Name:   "test_schema_name1",
 		Schema: "fake_schema_body",
+		Type:   "avro",
 	}
 	add.Name = ""
 	body, _ := json.Marshal(add)
@@ -97,7 +100,7 @@ func TestSchemaInfoNegative(t *testing.T) {
 	test.Assert(t, err == nil, "Schema info add failed: %v", err)
 	res := httptest.NewRecorder()
 	schemaCmd(res, req)
-	test.Assert(t, res.Code == http.StatusInternalServerError, "Not OK")
+	test.Assert(t, res.Code == http.StatusInternalServerError, "Not OK: got %v", res.Code)
 
 	add.Name = "test_schema_name2"
 	add.Cmd = "update"

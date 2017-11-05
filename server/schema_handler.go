@@ -59,13 +59,13 @@ func NewSchemaHandler() *SchemaHandler {
 
 //SchemaRegister handles the POST request to get Avro schema from table
 //definition for given service,db,table
-func SchemaRegister(svc string, sdb string, table string) error {
-	avroSchema, err := schema.ConvertToAvro(&db.Loc{Service: svc, Name: sdb}, table)
+func SchemaRegister(svc string, sdb string, table string, typ string) error {
+	avroSchema, err := schema.ConvertToAvro(&db.Loc{Service: svc, Name: sdb}, table, typ)
 	if err != nil {
 		return err
 	}
 
-	err = state.InsertSchema(encoder.GetOutputSchemaName(svc, sdb, table), string(avroSchema))
+	err = state.InsertSchema(encoder.GetOutputSchemaName(svc, sdb, table), typ, string(avroSchema))
 	if err != nil {
 		return err
 	}
@@ -77,13 +77,13 @@ func SchemaRegister(svc string, sdb string, table string) error {
 }
 
 //SchemaChange handles the POST request to alter schema
-func SchemaChange(svc string, sdb string, table string, alter string) error {
-	avroSchema, err := schema.GetAvroSchemaFromAlterTable(&db.Loc{Service: svc, Name: sdb}, table, alter)
+func SchemaChange(svc string, sdb string, table string, typ string, alter string) error {
+	avroSchema, err := schema.GetAvroSchemaFromAlterTable(&db.Loc{Service: svc, Name: sdb}, table, typ, alter)
 	if err != nil {
 		return err
 	}
 
-	err = state.UpdateSchema(encoder.GetOutputSchemaName(svc, sdb, table), string(avroSchema))
+	err = state.UpdateSchema(encoder.GetOutputSchemaName(svc, sdb, table), typ, string(avroSchema))
 	if err != nil {
 		return err
 	}
@@ -103,6 +103,7 @@ type schemaReq struct {
 	Db      string
 	Table   string
 	Alter   string
+	Type    string
 }
 
 func schemaCmd(w http.ResponseWriter, r *http.Request) {
@@ -114,18 +115,20 @@ func schemaCmd(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&s)
 	if err != nil {
 		//Will be handle in the next if
+	} else if len(s.Type) == 0 {
+		err = errors.New("type field cannot be empty")
 	} else if len(s.Name) == 0 && s.Cmd != "register" && s.Cmd != "change" {
-		err = errors.New("Invalid command. Name cannot be empty")
+		err = errors.New("name field cannot be empty")
 	} else if s.Cmd == "add" {
-		err = state.InsertSchema(s.Name, s.Schema)
+		err = state.InsertSchema(s.Name, s.Type, s.Schema)
 	} else if s.Cmd == "del" {
-		err = state.DeleteSchema(s.Name)
+		err = state.DeleteSchema(s.Name, s.Type)
 	} else if s.Cmd == "register" {
-		err = SchemaRegister(s.Service, s.Db, s.Table)
+		err = SchemaRegister(s.Service, s.Db, s.Table, s.Type)
 	} else if s.Cmd == "change" { //mutate, alter?
-		err = SchemaChange(s.Service, s.Db, s.Table, s.Alter)
+		err = SchemaChange(s.Service, s.Db, s.Table, s.Type, s.Alter)
 	} else {
-		err = errors.New("Unknown command (possible commands: add/del)")
+		err = errors.New("unknown command (possible commands: add/del/change/register)")
 	}
 
 	if err != nil {

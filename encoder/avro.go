@@ -147,7 +147,7 @@ func (e *avroEncoder) UpdateCodec() error {
 		return err
 	}
 
-	e.outSchema, err = GetLatestSchema(namespace, GetOutputSchemaName(e.Service, e.Db, e.Table))
+	e.outSchema, err = GetLatestSchema(namespace, GetOutputSchemaName(e.Service, e.Db, e.Table), "avro")
 	if log.E(err) {
 		return err
 	}

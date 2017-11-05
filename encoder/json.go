@@ -107,7 +107,7 @@ func (e *jsonEncoder) UpdateCodec() error {
 
 	e.inSchema = schema
 
-	s := state.GetOutputSchema(GetOutputSchemaName(e.Service, e.Db, e.Table))
+	s := state.GetOutputSchema(GetOutputSchemaName(e.Service, e.Db, e.Table), "json")
 	if s != "" {
 		c, err := e.schemaDecode([]byte(s))
 		if err != nil {

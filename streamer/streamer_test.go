@@ -100,10 +100,9 @@ func setupDB(t *testing.T) *sql.DB {
 	execSQL(state.GetDB(), t, "UPDATE state SET gtid='fake-gtid' WHERE tableName=? AND service=? AND db=?", TestTbl, TestSvc, TestDb)
 
 	// Store Avro schema in local db
-	avSch, err := schema.ConvertToAvro(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl)
+	avSch, err := schema.ConvertToAvro(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, "avro")
 	test.Assert(t, err == nil, "Error converting TestTbl to its Avro schema: %v", err)
-	execSQL(dbConn, t, fmt.Sprintf("INSERT INTO %s.%s (topic, avroschema) VALUES ('%v', '%v')",
-		TestDb, SchemaSvcTbl, cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl), util.BytesToString(avSch)))
+	err = state.InsertSchema(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl), "avro", util.BytesToString(avSch))
 	test.CheckFail(err, t)
 	return dbConn
 }
@@ -142,7 +141,7 @@ func setupWorker(bufPipe pipe.Pipe, t *testing.T) pipe.Consumer {
 
 func verifyFromOutputKafka(shiftKey int, outPConsumer pipe.Consumer, t *testing.T) {
 	log.Debugf("verification started %v", shiftKey)
-	codec, _, err := encoder.GetLatestSchemaCodec(TestSvc, TestDb, TestTbl)
+	codec, _, err := encoder.GetLatestSchemaCodec(TestSvc, TestDb, TestTbl, "avro")
 	test.Assert(t, err == nil, "Error getting codec for avro decoding: %v", err)
 
 	lastRKey := int64(shiftKey)
@@ -178,31 +177,19 @@ func verifyFromOutputKafka(shiftKey int, outPConsumer pipe.Consumer, t *testing.
 }
 
 // getSchemaTest: for testing purposes fetches avro schema from local db
-func getSchemaTest(namespace string, schemaName string) (*types.AvroSchema, error) {
-	var avSchStr string
-	var avSch types.AvroSchema
-	dbConn, err := db.OpenService(&db.Loc{Service: types.MySvcName, Name: types.MyDbName}, "")
-	if err != nil {
-		return nil, err
+func getSchemaTest(namespace string, schemaName string, typ string) (*types.AvroSchema, error) {
+	var err error
+	var a *types.AvroSchema
+
+	s := state.GetOutputSchema(schemaName, typ)
+	if s == "" {
+		return nil, fmt.Errorf("schema not found")
 	}
-	resRows, err := util.QuerySQL(dbConn, fmt.Sprintf("SELECT AVROSCHEMA FROM %s.%s WHERE TOPIC='%s'",
-		types.MySvcName, schemaSvcTbl, schemaName))
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resRows.Close() }()
-	if !resRows.Next() {
-		return nil, fmt.Errorf("No result for schema fetch for %v from local test db", schemaName)
-	}
-	err = resRows.Scan(&avSchStr)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal([]byte(avSchStr), &avSch)
-	if err != nil {
-		return nil, err
-	}
-	return &avSch, nil
+
+	a = &types.AvroSchema{}
+	err = json.Unmarshal([]byte(s), a)
+
+	return a, err
 }
 
 func TestStreamer_StreamFromConsistentSnapshot(t *testing.T) {

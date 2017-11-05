@@ -526,39 +526,39 @@ func TestClusterInfo(t *testing.T) {
 
 func TestOutputSchema(t *testing.T) {
 	initState(t)
-	err := InsertSchema("state_schema1", "test_schema_body1")
+	err := InsertSchema("state_schema1", "test_type", "test_schema_body1")
 	test.CheckFail(err, t)
-	err = InsertSchema("state_schema2", "test_schema_body2")
+	err = InsertSchema("state_schema2", "test_type", "test_schema_body2")
 	test.CheckFail(err, t)
-	err = InsertSchema("state_schema1", "test_schema_body1")
+	err = InsertSchema("state_schema1", "test_type", "test_schema_body1")
 	if err == nil {
 		t.Fatalf("Duplicate names shouldn't be allowed")
 	}
-	if GetOutputSchema("state_schema1") != "test_schema_body1" {
+	if GetOutputSchema("state_schema1", "test_type") != "test_schema_body1" {
 		t.Fatalf("Content is wrong 1")
 	}
-	if GetOutputSchema("state_schema2") != "test_schema_body2" {
+	if GetOutputSchema("state_schema2", "test_type") != "test_schema_body2" {
 		t.Fatalf("Content is wrong 2")
 	}
-	if GetOutputSchema("state_schema3") != "" {
+	if GetOutputSchema("state_schema3", "test_type") != "" {
 		t.Fatalf("Content is wrong 3")
 	}
-	err = UpdateSchema("state_schema1", "test_schema_body1_updated")
+	err = UpdateSchema("state_schema1", "test_type", "test_schema_body1_updated")
 	test.CheckFail(err, t)
 
-	if GetOutputSchema("state_schema1") != "test_schema_body1_updated" {
+	if GetOutputSchema("state_schema1", "test_type") != "test_schema_body1_updated" {
 		t.Fatalf("Content is wrong 4")
 	}
-	if GetOutputSchema("state_schema2") != "test_schema_body2" {
+	if GetOutputSchema("state_schema2", "test_type") != "test_schema_body2" {
 		t.Fatalf("Content is wrong 5")
 	}
-	err = DeleteSchema("state_schema1")
+	err = DeleteSchema("state_schema1", "test_type")
 	test.CheckFail(err, t)
-	err = DeleteSchema("state_schema1")
+	err = DeleteSchema("state_schema1", "test_type")
 	test.CheckFail(err, t)
-	err = DeleteSchema("state_schema2")
+	err = DeleteSchema("state_schema2", "test_type")
 	test.CheckFail(err, t)
-	err = DeleteSchema("state_schema3")
+	err = DeleteSchema("state_schema3", "test_type")
 	test.CheckFail(err, t)
 }
 

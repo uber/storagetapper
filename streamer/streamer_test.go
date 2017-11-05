@@ -47,11 +47,6 @@ import (
 	"github.com/linkedin/goavro"
 )
 
-const (
-	//Testing purposes
-	schemaSvcTbl = "schemasvc"
-)
-
 var (
 	cfg          *config.AppConfig
 	TestSvc      = types.MySvcName
@@ -119,7 +114,8 @@ func setupBufferData(producer pipe.Producer, shiftKey int, t *testing.T) {
 	for i := shiftKey; i < 1000+shiftKey; i++ {
 		bd, err := enc.Row(types.Insert, &[]interface{}{i, strconv.Itoa(i)}, uint64(i))
 		test.CheckFail(err, t)
-		producer.Push(bd)
+		err = producer.Push(bd)
+		test.CheckFail(err, t)
 	}
 }
 
@@ -205,6 +201,7 @@ func TestStreamer_StreamFromConsistentSnapshot(t *testing.T) {
 	bufPipe, err := pipe.Create(shutdown.Context, "kafka", 16, cfg, nil)
 	test.CheckFail(err, t)
 	producer, err := bufPipe.NewProducer(config.GetTopicName(cfg.BufferTopicNameFormat, TestSvc, TestDb, TestTbl))
+	test.CheckFail(err, t)
 
 	setupData(dbConn, 0, t)
 

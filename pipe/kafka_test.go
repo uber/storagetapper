@@ -543,9 +543,9 @@ func TestKafkaMultiPartition(t *testing.T) {
 		g := j == 1
 		log.Debugf("Closing %v %v", j, g)
 		if g {
-			pc[j].Close()
+			err = pc[j].Close()
 		} else {
-			pc[j].CloseOnFailure()
+			err = pc[j].CloseOnFailure()
 		}
 		log.Debugf("Closed %v", j)
 		test.CheckFail(err, t)

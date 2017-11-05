@@ -310,6 +310,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	trackingPipe, err := pipe.Create(shutdown.Context, "kafka", cfg.PipeBatchSize, cfg, nil)
 	test.CheckFail(err, t)
 	trackingConsumer, err := trackingPipe.NewConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
+	test.CheckFail(err, t)
 
 	initTestDB(init, t)
 
@@ -391,7 +392,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		avroResult = append(avroResult, s)
 	}
 
-	sseqno = waitAllEventsStreamed(cfg.OutputFormat, trackingConsumer, sseqno, seqno)
+	waitAllEventsStreamed(cfg.OutputFormat, trackingConsumer, sseqno, seqno)
 
 	test.ExecSQL(conn, t, "ALTER TABLE e2e_test_table1 DROP f2")
 	seqno++

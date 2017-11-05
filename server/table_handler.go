@@ -80,6 +80,19 @@ type tableListResponse struct {
 	Output  string
 }
 
+func iterateRows(rows *sql.Rows, t *tableCmdReq) error {
+	var d, n string
+	for rows.Next() {
+		if err := rows.Scan(&d, &n); err != nil {
+			return err
+		}
+		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: d}, n, t.Input, t.Output) {
+			return fmt.Errorf("Error registering table: %v.%v", d, n)
+		}
+	}
+	return nil
+}
+
 func handleAddCmd(w http.ResponseWriter, t *tableCmdReq) error {
 	cfg := config.Get()
 	if t.Input == "" {
@@ -116,16 +129,7 @@ func handleAddCmd(w http.ResponseWriter, t *tableCmdReq) error {
 	}
 	defer func() { log.E(rows.Close()) }()
 
-	var d, n string
-	for rows.Next() {
-		if err = rows.Scan(&d, &n); err != nil {
-			break
-		}
-		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: d}, n, t.Input, t.Output) {
-			err = fmt.Errorf("Error registering table: %v.%v", d, n)
-			break
-		}
-	}
+	err = iterateRows(rows, t)
 
 	updateTableRegCnt()
 

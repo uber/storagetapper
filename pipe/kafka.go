@@ -579,9 +579,7 @@ func (p *kafkaConsumer) Pop() (interface{}, error) {
 func (p *kafkaConsumer) close(graceful bool) error {
 	p.cancel() //Unblock FetchNext
 
-	p.pipe.closeConsumer(p, graceful)
-
-	return nil
+	return p.pipe.closeConsumer(p, graceful)
 }
 
 func (p *kafkaConsumer) Close() error {

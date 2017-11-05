@@ -133,7 +133,7 @@ func CheckTxIsolation(tx *sql.Tx, level string) error {
 	}
 
 	if txLevel != level {
-		err = fmt.Errorf("Transaction isolation level must be: %v, got: %v", level, txLevel)
+		return fmt.Errorf("Transaction isolation level must be: %v, got: %v", level, txLevel)
 	}
 
 	return nil

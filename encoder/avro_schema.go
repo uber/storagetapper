@@ -79,5 +79,5 @@ func GetLatestSchemaCodec(service string, db string, table string, typ string) (
 
 //GetOutputSchemaName combines parameter into output topic name
 func GetOutputSchemaName(service string, db string, table string) string {
-	return fmt.Sprintf("hp-%s-%s-%s", service, db, table)
+	return fmt.Sprintf("hp-tap-%s-%s-%s", service, db, table)
 }

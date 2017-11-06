@@ -450,7 +450,7 @@ func CheckBinlogFormat(t *testing.T) {
 func initConsumeTableEvents(p pipe.Pipe, db string, table string, t *testing.T) pipe.Consumer {
 	tn := fmt.Sprintf("%s.service.test_svc1.db.%s.table.%s", types.MySvcName, db, table)
 	if !cfg.ReaderBuffer {
-		tn = fmt.Sprintf("hp-%s-%s-%s", "test_svc1", db, table)
+		tn = fmt.Sprintf("hp-tap-%s-%s-%s", "test_svc1", db, table)
 	}
 	pc, err := p.NewConsumer(tn)
 	test.CheckFail(err, t)

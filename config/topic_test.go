@@ -26,9 +26,9 @@ import (
 )
 
 var topicTests = [][]string{
-	{"hp-%s-%s-%s", "hp-p1-p2-p3"},
-	{"hp-%s-%s", "hp-p1-p2"},
-	{"hp-%s", "hp-p1"},
+	{"hp-tap-%s-%s-%s", "hp-tap-p1-p2-p3"},
+	{"hp-tap-%s-%s", "hp-tap-p1-p2"},
+	{"hp-tap-%s", "hp-tap-p1"},
 	{"hp", "hp"},
 	{"nm.service.%s.db.%s.table.%s", "nm.service.p1.db.p2.table.p3"},
 }

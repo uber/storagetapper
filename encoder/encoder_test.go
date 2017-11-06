@@ -394,7 +394,7 @@ func Prepare(t *testing.T, create []string, table string) {
 
 	avroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1", Name: "db1"}, table, "avro")
 	test.CheckFail(err, t)
-	n := fmt.Sprintf("hp-%s-%s-%s", "enc_test_svc1", "db1", table)
+	n := fmt.Sprintf("hp-tap-%s-%s-%s", "enc_test_svc1", "db1", table)
 	err = state.InsertSchema(n, "avro", string(avroSchema))
 	test.CheckFail(err, t)
 

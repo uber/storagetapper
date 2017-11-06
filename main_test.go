@@ -294,7 +294,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		test.CheckFail(err, t)
 	}
 	cfg.StateUpdateTimeout = 1
-	cfg.OutputTopicNameFormat = "hp-%s-%s-%s"
+	cfg.OutputTopicNameFormat = "hp-tap-%s-%s-%s"
 	cfg.MaxNumProcs = 3
 	//	cfg.PipeBatchSize = 1
 	schema.HeatpipeNamespace = "hp"
@@ -309,7 +309,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	trackingPipe, err := pipe.Create(shutdown.Context, "kafka", cfg.PipeBatchSize, cfg, nil)
 	test.CheckFail(err, t)
-	trackingConsumer, err := trackingPipe.NewConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
+	trackingConsumer, err := trackingPipe.NewConsumer("hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
 	test.CheckFail(err, t)
 
 	initTestDB(init, t)
@@ -346,9 +346,9 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	* produced */
 	p, err := pipe.Create(shutdown.Context, "kafka", cfg.PipeBatchSize, cfg, nil)
 	test.CheckFail(err, t)
-	c, err := p.NewConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
+	c, err := p.NewConsumer("hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
 	test.CheckFail(err, t)
-	c2, err := p.NewConsumer("hp-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
+	c2, err := p.NewConsumer("hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
 	test.CheckFail(err, t)
 
 	addTable(init, outPipeFormat, "1", outPipeFormat, t)
@@ -486,9 +486,9 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	time.Sleep(time.Millisecond * 1500) //Let binlog to see table deletion
 
-	log.Debugf("Start consuming events from %v", "hp-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
+	log.Debugf("Start consuming events from %v", "hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
 	consumeEvents(c, cfg.OutputFormat, avroResult, jsonResult, outEncoder, t)
-	log.Debugf("Start consuming events from %v", "hp-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
+	log.Debugf("Start consuming events from %v", "hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
 	consumeEvents(c2, cfg.OutputFormat, avroResult2, jsonResult2, outEncoder2, t)
 
 	test.CheckFail(c.Close(), t)

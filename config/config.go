@@ -85,7 +85,7 @@ func GetDefaultConfig() *AppConfig {
 
 		OutputPipeType:        "kafka",
 		OutputFormat:          "avro",
-		OutputTopicNameFormat: "hp-%s-%s-%s",
+		OutputTopicNameFormat: "hp-tap-%s-%s-%s",
 
 		PipeBatchSize:         256,
 		OutputPipeConcurrency: 1,

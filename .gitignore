@@ -10,3 +10,4 @@
 .gen/
 /vendor
 /storagetapper
+types/format_gen*.go

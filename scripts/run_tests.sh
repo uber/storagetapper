@@ -13,7 +13,7 @@ CMD="go test -race -coverprofile=profile.out -covermode=atomic -test.timeout $TI
 for i in $@; do
 	$CMD $TEST_PARAM $i || exit 1
 	if [ -f profile.out ]; then
-		cat profile.out >> coverage.txt #combine coverage report for codecov.io
+		cat profile.out >> coverage.out #combine coverage report for codecov.io
 		rm profile.out
 	fi
 done

@@ -268,7 +268,7 @@ func (e *jsonEncoder) DecodeEvent(b []byte) (*types.CommonFormatEvent, error) {
 	return jsonDecode(b)
 }
 
-func changeCfFieldsJSON(cf *types.CommonFormatEvent, ref *types.CommonFormatEvent, t *testing.T) {
+func changeBinaryFieldsJSON(cf *types.CommonFormatEvent, ref *types.CommonFormatEvent, t *testing.T) {
 	for i := 0; i < len(cf.Key); i++ {
 		switch (ref.Key[i]).(type) {
 		case []byte:
@@ -324,6 +324,6 @@ func ChangeCfFields(tp string, cf *types.CommonFormatEvent, ref *types.CommonFor
 			}
 		}
 	} else if tp == "json" {
-		changeCfFieldsJSON(cf, ref, t)
+		changeBinaryFieldsJSON(cf, ref, t)
 	}
 }

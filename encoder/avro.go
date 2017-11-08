@@ -355,8 +355,6 @@ func (e *avroEncoder) DecodeEvent(b []byte) (*types.CommonFormatEvent, error) {
 
 	r := rec.(*goavro.Record)
 
-	log.Debugf("%+v", r)
-
 	c.Type = "insert"
 	c.Key = make([]interface{}, 0)
 

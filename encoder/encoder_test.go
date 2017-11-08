@@ -45,12 +45,12 @@ var testTable = "t1"
 
 var testBasicResult = []types.CommonFormatEvent{
 	/* Test basic insert, update, delete */
-	{Type: "insert", Key: []interface{}{1.0}, SeqNo: 1.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 1.0}}},
-	{Type: "insert", Key: []interface{}{2.0}, SeqNo: 2.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 2.0}}},
-	{Type: "delete", Key: []interface{}{2.0}, SeqNo: 3.0, Timestamp: 0, Fields: nil},
-	{Type: "insert", Key: []interface{}{12.0}, SeqNo: 4.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 12.0}}},
-	{Type: "delete", Key: []interface{}{1.0}, SeqNo: 5.0, Timestamp: 0, Fields: nil},
-	{Type: "insert", Key: []interface{}{3.0}, SeqNo: 6.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 3.0}}},
+	{Type: "insert", Key: []interface{}{int64(1)}, SeqNo: 1, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(1)}}},
+	{Type: "insert", Key: []interface{}{int64(2)}, SeqNo: 2, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(2)}}},
+	{Type: "delete", Key: []interface{}{int64(2)}, SeqNo: 3, Timestamp: 0, Fields: nil},
+	{Type: "insert", Key: []interface{}{int64(12)}, SeqNo: 4, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(12)}}},
+	{Type: "delete", Key: []interface{}{int64(1)}, SeqNo: 5, Timestamp: 0, Fields: nil},
+	{Type: "insert", Key: []interface{}{int64(3)}, SeqNo: 6, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(3)}}},
 }
 
 type rowRec struct {
@@ -76,8 +76,8 @@ var testAllDataTypesResultRow = []rowRec{
 
 var testAllDataTypesResult = []types.CommonFormatEvent{
 	/* Test basic insert, update, delete */
-	{Type: "insert", Key: []interface{}{1.0}, SeqNo: 1.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 1.0}, {Name: "f2", Value: "asdf"}, {Name: "f3", Value: "jkl;"}, {Name: "f4", Value: []byte("abc")}, {Name: "f5", Value: "2017-07-06 11:55:57.8467835 -0700 PDT"}, {Name: "f6", Value: "2017-07-06 11:55:57.846950724 -0700 PDT"}, {Name: "f7", Value: "2017-07-06 11:55:57.846955766 -0700 PDT"}, {Name: "f8", Value: 2017.0}, {Name: "f9", Value: 1.8014398509481984e+16}, {Name: "f10", Value: []byte("abc")}, {Name: "f11", Value: 8765.0}, {Name: "f12", Value: float64(1111)}, {Name: "f13", Value: 2222.67}, {Name: "f14", Value: 3333.67}, {Name: "f15", Value: 4444.67}}},
-	{Type: "delete", Key: []interface{}{1.0}, SeqNo: 2.0, Timestamp: 0, Fields: nil},
+	{Type: "insert", Key: []interface{}{int64(1)}, SeqNo: 1, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(1)}, {Name: "f2", Value: "asdf"}, {Name: "f3", Value: "jkl;"}, {Name: "f4", Value: []byte("abc")}, {Name: "f5", Value: "2017-07-06 11:55:57.8467835 -0700 PDT"}, {Name: "f6", Value: "2017-07-06 11:55:57.846950724 -0700 PDT"}, {Name: "f7", Value: "2017-07-06 11:55:57.846955766 -0700 PDT"}, {Name: "f8", Value: int32(2017)}, {Name: "f9", Value: int64(1.8014398509481984e+16)}, {Name: "f10", Value: []byte("abc")}, {Name: "f11", Value: int32(8765)}, {Name: "f12", Value: float32(1111)}, {Name: "f13", Value: 2222.67}, {Name: "f14", Value: 3333.67}, {Name: "f15", Value: 4444.67}}},
+	{Type: "delete", Key: []interface{}{int64(1)}, SeqNo: 2, Timestamp: 0, Fields: nil},
 }
 
 var testErrorDecoding = [][]byte{
@@ -128,6 +128,46 @@ func TestType(t *testing.T) {
 	}
 }
 
+//func changeFloat64ToInt64(ref *types.CommonFormatEvent) {
+func changeInt64ToFloat64(ref *types.CommonFormatEvent) {
+	for k, v := range ref.Key {
+		switch vv := v.(type) {
+		//case float64:
+		//	ref.Key[k] = int64(vv)
+		case int64:
+			ref.Key[k] = float64(vv)
+		}
+	}
+
+	if ref.Fields == nil {
+		return
+	}
+
+	for k, v := range *ref.Fields {
+		switch vv := v.Value.(type) {
+		//		case float64:
+		//			(*ref.Fields)[k].Value = int64(vv)
+		case int64:
+			(*ref.Fields)[k].Value = float64(vv)
+		case int32:
+			(*ref.Fields)[k].Value = float64(vv)
+		case float32:
+			(*ref.Fields)[k].Value = float64(vv)
+		}
+	}
+}
+
+func copyEvent(ref *types.CommonFormatEvent) {
+	key := make([]interface{}, len(ref.Key))
+	copy(key, ref.Key)
+	ref.Key = key
+	if ref.Fields != nil {
+		fields := make([]types.CommonFormatField, len(*ref.Fields))
+		copy(fields, *ref.Fields)
+		ref.Fields = &fields
+	}
+}
+
 func TestEncodeDecodeCommonFormat(t *testing.T) {
 	Prepare(t, testBasicPrepare, "t1")
 
@@ -137,6 +177,12 @@ func TestEncodeDecodeCommonFormat(t *testing.T) {
 		test.CheckFail(err, t)
 
 		for _, ref := range testBasicResult {
+			if encType == "json" {
+				copyEvent(&ref)
+				//changeFloat64ToInt64(&ref)
+				changeInt64ToFloat64(&ref)
+			}
+
 			log.Debugf("Initial CF: %v %+v\n", ref, ref.Fields)
 			encoded, err := enc.CommonFormat(&ref)
 			test.CheckFail(err, t)
@@ -145,7 +191,23 @@ func TestEncodeDecodeCommonFormat(t *testing.T) {
 			log.Debugf("Post CF: %v %+v\n", decoded, decoded.Fields)
 			test.CheckFail(err, t)
 
-			ChangeCfFields(encType, decoded, &ref, t)
+			/*
+				if decoded.Fields != nil {
+					log.Debugf("yyyy %v %v", reflect.TypeOf(decoded.SeqNo), reflect.TypeOf((ref.SeqNo)))
+					for k, v := range decoded.Key {
+						log.Debugf("kkkk %v %+v %v %v", k, v, reflect.TypeOf(k), reflect.TypeOf(ref.Key[k]))
+					}
+					for k, v := range *decoded.Fields {
+						log.Debugf("yyyy %v %+v %v %v", k, v, reflect.TypeOf(v.Value), reflect.TypeOf((*ref.Fields)[k].Value))
+					}
+				}
+
+					if decoded.Fields != nil {
+						for k, v := range *decoded.Fields {
+							log.Debugf("zzzz %v %+v %v %v", k, v, reflect.TypeOf(v.Value), reflect.TypeOf((*ref.Fields)[k].Value))
+						}
+					}
+			*/
 
 			if enc.Type() == "avro" && ref.Type == "delete" {
 				key := GetCommonFormatKey(&ref)
@@ -155,6 +217,7 @@ func TestEncodeDecodeCommonFormat(t *testing.T) {
 
 			test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
 		}
+		log.Debugf("after Encoder: %v", encType)
 	}
 }
 
@@ -203,9 +266,14 @@ func TestEncodeDecodeRow(t *testing.T) {
 			decoded.Timestamp = 0
 
 			ref := testBasicResult[seqno-1]
-			log.Debugf("Initial CF: %+v %+v\n", ref, ref.Fields)
+			copyEvent(&ref)
 
-			ChangeCfFields(encType, decoded, &ref, t)
+			if encType == "json" {
+				changeInt64ToFloat64(&ref)
+				changeBinaryFieldsJSON(decoded, &ref, t)
+			}
+
+			log.Debugf("Initial CF: %+v %+v\n", ref, ref.Fields)
 
 			if enc.Type() == "avro" && ref.Type == "delete" {
 				key := GetCommonFormatKey(&ref)
@@ -232,16 +300,23 @@ func TestMarshalUnmarshal(t *testing.T) {
 			continue
 		}
 
-		for _, cf := range testBasicResult {
-			log.Debugf("Initial CF: %v\n", cf)
-			encoded, err := enc.CommonFormat(&cf)
+		for _, ref := range testBasicResult {
+			log.Debugf("Initial CF: %v\n", ref)
+
+			encoded, err := enc.CommonFormat(&ref)
 			test.CheckFail(err, t)
+
+			if encType == "json" {
+				copyEvent(&ref)
+				changeInt64ToFloat64(&ref)
+			}
 
 			decoded, err := enc.DecodeEvent(encoded)
-			log.Debugf("Post CF: %v\n", decoded)
 			test.CheckFail(err, t)
 
-			test.Assert(t, reflect.DeepEqual(&cf, decoded), "decoded different from initial")
+			log.Debugf("Post CF: %v\n", decoded)
+
+			test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
 		}
 	}
 }
@@ -274,7 +349,9 @@ func TestEncodeDecodeCommonFormatAllDataTypes(t *testing.T) {
 		enc, err := Create(encType, "enc_test_svc1", "db1", "t2")
 		test.CheckFail(err, t)
 
-		for _, ref := range testBasicResult {
+		for _, ref := range testAllDataTypesResult {
+			copyEvent(&ref)
+
 			log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
 
 			encoded, err := enc.CommonFormat(&ref)
@@ -282,9 +359,22 @@ func TestEncodeDecodeCommonFormatAllDataTypes(t *testing.T) {
 
 			decoded, err := enc.DecodeEvent(encoded)
 			test.CheckFail(err, t)
+
 			decoded.Timestamp = 0
 
-			ChangeCfFields(enc.Type(), decoded, &ref, t)
+			if decoded.Fields != nil {
+				for i := 0; i < len(*decoded.Fields); i++ {
+					v := &(*decoded.Fields)[i]
+					if (v.Name == "f8" || v.Name == "f11") && encType == "msgpack" {
+						v.Value = int32(v.Value.(int64))
+					}
+				}
+			}
+
+			if encType == "json" {
+				changeInt64ToFloat64(&ref)
+				changeBinaryFieldsJSON(decoded, &ref, t)
+			}
 
 			if enc.Type() == "avro" && ref.Type == "delete" {
 				key := GetCommonFormatKey(&ref)
@@ -292,8 +382,7 @@ func TestEncodeDecodeCommonFormatAllDataTypes(t *testing.T) {
 				ref.Key = append(ref.Key, key)
 			}
 
-			log.Debugf("1Post CF: %v %v\n", decoded, decoded.Fields)
-			test.CheckFail(err, t)
+			log.Debugf("Post CF: %v %v\n", decoded, decoded.Fields)
 
 			test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
 		}
@@ -311,17 +400,40 @@ func TestEncodeDecodeRowAllDataTypes(t *testing.T) {
 		var seqno uint64
 		for _, row := range testAllDataTypesResultRow {
 			log.Debugf("Initial CF: %+v\n", row)
+
 			seqno++
 			encoded, err := enc.Row(row.tp, &row.fields, seqno)
 			test.CheckFail(err, t)
 
 			decoded, err := enc.DecodeEvent(encoded)
 			test.CheckFail(err, t)
+
 			decoded.Timestamp = 0
 
 			ref := testAllDataTypesResult[seqno-1]
 
-			ChangeCfFields(encType, decoded, &ref, t)
+			copyEvent(&ref)
+			if encType == "json" {
+				changeInt64ToFloat64(&ref)
+				changeBinaryFieldsJSON(decoded, &ref, t)
+			}
+
+			if decoded.Fields != nil {
+				for i := 0; i < len(*decoded.Fields); i++ {
+					v := &(*decoded.Fields)[i]
+					if (v.Name == "f8" || v.Name == "f11") && encType == "msgpack" {
+						v.Value = int32(v.Value.(int64))
+					}
+				}
+			}
+
+			/*
+				if decoded.Fields != nil {
+					for k, v := range *decoded.Fields {
+						log.Debugf("%v %+v %v %v", k, v, reflect.TypeOf(v.Value), reflect.TypeOf((*ref.Fields)[k].Value))
+					}
+				}
+			*/
 
 			if enc.Type() == "avro" && ref.Type == "delete" {
 				key := GetCommonFormatKey(&ref)
@@ -329,16 +441,7 @@ func TestEncodeDecodeRowAllDataTypes(t *testing.T) {
 				ref.Key = append(ref.Key, key)
 			}
 
-			/*
-				if decoded.Fields != nil {
-					for i, v := range *decoded.Fields {
-						log.Debugf("%v %v %v %v", v.Value, (*ref.Fields)[i].Value, reflect.TypeOf(v.Value), reflect.TypeOf((*ref.Fields)[i].Value))
-					}
-				}
-			*/
-
-			//log.Debugf("decoded: %+v %+v", decoded, decoded.Fields)
-			//log.Debugf("%+v %+v", ref, ref.Fields)
+			log.Debugf("Post CF: %v %v\n", decoded, decoded.Fields)
 
 			test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
 		}

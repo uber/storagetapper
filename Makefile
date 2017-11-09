@@ -25,6 +25,9 @@ unittest: $(NAME)
 lint: $(NAME)
 	sh scripts/run_lints.sh $(PKGS)
 
+bench: $(NAME)
+	sh scripts/run_benchmarks.sh $(PKGS)
+
 test: unittest lint
 
 deb:

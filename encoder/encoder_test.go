@@ -450,7 +450,7 @@ func TestEncodeDecodeRowAllDataTypes(t *testing.T) {
 
 //TODO: add test to ensure bad connection gives error and not panic in create
 
-func ExecSQL(db *sql.DB, t *testing.T, query string) {
+func ExecSQL(db *sql.DB, t test.Failer, query string) {
 	test.CheckFail(util.ExecSQL(db, query), t)
 }
 
@@ -469,7 +469,7 @@ func schemaGet(namespace string, schemaName string, typ string) (*types.AvroSche
 	return a, err
 }
 
-func Prepare(t *testing.T, create []string, table string) {
+func Prepare(t test.Failer, create []string, table string) {
 	test.SkipIfNoMySQLAvailable(t)
 
 	dbc, err := db.OpenService(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1"}, "")
@@ -504,7 +504,113 @@ func Prepare(t *testing.T, create []string, table string) {
 	GetLatestSchema = schemaGet
 }
 
+var result []byte
+var resCf *types.CommonFormatEvent
+
+type encBench struct {
+	enc Encoder
+	cf  types.CommonFormatEvent
+	res []byte
+}
+
+func benchImpl(encType string, arr []byte) (*encBench, error) {
+	var e encBench
+	var err error
+	e.enc, err = Create(encType, "enc_test_svc1", "db1", "t2")
+	if err != nil {
+		return nil, err
+	}
+
+	e.cf = testAllDataTypesResult[0]
+	copyEvent(&e.cf)
+
+	(*e.cf.Fields)[9].Value = arr
+
+	return &e, nil
+}
+
+func (e *encBench) encode(n int, b *testing.B) {
+	var err error
+	for i := n; i > 0; i-- {
+		e.cf.SeqNo = uint64(i)
+		(*e.cf.Fields)[0].Value = int64(i)
+		result, err = e.enc.CommonFormat(&e.cf)
+		test.CheckFail(err, b)
+	}
+}
+
+func (e *encBench) decode(n int, b *testing.B) {
+	var err error
+	for i := n; i > 0; i-- {
+		resCf, err = e.enc.DecodeEvent(e.res)
+		test.CheckFail(err, b)
+	}
+}
+
+func runBenchmarks() {
+	arr := make([]byte, 1024)
+	for i := 0; i < 1024; i++ {
+		arr[i] = byte(i)
+	}
+
+	t := new(testing.T)
+	Prepare(t, testBasicPrepare, "t2")
+
+	benchmarks := []testing.InternalBenchmark{}
+	for encType := range encoders {
+		impl, err := benchImpl(encType, arr)
+		test.CheckFail(err, t)
+		bm := testing.InternalBenchmark{
+			Name: fmt.Sprintf("[name=%v-encode-1k]", encType),
+			F: func(b *testing.B) {
+				impl.encode(b.N, b)
+			},
+		}
+		benchmarks = append(benchmarks, bm)
+		impl.res, err = impl.enc.CommonFormat(&impl.cf)
+		test.CheckFail(err, t)
+		bm = testing.InternalBenchmark{
+			Name: fmt.Sprintf("[name=%v-decode-1k]", encType),
+			F: func(b *testing.B) {
+				impl.decode(b.N, b)
+			},
+		}
+		benchmarks = append(benchmarks, bm)
+
+		impls, err := benchImpl(encType, make([]byte, 1))
+		test.CheckFail(err, t)
+
+		bm = testing.InternalBenchmark{
+			Name: fmt.Sprintf("[name=%v-encode-small]", encType),
+			F: func(b *testing.B) {
+				impls.encode(b.N, b)
+			},
+		}
+		benchmarks = append(benchmarks, bm)
+
+		impls.res, err = impl.enc.CommonFormat(&impl.cf)
+		test.CheckFail(err, t)
+		bm = testing.InternalBenchmark{
+			Name: fmt.Sprintf("[name=%v-decode-small]", encType),
+			F: func(b *testing.B) {
+				impls.decode(b.N, b)
+			},
+		}
+		benchmarks = append(benchmarks, bm)
+	}
+
+	log.Configure(cfg.LogType, "error", config.EnvProduction())
+
+	anything := func(pat, str string) (bool, error) { return true, nil }
+	testing.Main(anything, nil, benchmarks, nil)
+}
+
 func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
-	os.Exit(m.Run())
+
+	if m.Run() != 0 {
+		os.Exit(1)
+	}
+
+	runBenchmarks()
 }

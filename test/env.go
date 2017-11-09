@@ -40,14 +40,20 @@ import (
 
 var cfg *config.AppConfig
 
+//Failer introduced to allow both testing.T and testing.B in CheckFail call
+type Failer interface {
+	FailNow()
+	Skip(...interface{})
+}
+
 // ExecSQL executes SQL and logs on error.
-func ExecSQL(db *sql.DB, t *testing.T, query string, param ...interface{}) {
+func ExecSQL(db *sql.DB, t Failer, query string, param ...interface{}) {
 	CheckFail(util.ExecSQL(db, query, param...), t)
 }
 
 // CheckFail fails the test if error is set, logs file, line, func of the failure
 // location
-func CheckFail(err error, t *testing.T) {
+func CheckFail(err error, t Failer) {
 	if err != nil {
 		pc, file, no, _ := runtime.Caller(1)
 		details := runtime.FuncForPC(pc)
@@ -79,7 +85,7 @@ func kafkaAvailable() bool {
 
 //SkipIfNoKafkaAvailable tries to connect to local Kafka and if fails, then skip
 //the test
-func SkipIfNoKafkaAvailable(t *testing.T) {
+func SkipIfNoKafkaAvailable(t Failer) {
 	if !kafkaAvailable() {
 		t.Skip("No local Kafka detected")
 	}
@@ -87,7 +93,7 @@ func SkipIfNoKafkaAvailable(t *testing.T) {
 
 //SkipIfNoMySQLAvailable tries to connect to local MySQL and if fails, then skip
 //the test
-func SkipIfNoMySQLAvailable(t *testing.T) {
+func SkipIfNoMySQLAvailable(t Failer) {
 	if !mysqlAvailable() {
 		t.Skip("No local MySQL detected")
 	}

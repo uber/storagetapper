@@ -728,6 +728,9 @@ func (b *mysqlReader) start(cfg *config.AppConfig) bool {
 
 	thisInstanceCluster = b.dbl.Cluster
 	b.outputFormat = cfg.ReaderOutputFormat
+	if !cfg.ReaderBuffer {
+		b.outputFormat = cfg.OutputFormat
+	}
 	b.topicNameFormat = cfg.BufferTopicNameFormat
 	b.batchSize = cfg.PipeBatchSize
 

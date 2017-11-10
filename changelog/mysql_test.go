@@ -484,16 +484,20 @@ func consumeTableEvents(pc pipe.Consumer, db string, table string, result []type
 			cf, err = enc.DecodeEvent(b.([]byte))
 			test.CheckFail(err, t)
 		case []byte:
-
 			cf = &types.CommonFormatEvent{}
-			payload, err := encoder.Internal.UnwrapEvent(b.([]byte), cf)
-			test.CheckFail(err, t)
+			if !cfg.ReaderBuffer {
+				cf, err = enc.DecodeEvent(b.([]byte))
+				test.CheckFail(err, t)
+			} else {
+				payload, err := encoder.Internal.UnwrapEvent(b.([]byte), cf)
+				test.CheckFail(err, t)
 
-			if cf.Type != "insert" && cf.Type != "delete" && cf.Type != "schema" {
-				test.CheckFail(err, t)
-				cf, err = enc.DecodeEvent(payload)
-				test.CheckFail(err, t)
-				test.Assert(t, false, "false")
+				if cf.Type != "insert" && cf.Type != "delete" && cf.Type != "schema" {
+					test.CheckFail(err, t)
+					cf, err = enc.DecodeEvent(payload)
+					test.CheckFail(err, t)
+					test.Assert(t, false, "false")
+				}
 			}
 		}
 

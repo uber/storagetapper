@@ -89,10 +89,48 @@ func (e *msgPackEncoder) CommonFormatEncode(c *types.CommonFormatEvent) ([]byte,
 	// return msgpack.Marshal(c)
 }
 
-func msgPackDecode(b []byte) (*types.CommonFormatEvent, error) {
-	res := &types.CommonFormatEvent{}
-	_, err := res.UnmarshalMsg(b)
-	return res, err
+func (e *msgPackEncoder) fixFieldTypes(cf *types.CommonFormatEvent) (err error) {
+	k := 0
+
+	//Restore field types according to schema
+	//MsgPack doesn't preserve int type size, so fix it
+	if e.c.inSchema != nil && cf.Type != "schema" {
+		for i := 0; i < len(e.c.inSchema.Columns); i++ {
+			if cf.Fields != nil && i < len(*cf.Fields) {
+				f := &(*cf.Fields)[i]
+				switch v := f.Value.(type) {
+				case int64:
+					switch e.c.inSchema.Columns[i].DataType {
+					case "int", "integer", "tinyint", "smallint", "mediumint", "year":
+						f.Value = int32(v)
+					}
+				}
+			}
+
+			if e.c.inSchema.Columns[i].Key == "PRI" && k < len(cf.Key) {
+				f := &cf.Key[k]
+				switch v := (*f).(type) {
+				case float64:
+					switch e.c.inSchema.Columns[i].DataType {
+					case "int", "integer", "tinyint", "smallint", "mediumint", "year":
+						*f = int32(v)
+					}
+				}
+				k++
+			}
+		}
+	}
+	return err
+}
+
+func (e *msgPackEncoder) msgPackDecode(b []byte) (*types.CommonFormatEvent, []byte, error) {
+	cf := &types.CommonFormatEvent{}
+	rem, err := cf.UnmarshalMsg(b)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return cf, rem, e.fixFieldTypes(cf)
 }
 
 /*
@@ -109,10 +147,15 @@ func (e *msgPackEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEve
 	if err != nil {
 		return
 	}
+	err = e.fixFieldTypes(cfEvent)
+	if err != nil {
+		return
+	}
 	return msgp.Skip(data)
 }
 
 //DecodeEvent decodes MsgPack encoded array into CommonFormatEvent struct
 func (e *msgPackEncoder) DecodeEvent(b []byte) (*types.CommonFormatEvent, error) {
-	return msgPackDecode(b)
+	cf, _, err := e.msgPackDecode(b)
+	return cf, err
 }

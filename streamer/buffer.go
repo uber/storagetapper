@@ -43,7 +43,8 @@ func (s *Streamer) getTag() map[string]string {
 
 func (s *Streamer) encodeCommonFormat(data []byte) (key string, outMsg []byte, err error) {
 	cfEvent := &types.CommonFormatEvent{}
-	payload, err := encoder.Internal.UnwrapEvent(data, cfEvent)
+	//FIXME: it must be table's encoder in order to have schema
+	payload, err := s.envEncoder.UnwrapEvent(data, cfEvent)
 	if log.EL(s.log, err) {
 		log.Errorf("broken event: %v %v", data, len(data))
 		return
@@ -54,7 +55,7 @@ func (s *Streamer) encodeCommonFormat(data []byte) (key string, outMsg []byte, e
 	//	log.Debugf("commont format received %v %v", cfEvent, cfEvent.Fields)
 
 	if cfEvent.Type == "insert" || cfEvent.Type == "delete" || cfEvent.Type == "schema" {
-		outMsg, err = s.encoder.CommonFormat(cfEvent)
+		outMsg, err = s.outEncoder.CommonFormat(cfEvent)
 		if log.EL(s.log, err) {
 			return
 		}
@@ -76,13 +77,13 @@ func (s *Streamer) encodeCommonFormat(data []byte) (key string, outMsg []byte, e
 		outMsg = payload
 		key = cfEvent.Key[0].(string)
 		//		log.Debugf("Data in final format already. Forwarding. Key=%v, SeqNo=%v", key, cfEvent.SeqNo)
-	} else if cfEvent.Type == encoder.Internal.Type() {
+	} else if cfEvent.Type == s.envEncoder.Type() {
 		var ev *types.CommonFormatEvent
-		ev, err = encoder.Internal.DecodeEvent(payload)
+		ev, err = s.envEncoder.DecodeEvent(payload)
 		if log.EL(s.log, err) {
 			return
 		}
-		outMsg, err = s.encoder.CommonFormat(ev)
+		outMsg, err = s.outEncoder.CommonFormat(ev)
 		if log.EL(s.log, err) {
 			return
 		}
@@ -106,7 +107,7 @@ func (s *Streamer) produceEvent(data interface{}) error {
 	case *types.RowMessage:
 		//log.Debugf("Received raw message %v %v %v %v", m.Type, m.SeqNo, m.Data, m.Key)
 		key = m.Key
-		outMsg, err = s.encoder.Row(m.Type, m.Data, m.SeqNo)
+		outMsg, err = s.outEncoder.Row(m.Type, m.Data, m.SeqNo)
 	case []byte:
 		s.BytesRead += int64(len(m))
 		key, outMsg, err = s.encodeCommonFormat(m)

@@ -87,7 +87,7 @@ func (s *Streamer) commitWithRetry(snapshotMetrics *metrics.Snapshot) bool {
 }
 
 func (s *Streamer) pushSchema() bool {
-	outMsg, err := s.encoder.EncodeSchema(0)
+	outMsg, err := s.outEncoder.EncodeSchema(0)
 	if log.EL(s.log, err) {
 		return false
 	}
@@ -117,14 +117,14 @@ func (s *Streamer) streamFromConsistentSnapshot(input string, concurrent bool, t
 		defer func() { log.EL(s.log, outProducer.Close()) }()
 	}
 
-	s.log.Infof("Starting consistent snapshot streamer for: %v, %v concurrent: %v", s.topic, s.encoder.Type(), concurrent)
+	s.log.Infof("Starting consistent snapshot streamer for: %v, %v concurrent: %v", s.topic, s.outEncoder.Type(), concurrent)
 
 	//For JSON format push schema as a first message of the stream
 	if !s.pushSchema() {
 		return false
 	}
 
-	_, err = snReader.Start(s.cluster, s.svc, s.db, s.table, s.encoder)
+	_, err = snReader.Start(s.cluster, s.svc, s.db, s.table, s.outEncoder)
 	if log.EL(s.log, err) {
 		return false
 	}

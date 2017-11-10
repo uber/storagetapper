@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,6 +48,7 @@ import (
 var cfg *config.AppConfig
 var globalTPoolProcs int32
 var fakePool pool.Thread
+var alterCh = make(chan bool)
 
 //TODO: 1.8 export the t.Name() so no hack is needed
 var testName string
@@ -76,12 +78,12 @@ var testBasic = []string{
 
 var testBasicResult = []types.CommonFormatEvent{
 	/* Test basic insert, update, delete */
-	{Type: "insert", Key: []interface{}{1.0}, SeqNo: 1.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 1.0}}},
-	{Type: "insert", Key: []interface{}{2.0}, SeqNo: 2.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 2.0}}},
-	{Type: "delete", Key: []interface{}{2.0}, SeqNo: 3.0, Timestamp: 0, Fields: nil},
-	{Type: "insert", Key: []interface{}{12.0}, SeqNo: 4.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 12.0}}},
-	{Type: "delete", Key: []interface{}{1.0}, SeqNo: 5.0, Timestamp: 0, Fields: nil},
-	{Type: "insert", Key: []interface{}{3.0}, SeqNo: 6.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 3.0}}},
+	{Type: "insert", Key: []interface{}{int64(1)}, SeqNo: 1, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(1)}}},
+	{Type: "insert", Key: []interface{}{int64(2)}, SeqNo: 2, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(2)}}},
+	{Type: "delete", Key: []interface{}{int64(2)}, SeqNo: 3, Timestamp: 0, Fields: nil},
+	{Type: "insert", Key: []interface{}{int64(12)}, SeqNo: 4, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(12)}}},
+	{Type: "delete", Key: []interface{}{int64(1)}, SeqNo: 5, Timestamp: 0, Fields: nil},
+	{Type: "insert", Key: []interface{}{int64(3)}, SeqNo: 6, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(3)}}},
 }
 
 /* Test with default database */
@@ -97,9 +99,9 @@ var testUseDB = []string{
 
 var testUseDBResult = []types.CommonFormatEvent{
 	/* Test with default database */
-	{Type: "insert", Key: []interface{}{4.0}, SeqNo: 1.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 4.0}}},
-	{Type: "insert", Key: []interface{}{5.0}, SeqNo: 2.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 5.0}}},
-	{Type: "insert", Key: []interface{}{6.0}, SeqNo: 3.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 6.0}}},
+	{Type: "insert", Key: []interface{}{int64(4)}, SeqNo: 1, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(4)}}},
+	{Type: "insert", Key: []interface{}{int64(5)}, SeqNo: 2, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(5)}}},
+	{Type: "insert", Key: []interface{}{int64(6)}, SeqNo: 3, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(6)}}},
 }
 
 var testMultiColumnPrepare = []string{
@@ -124,12 +126,12 @@ var testMultiColumn = []string{
 
 /* Test multi column queries */
 var testMultiColumnResult = []types.CommonFormatEvent{
-	{Type: "insert", Key: []interface{}{7.0}, SeqNo: 1.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 7.0}, {Name: "f2", Value: 2.0}, {Name: "f3", Value: 3.0}}},
-	{Type: "insert", Key: []interface{}{8.0}, SeqNo: 2.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 8.0}, {Name: "f2", Value: 2.0}, {Name: "f3", Value: 4.0}}},
-	{Type: "insert", Key: []interface{}{9.0}, SeqNo: 3.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 9.0}, {Name: "f2", Value: 2.0}, {Name: "f3", Value: nil}}},
-	{Type: "insert", Key: []interface{}{10.0}, SeqNo: 4.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 10.0}, {Name: "f2", Value: nil}, {Name: "f3", Value: 2.0}}},
-	{Type: "delete", Key: []interface{}{7.0}, SeqNo: 5.0, Timestamp: 0, Fields: nil},
-	{Type: "insert", Key: []interface{}{17.0}, SeqNo: 6.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 17.0}, {Name: "f2", Value: 1.0}, {Name: "f3", Value: 3.0}}},
+	{Type: "insert", Key: []interface{}{int64(7)}, SeqNo: 1, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(7)}, {Name: "f2", Value: int64(2)}, {Name: "f3", Value: int64(3)}}},
+	{Type: "insert", Key: []interface{}{int64(8)}, SeqNo: 2, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(8)}, {Name: "f2", Value: int64(2)}, {Name: "f3", Value: int64(4)}}},
+	{Type: "insert", Key: []interface{}{int64(9)}, SeqNo: 3, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(9)}, {Name: "f2", Value: int64(2)}, {Name: "f3", Value: nil}}},
+	{Type: "insert", Key: []interface{}{int64(10)}, SeqNo: 4, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(10)}, {Name: "f2", Value: nil}, {Name: "f3", Value: int64(2)}}},
+	{Type: "delete", Key: []interface{}{int64(7)}, SeqNo: 5, Timestamp: 0, Fields: nil},
+	{Type: "insert", Key: []interface{}{int64(17)}, SeqNo: 6, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(17)}, {Name: "f2", Value: int64(1)}, {Name: "f3", Value: int64(3)}}},
 }
 
 /* Test multi row binlog events */
@@ -142,20 +144,20 @@ var testMultiRow = []string{
 /* Test multi row binlog events */
 var testMultiRowResult = []types.CommonFormatEvent{
 	//"insert db1.t1(f1,f2,f3) values (100, 101, 102), (110, 111, 112), (120, 121, 122)"
-	{Type: "insert", Key: []interface{}{100.0}, SeqNo: 1.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 100.0}, {Name: "f2", Value: 101.0}, {Name: "f3", Value: 102.0}}},
-	{Type: "insert", Key: []interface{}{110.0}, SeqNo: 2.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 110.0}, {Name: "f2", Value: 111.0}, {Name: "f3", Value: 112.0}}},
-	{Type: "insert", Key: []interface{}{120.0}, SeqNo: 3.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 120.0}, {Name: "f2", Value: 121.0}, {Name: "f3", Value: 122.0}}},
+	{Type: "insert", Key: []interface{}{int64(100)}, SeqNo: 1, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(100)}, {Name: "f2", Value: int64(101)}, {Name: "f3", Value: int64(102)}}},
+	{Type: "insert", Key: []interface{}{int64(110)}, SeqNo: 2, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(110)}, {Name: "f2", Value: int64(111)}, {Name: "f3", Value: int64(112)}}},
+	{Type: "insert", Key: []interface{}{int64(120)}, SeqNo: 3, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(120)}, {Name: "f2", Value: int64(121)}, {Name: "f3", Value: int64(122)}}},
 	//"update db1.t1 set f1=f1+11, f3=f3+1 where f2=2"
-	{Type: "delete", Key: []interface{}{100.0}, SeqNo: 4.0, Timestamp: 0, Fields: nil},
-	{Type: "insert", Key: []interface{}{111.0}, SeqNo: 5.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 111.0}, {Name: "f2", Value: 101.0}, {Name: "f3", Value: 103.0}}},
-	{Type: "delete", Key: []interface{}{110.0}, SeqNo: 6.0, Timestamp: 0, Fields: nil},
-	{Type: "insert", Key: []interface{}{121.0}, SeqNo: 7.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 121.0}, {Name: "f2", Value: 111.0}, {Name: "f3", Value: 113.0}}},
+	{Type: "delete", Key: []interface{}{int64(100)}, SeqNo: 4, Timestamp: 0, Fields: nil},
+	{Type: "insert", Key: []interface{}{int64(111)}, SeqNo: 5, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(111)}, {Name: "f2", Value: int64(101)}, {Name: "f3", Value: int64(103)}}},
+	{Type: "delete", Key: []interface{}{int64(110)}, SeqNo: 6, Timestamp: 0, Fields: nil},
+	{Type: "insert", Key: []interface{}{int64(121)}, SeqNo: 7, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(121)}, {Name: "f2", Value: int64(111)}, {Name: "f3", Value: int64(113)}}},
 	//"delete from db1.t1 where f1 >= 100"
-	{Type: "delete", Key: []interface{}{120.0}, SeqNo: 8.0, Timestamp: 0, Fields: nil},
-	{Type: "insert", Key: []interface{}{131.0}, SeqNo: 9.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 131.0}, {Name: "f2", Value: 121.0}, {Name: "f3", Value: 123.0}}},
-	{Type: "delete", Key: []interface{}{111.0}, SeqNo: 10.0, Timestamp: 0, Fields: nil},
-	{Type: "delete", Key: []interface{}{121.0}, SeqNo: 11.0, Timestamp: 0, Fields: nil},
-	{Type: "delete", Key: []interface{}{131.0}, SeqNo: 12.0, Timestamp: 0, Fields: nil},
+	{Type: "delete", Key: []interface{}{int64(120)}, SeqNo: 8, Timestamp: 0, Fields: nil},
+	{Type: "insert", Key: []interface{}{int64(131)}, SeqNo: 9, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(131)}, {Name: "f2", Value: int64(121)}, {Name: "f3", Value: int64(123)}}},
+	{Type: "delete", Key: []interface{}{int64(111)}, SeqNo: 10, Timestamp: 0, Fields: nil},
+	{Type: "delete", Key: []interface{}{int64(121)}, SeqNo: 11, Timestamp: 0, Fields: nil},
+	{Type: "delete", Key: []interface{}{int64(131)}, SeqNo: 12, Timestamp: 0, Fields: nil},
 }
 
 /*Test compound primary key */
@@ -179,12 +181,12 @@ var testCompoundKey = []string{
 }
 
 var testCompoundKeyResult = []types.CommonFormatEvent{
-	{Type: "insert", Key: []interface{}{1.0, "aa aa"}, SeqNo: 1.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 1.0}, {Name: "f2", Value: "aa aa"}}},
-	{Type: "insert", Key: []interface{}{2.0, "bbb"}, SeqNo: 2.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 2.0}, {Name: "f2", Value: "bbb"}}},
-	{Type: "delete", Key: []interface{}{2.0, "bbb"}, SeqNo: 3.0, Timestamp: 0, Fields: nil},
-	{Type: "insert", Key: []interface{}{12.0, "bbb"}, SeqNo: 4.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 12.0}, {Name: "f2", Value: "bbb"}}},
-	{Type: "delete", Key: []interface{}{1.0, "aa aa"}, SeqNo: 5.0, Timestamp: 0, Fields: nil},
-	{Type: "insert", Key: []interface{}{3.0, "aaa"}, SeqNo: 6.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 3.0}, {Name: "f2", Value: "aaa"}}},
+	{Type: "insert", Key: []interface{}{int64(1), "aa aa"}, SeqNo: 1, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(1)}, {Name: "f2", Value: "aa aa"}}},
+	{Type: "insert", Key: []interface{}{int64(2), "bbb"}, SeqNo: 2, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(2)}, {Name: "f2", Value: "bbb"}}},
+	{Type: "delete", Key: []interface{}{int64(2), "bbb"}, SeqNo: 3, Timestamp: 0, Fields: nil},
+	{Type: "insert", Key: []interface{}{int64(12), "bbb"}, SeqNo: 4, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(12)}, {Name: "f2", Value: "bbb"}}},
+	{Type: "delete", Key: []interface{}{int64(1), "aa aa"}, SeqNo: 5, Timestamp: 0, Fields: nil},
+	{Type: "insert", Key: []interface{}{int64(3), "aaa"}, SeqNo: 6, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(3)}, {Name: "f2", Value: "aaa"}}},
 }
 
 var testDDLPrepare = []string{
@@ -201,13 +203,15 @@ var testDDLPrepare = []string{
 	)`,
 }
 
+//If modify alter logic here please check the alter-sync logic in
+//consumeTableEvents
 var testDDL = []string{
 	"insert into db1.t1 value (1)",
 	"insert into db1.t1 value (2)",
 	`	 alter table 
 	db1.t1 add 	f2 
 	varchar(32) 	`,
-	"alter table db2.t1 add f2 varchar(32)",
+	"alter table db2.t1 add f2 varchar(32)", //we don't track db2 so this should not affect db1.t1
 	"insert into db1.t1 value (3, 'aaa')",
 	"use db1",
 	"alter table t1 drop f2",
@@ -215,7 +219,7 @@ var testDDL = []string{
 	"insert into db1.t1 value (5)",
 	"use db2",
 	"insert into db2.t1 value (7, 'eee')",
-	"alter table t1 drop f2",
+	"alter table t1 drop f2", // this is db2 table. should be skipped as well
 	"insert into db1.t1 value (6)",
 	"update t1 set f1=f1+1 where f1=2",
 	"insert into db2.t1 value (8)",
@@ -232,23 +236,23 @@ var testDDL = []string{
 
 var testDDLResult = []types.CommonFormatEvent{
 	/* Test basic insert, update, delete */
-	{Type: "insert", Key: []interface{}{1.0}, SeqNo: 1.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 1.0}}},
-	{Type: "insert", Key: []interface{}{2.0}, SeqNo: 2.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 2.0}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 3.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f2", Value: "varchar(32)"}}},
-	{Type: "insert", Key: []interface{}{3.0}, SeqNo: 4.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 3.0}, {Name: "f2", Value: "aaa"}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 5.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}}},
-	{Type: "insert", Key: []interface{}{4.0}, SeqNo: 6.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 4.0}}},
-	{Type: "insert", Key: []interface{}{5.0}, SeqNo: 7.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 5.0}}},
-	{Type: "insert", Key: []interface{}{6.0}, SeqNo: 8.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 6.0}}},
-	{Type: "delete", Key: []interface{}{2.0}, SeqNo: 9.0, Timestamp: 0, Fields: nil},
-	{Type: "insert", Key: []interface{}{9.0}, SeqNo: 10.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 9.0}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 11.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "text"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
+	{Type: "insert", Key: []interface{}{int64(1)}, SeqNo: 1, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(1)}}},
+	{Type: "insert", Key: []interface{}{int64(2)}, SeqNo: 2, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(2)}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 3, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f2", Value: "varchar(32)"}}},
+	{Type: "insert", Key: []interface{}{int64(3)}, SeqNo: 4, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(3)}, {Name: "f2", Value: "aaa"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 5, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}}},
+	{Type: "insert", Key: []interface{}{int64(4)}, SeqNo: 6, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(4)}}},
+	{Type: "insert", Key: []interface{}{int64(5)}, SeqNo: 7, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(5)}}},
+	{Type: "insert", Key: []interface{}{int64(6)}, SeqNo: 8, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(6)}}},
+	{Type: "delete", Key: []interface{}{int64(2)}, SeqNo: 9, Timestamp: 0, Fields: nil},
+	{Type: "insert", Key: []interface{}{int64(9)}, SeqNo: 10, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(9)}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 11, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "text"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
 	//{Type: "insert", Key: []interface{}{45676.0}, SeqNo: 12.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 45676.0}, {Name: "f3", Value: "ggg"}, {Name: "f4", Value: "dHR0"}, {Name: "f5", Value: "eXl5"}, {Name: "f6", Value: "vvv"}, {Name: "f7", Value: 7543.0}}},
-	{Type: "insert", Key: []interface{}{45676.0}, SeqNo: 12.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 45676.0}, {Name: "f3", Value: "ggg"}, {Name: "f4", Value: []byte{116, 116, 116}}, {Name: "f5", Value: []byte{121, 121, 121}}, {Name: "f6", Value: "vvv"}, {Name: "f7", Value: 7543.0}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 13.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "text"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 14.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "varchar(20)"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 15.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 16.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}}},
+	{Type: "insert", Key: []interface{}{int64(45676)}, SeqNo: 12, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(45676)}, {Name: "f3", Value: "ggg"}, {Name: "f4", Value: []byte{116, 116, 116}}, {Name: "f5", Value: []byte{121, 121, 121}}, {Name: "f6", Value: "vvv"}, {Name: "f7", Value: int32(7543)}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 13, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "text"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 14, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "varchar(20)"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 15, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 16, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}}},
 }
 
 var testMultiTablePrepare = []string{
@@ -281,13 +285,13 @@ var testMultiTable = []string{
 }
 
 var testMultiTableResult1 = []types.CommonFormatEvent{
-	{Type: "insert", Key: []interface{}{7.0}, SeqNo: 1.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 7.0}}},
+	{Type: "insert", Key: []interface{}{int64(7)}, SeqNo: 1, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(7)}}},
 	//{"delete", []interface{}{7.0}, 3.0, nil},
 	//{"insert", []interface{}{17.0}, 4.0, &[]types.CommonFormatField{{"f1", 17.0}}},
 }
 
 var testMultiTableResult2 = []types.CommonFormatEvent{
-	{Type: "insert", Key: []interface{}{9.0}, SeqNo: 2.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 9.0}}},
+	{Type: "insert", Key: []interface{}{int64(9)}, SeqNo: 2, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(9)}}},
 	//{"delete", []interface{}{9.0}, 5.0, nil},
 	//{"insert", []interface{}{19.0}, 7.0, &[]types.CommonFormatField{{"f1", 19.0}}},
 }
@@ -357,14 +361,14 @@ func Prepare(pipeType string, create []string, t *testing.T) (*sql.DB, pipe.Pipe
 		pk.Config.Consumer.MaxWaitTime = 10 * time.Millisecond
 	}
 
-	log.Debugf("Starting binlog reader")
+	log.Debugf("Starting binlog reader. PipeType=%v", pipeType)
 
-	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1", "mysql", "kafka") {
+	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1", "mysql", pipeType) {
 		t.FailNow()
 	}
 
 	if testName == "TestMultiTable" {
-		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", "kafka") {
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", pipeType) {
 			t.FailNow()
 		}
 	}
@@ -489,19 +493,15 @@ func consumeTableEvents(pc pipe.Consumer, db string, table string, result []type
 				cf, err = enc.DecodeEvent(b.([]byte))
 				test.CheckFail(err, t)
 			} else {
-				payload, err := encoder.Internal.UnwrapEvent(b.([]byte), cf)
+				_, err := enc.UnwrapEvent(b.([]byte), cf)
 				test.CheckFail(err, t)
 
-				if cf.Type != "insert" && cf.Type != "delete" && cf.Type != "schema" {
-					test.CheckFail(err, t)
-					cf, err = enc.DecodeEvent(payload)
-					test.CheckFail(err, t)
-					test.Assert(t, false, "false")
+				if cf.Type == "schema" {
+					log.Debugf("alterch receive %v", cf)
+					alterCh <- true
 				}
 			}
 		}
-
-		encoder.ChangeCfFields(enc.Type(), cf, &v, t)
 
 		cf.SeqNo -= 1000000
 		cf.Timestamp = 0
@@ -530,6 +530,18 @@ func testName(t *testing.T) string {
 	return name.String()
 }
 */
+
+func checkPoolControl(pipeType string, testName string, t *testing.T) {
+	if pipeType == "local" {
+		if (testName == "TestMultiTable" && globalTPoolProcs != 3) || (testName != "TestMultiTable" && globalTPoolProcs != 2) {
+			t.Errorf("Binlog reader should control number of streamers num=%v, pipe=%v", globalTPoolProcs, pipeType)
+			t.Fail()
+		}
+	} else if globalTPoolProcs != 0 {
+		t.Errorf("Binlog reader shouldn't control number of streamers num=%v pipe=%v", globalTPoolProcs, pipeType)
+		t.Fail()
+	}
+}
 
 func CheckQueries(pipeType string, prepare []string, queries []string, result []types.CommonFormatEvent, encoding string, t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
@@ -575,8 +587,21 @@ func CheckQueries(pipeType string, prepare []string, queries []string, result []
 
 	log.Debugf("Starting workload")
 
+	usedb := 0
 	for _, s := range queries {
 		ExecSQL(dbc, t, s)
+		if strings.ToLower(s) == "use db1" {
+			usedb = 1
+		}
+		if strings.ToLower(s) == "use db2" {
+			usedb = 2
+		}
+		//HACK: This logic depends from content of queries arrays
+		if strings.Contains(strings.ToLower(s), "alter") && !strings.Contains(s, "db2.") && usedb != 2 {
+			log.Debugf("alterch wait %v", s)
+			<-alterCh
+			log.Debugf("alterch afterwait %v", s)
+		}
 	}
 
 	<-initCh
@@ -586,15 +611,7 @@ func CheckQueries(pipeType string, prepare []string, queries []string, result []
 	shutdown.Initiate()
 	shutdown.Wait()
 
-	if pipeType == "local" {
-		if (testName == "TestMultiTable" && globalTPoolProcs != 3) || (testName != "TestMultiTable" && globalTPoolProcs != 2) {
-			t.Errorf("Binlog reader should control number of streamers num=%v, pipe=%v", globalTPoolProcs, pipeType)
-			t.Fail()
-		}
-	} else if globalTPoolProcs != 0 {
-		t.Errorf("Binlog reader shouldn't control number of streamers num=%v pipe=%v", globalTPoolProcs, pipeType)
-		t.Fail()
-	}
+	checkPoolControl(pipeType, testName, t)
 
 	log.Debugf("Finished test")
 }
@@ -651,7 +668,7 @@ func TestReaderShutdown(t *testing.T) {
 		t.Fatalf("Failed to deregister table")
 	}
 
-	if !test.WaitForNumProc(3, 80*200) {
+	if !test.WaitForNumProc(2, 80*200) {
 		t.Fatalf("Binlog reader didn't finish int %v secs", 80*50/1000)
 	}
 
@@ -659,7 +676,7 @@ func TestReaderShutdown(t *testing.T) {
 	log.Debugf("adjusted pool to 0")
 
 	if !test.WaitForNumProc(1, 80*200) {
-		t.Fatalf("Binlog reader didn't finish int %v secs", 80*50/1000)
+		t.Fatalf("Binlog reader didn't finish int %v secs. NumProcs: %v", 80*50/1000, shutdown.NumProcs())
 	}
 
 	cfg.StateUpdateTimeout = save

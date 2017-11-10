@@ -25,12 +25,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"testing"
 	"time"
 
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/state"
-	"github.com/uber/storagetapper/test"
 	"github.com/uber/storagetapper/types"
 )
 
@@ -93,7 +91,7 @@ func (e *jsonEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) 
 			return nil, err
 		}
 	}
-	//FIXME: Assume that cf is in input schema format, so we need to filter it
+	//FIXME: cf is in input schema format, so we need to filter it
 	//to conform to output schema
 	return e.CommonFormatEncode(cf)
 }
@@ -131,15 +129,70 @@ func (e *jsonEncoder) UpdateCodec() error {
 	return err
 }
 
-func jsonDecode(b []byte) (*types.CommonFormatEvent, error) {
+func fixField(f *interface{}, typ string) (err error) {
+	switch v := (*f).(type) {
+	case float64:
+		switch typ {
+		case "bigint":
+			*f = int64(v)
+		case "int", "integer", "tinyint", "smallint", "mediumint", "year":
+			*f = int32(v)
+		case "float":
+			*f = float32(v)
+		}
+	case string:
+		switch typ {
+		case "text", "tinytext", "mediumtext", "longtext", "blob", "tinyblob", "mediumblob", "longblob", "binary", "varbinary":
+			*f, err = base64.StdEncoding.DecodeString(v)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return
+}
+
+func (e *jsonEncoder) fixFieldTypes(res *types.CommonFormatEvent) (err error) {
+	k := 0
+
+	//Restore field types according to schema
+	if e.inSchema != nil && res.Type != "schema" {
+		for i := 0; i < len(e.inSchema.Columns); i++ {
+			// i >= len(*res.Fields) and k >= len(res.Key) can happen if we
+			//unmarshall JSON which doesn't conform to schema
+			if res.Fields != nil && i < len(*res.Fields) {
+				f := &(*res.Fields)[i]
+				err = fixField(&f.Value, e.inSchema.Columns[i].DataType)
+				if err != nil {
+					return err
+				}
+			}
+
+			if e.inSchema.Columns[i].Key == "PRI" && k < len(res.Key) {
+				err = fixField(&res.Key[k], e.inSchema.Columns[i].DataType)
+				if err != nil {
+					return err
+				}
+				k++
+			}
+		}
+	}
+	return nil
+}
+
+func (e *jsonEncoder) jsonDecode(b []byte) (*types.CommonFormatEvent, error) {
 	//FIXME: to properly handle integer need to use decoder and json.UseNumber
 	res := &types.CommonFormatEvent{}
 	err := json.Unmarshal(b, res)
-	return res, err
+	if err != nil {
+		return nil, err
+	}
+
+	return res, e.fixFieldTypes(res)
 }
 
 func (e *jsonEncoder) schemaDecode(b []byte) (*types.CommonFormatEvent, error) {
-	return jsonDecode(b)
+	return e.jsonDecode(b)
 }
 
 //CommonFormatEncode encodes CommonFormatEvent into byte array
@@ -248,6 +301,17 @@ func (e *jsonEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent)
 	if err != nil {
 		return
 	}
+
+	err = e.fixFieldTypes(cfEvent)
+	if err != nil {
+		return
+	}
+
+	if e.inSchema != nil && cfEvent.Type == "schema" {
+		if err = e.UpdateCodec(); err != nil {
+			return
+		}
+	}
 	/* Return everything after cfEvent as a payload */
 	/* Append cached in json decoder */
 	var buf1 bytes.Buffer
@@ -265,65 +329,5 @@ func (e *jsonEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent)
 
 //DecodeEvent decodes JSON encoded array into CommonFormatEvent struct
 func (e *jsonEncoder) DecodeEvent(b []byte) (*types.CommonFormatEvent, error) {
-	return jsonDecode(b)
-}
-
-func changeBinaryFieldsJSON(cf *types.CommonFormatEvent, ref *types.CommonFormatEvent, t *testing.T) {
-	for i := 0; i < len(cf.Key); i++ {
-		switch (ref.Key[i]).(type) {
-		case []byte:
-			d, err := base64.StdEncoding.DecodeString(cf.Key[i].(string))
-			test.CheckFail(err, t)
-			cf.Key[i] = d
-		}
-	}
-
-	if cf.Fields != nil {
-		for f := range *cf.Fields {
-			switch (*ref.Fields)[f].Value.(type) {
-			case []byte:
-				v := &(*cf.Fields)[f]
-				var err error
-				v.Value, err = base64.StdEncoding.DecodeString(v.Value.(string))
-				test.CheckFail(err, t)
-			}
-		}
-	}
-}
-
-//ChangeCfFields is used by tests
-// This method is used to convert the resulting Field and Key interfaces
-// to float64 to match up the field values with floats rather than keeping
-// them back as ints. Reason is MsgPack has ability for numbers to be ints
-// while json decodes back into float64. DeepEqual fails unless types
-// are also equal.
-func ChangeCfFields(tp string, cf *types.CommonFormatEvent, ref *types.CommonFormatEvent, t *testing.T) {
-	if tp == "msgpack" || tp == "avro" {
-		// Fix to ensure that msgpack does float64
-		for i := 0; i < len(cf.Key); i++ {
-			switch v := (cf.Key[i]).(type) {
-			case int32:
-				cf.Key[i] = float64(v)
-			case int64:
-				cf.Key[i] = float64(v)
-			case float32:
-				cf.Key[i] = float64(v)
-			}
-		}
-
-		if cf.Fields != nil {
-			for f := range *cf.Fields {
-				switch val := ((*cf.Fields)[f].Value).(type) {
-				case int32:
-					(*cf.Fields)[f].Value = float64(val)
-				case int64:
-					(*cf.Fields)[f].Value = float64(val)
-				case float32:
-					(*cf.Fields)[f].Value = float64(val)
-				}
-			}
-		}
-	} else if tp == "json" {
-		changeBinaryFieldsJSON(cf, ref, t)
-	}
+	return e.jsonDecode(b)
 }

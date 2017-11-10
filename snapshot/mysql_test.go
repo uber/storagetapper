@@ -206,17 +206,17 @@ func TestMoreFieldTypes(t *testing.T) {
 
 	//msgpack doesn't preserve int size, so all int32 became int64
 	expectedType := []string{
-		"int64",
+		"int32",
 		"string",
 		"float64",
 		"[]uint8",
 		"string",
 		"string",
 		"string",
-		"int64", //int32
+		"int32",
 		"int64",
 		"[]uint8",
-		"int64", //int32
+		"int32",
 		"float32",
 		"float64",
 		"float64",

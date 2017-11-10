@@ -177,12 +177,6 @@ func TestEncodeDecodeCommonFormat(t *testing.T) {
 		test.CheckFail(err, t)
 
 		for _, ref := range testBasicResult {
-			if encType == "json" {
-				copyEvent(&ref)
-				//changeFloat64ToInt64(&ref)
-				changeInt64ToFloat64(&ref)
-			}
-
 			log.Debugf("Initial CF: %v %+v\n", ref, ref.Fields)
 			encoded, err := enc.CommonFormat(&ref)
 			test.CheckFail(err, t)
@@ -268,11 +262,6 @@ func TestEncodeDecodeRow(t *testing.T) {
 			ref := testBasicResult[seqno-1]
 			copyEvent(&ref)
 
-			if encType == "json" {
-				changeInt64ToFloat64(&ref)
-				changeBinaryFieldsJSON(decoded, &ref, t)
-			}
-
 			log.Debugf("Initial CF: %+v %+v\n", ref, ref.Fields)
 
 			if enc.Type() == "avro" && ref.Type == "delete" {
@@ -306,6 +295,8 @@ func TestMarshalUnmarshal(t *testing.T) {
 			encoded, err := enc.CommonFormat(&ref)
 			test.CheckFail(err, t)
 
+			//InitEncoder doesn't initialize schema so JSON encoder will not fix
+			//float64 and base64 fields
 			if encType == "json" {
 				copyEvent(&ref)
 				changeInt64ToFloat64(&ref)
@@ -362,20 +353,8 @@ func TestEncodeDecodeCommonFormatAllDataTypes(t *testing.T) {
 
 			decoded.Timestamp = 0
 
-			if decoded.Fields != nil {
-				for i := 0; i < len(*decoded.Fields); i++ {
-					v := &(*decoded.Fields)[i]
-					if (v.Name == "f8" || v.Name == "f11") && encType == "msgpack" {
-						v.Value = int32(v.Value.(int64))
-					}
-				}
-			}
-
-			if encType == "json" {
-				changeInt64ToFloat64(&ref)
-				changeBinaryFieldsJSON(decoded, &ref, t)
-			}
-
+			//There is no way to reconstruct key for delete from Heatpipe avro
+			//message, so hack original key to match key in message.
 			if enc.Type() == "avro" && ref.Type == "delete" {
 				key := GetCommonFormatKey(&ref)
 				ref.Key = make([]interface{}, 0)
@@ -413,27 +392,6 @@ func TestEncodeDecodeRowAllDataTypes(t *testing.T) {
 			ref := testAllDataTypesResult[seqno-1]
 
 			copyEvent(&ref)
-			if encType == "json" {
-				changeInt64ToFloat64(&ref)
-				changeBinaryFieldsJSON(decoded, &ref, t)
-			}
-
-			if decoded.Fields != nil {
-				for i := 0; i < len(*decoded.Fields); i++ {
-					v := &(*decoded.Fields)[i]
-					if (v.Name == "f8" || v.Name == "f11") && encType == "msgpack" {
-						v.Value = int32(v.Value.(int64))
-					}
-				}
-			}
-
-			/*
-				if decoded.Fields != nil {
-					for k, v := range *decoded.Fields {
-						log.Debugf("%v %+v %v %v", k, v, reflect.TypeOf(v.Value), reflect.TypeOf((*ref.Fields)[k].Value))
-					}
-				}
-			*/
 
 			if enc.Type() == "avro" && ref.Type == "delete" {
 				key := GetCommonFormatKey(&ref)

@@ -47,10 +47,12 @@ type Streamer struct {
 
 	topic       string
 	id          int64
+	input       string
 	inPipe      pipe.Pipe
 	outPipe     pipe.Pipe
 	outProducer pipe.Producer
-	encoder     encoder.Encoder
+	outEncoder  encoder.Encoder
+	envEncoder  encoder.Encoder
 	log         log.Logger
 
 	metrics      *metrics.Streamer
@@ -152,13 +154,33 @@ func (s *Streamer) startBootstrap(input string, needsBootstrap bool, bootstrapCh
 	return true
 }
 
+func (s *Streamer) lockTable(st state.Type, outPipes *map[string]pipe.Pipe) {
+	for _, row := range st {
+		if s.tableLock.Lock(fmt.Sprintf("table_id.%d", row.ID)) {
+			s.cluster = row.Cluster
+			s.svc = row.Service
+			s.db = row.Db
+			s.table = row.Table
+			s.id = row.ID
+			s.outPipe = (*outPipes)[row.Output]
+			if s.outPipe == nil {
+				s.table = ""
+				s.tableLock.Unlock()
+				log.Errorf("Unknown output pipe type: %v", row.Output)
+				return
+			}
+			s.input = row.Input
+			break
+		}
+	}
+}
+
 func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) bool {
 	// Fetch Lock on a service-db-table entry in State.
 	// Currently, each event streamer worker handles a single table.
 	//TODO: Handle multiple tables per event streamer worker in future
 	var st state.Type
 	var err error
-	var input string
 
 	log.Debugf("Started streamer thread")
 
@@ -185,29 +207,15 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 
 	s.tableLock = lock.Create(state.GetDbAddr(), cfg.OutputPipeConcurrency)
 
-	for _, row := range st {
-		if s.tableLock.Lock(fmt.Sprintf("table_id.%d", row.ID)) {
-			defer s.tableLock.Unlock()
-			s.cluster = row.Cluster
-			s.svc = row.Service
-			s.db = row.Db
-			s.table = row.Table
-			s.id = row.ID
-			s.outPipe = (*outPipes)[row.Output]
-			if s.outPipe == nil {
-				log.Errorf("Unknown output pipe type: %v", row.Output)
-				return true
-			}
-			input = row.Input
-			break
-		}
-	}
+	s.lockTable(st, outPipes)
 
 	//If unable to take a lock, return back
 	if s.table == "" {
 		log.Debugf("Finished streamer: No free tables to work on")
 		return false
 	}
+
+	defer s.tableLock.Unlock()
 
 	sTag := s.getTag()
 	s.metrics = metrics.GetStreamerMetrics(sTag)
@@ -244,7 +252,14 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 	s.outputFormat = cfg.OutputFormat
 	s.stateUpdateTimeout = cfg.StateUpdateTimeout
 
-	s.encoder, err = encoder.Create(s.outputFormat, s.svc, s.db, s.table)
+	s.outEncoder, err = encoder.Create(s.outputFormat, s.svc, s.db, s.table)
+	if log.EL(s.log, err) {
+		return false
+	}
+
+	//Transit format encoder, aka envelope encoder
+	//It must be per table to be able to decode schematized events
+	s.envEncoder, err = encoder.Create(encoder.Internal.Type(), s.svc, s.db, s.table)
 	if log.EL(s.log, err) {
 		return false
 	}
@@ -264,7 +279,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 	}
 
 	bootstrapCh := make(chan bool)
-	if !s.startBootstrap(input, needsBootstrap, bootstrapCh, cfg) {
+	if !s.startBootstrap(s.input, needsBootstrap, bootstrapCh, cfg) {
 		log.E(consumer.CloseOnFailure())
 		return false
 	}

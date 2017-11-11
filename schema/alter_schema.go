@@ -82,11 +82,11 @@ func GetAvroSchemaFromAlterTable(dbl *db.Loc, tblName string, typ string,
 
 //MutateTable perform alter schema for the given table, using temporary table
 //and return structured and raw schema
-func MutateTable(db *sql.DB, svc string, dbname string, tablename string, alter string, ts *types.TableSchema, rawSchema *string) bool {
+func MutateTable(db *sql.DB, svc string, dbName string, tableName string, alter string, ts *types.TableSchema, rawSchema *string) bool {
 	//TODO: Wrap below SQL calls in a transaction
 	tn := uuid.NewV4().String()
 	ftn := "`" + types.MyDbName + "`.`" + tn + "`"
-	c := fmt.Sprintf("%s_%s_%s", svc, dbname, tablename)
+	c := fmt.Sprintf("%s_%s_%s", svc, dbName, tableName)
 
 	if log.E(util.ExecSQL(db, "CREATE TABLE "+ftn+*rawSchema+" COMMENT='"+c+"'")) {
 		return false
@@ -110,6 +110,8 @@ func MutateTable(db *sql.DB, svc string, dbname string, tablename string, alter 
 		return false
 	}
 
+	ts.DBName = dbName
+	ts.TableName = tableName
 	ts.Columns = tsn.Columns
 	*rawSchema = ct
 

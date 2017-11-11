@@ -25,15 +25,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/test"
 	"github.com/uber/storagetapper/types"
-	"github.com/uber/storagetapper/util"
 
 	"github.com/linkedin/goavro"
 
@@ -44,8 +43,7 @@ var (
 	TestSvc = types.MySvcName
 	TestDb  = types.MyDbName
 	TestTbl = "test_schema"
-	DbConn  *sql.DB
-	cfg     *config.AppConfig
+	conn    *sql.DB
 )
 
 var schemaTesttbl = map[string]string{
@@ -60,7 +58,7 @@ var schemaTesttbl = map[string]string{
 	"ts": "TIMESTAMP",
 }
 
-func createTestSchemaTable() error {
+func createTestSchemaTable(t *testing.T) {
 	schemaStr := ""
 	for col, colType := range schemaTesttbl {
 		if colType == "VARCHAR" {
@@ -68,25 +66,72 @@ func createTestSchemaTable() error {
 		}
 		schemaStr += (col + " " + colType + ",")
 	}
-	log.Errorf("create table: %v", schemaStr)
-	err := util.ExecSQL(DbConn, `CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.test_schema (`+
+	test.ExecSQL(conn, t, `CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.`+TestTbl+` (`+
 		schemaStr+
 		` PRIMARY KEY(bi)
 	) ENGINE=INNODB`)
-	return err
 }
 
-func dropTestSchemaTable() error {
-	_, err := DbConn.Exec(fmt.Sprintf(`DROP TABLE IF EXISTS %s`, TestTbl))
-	return err
+func dropTestSchemaTable(t *testing.T) {
+	test.ExecSQL(conn, t, `DROP TABLE IF EXISTS `+TestTbl)
+	test.ExecSQL(conn, t, `DROP TABLE IF EXISTS `+TestTbl+"new")
+}
+
+func TestHasPrimaryKey(t *testing.T) {
+	test.SkipIfNoMySQLAvailable(t)
+
+	createTestSchemaTable(t)
+
+	tblSchema, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl)
+	test.CheckFail(err, t)
+
+	if !HasPrimaryKey(tblSchema) {
+		t.Fatal("Table should have primary key")
+	}
+
+	test.ExecSQL(conn, t, `ALTER TABLE `+types.MyDbName+`.`+TestTbl+` DROP PRIMARY KEY`)
+
+	tblSchema, err = Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl)
+	test.CheckFail(err, t)
+
+	if HasPrimaryKey(tblSchema) {
+		t.Fatal("Table should not have primary key")
+	}
+
+	dropTestSchemaTable(t)
+}
+
+func TestGetRaw(t *testing.T) {
+	test.SkipIfNoMySQLAvailable(t)
+
+	createTestSchemaTable(t)
+
+	rawSchema, err := GetRaw(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl)
+	test.CheckFail(err, t)
+
+	test.ExecSQL(conn, t, `CREATE TABLE `+types.MyDbName+`.`+TestTbl+`new `+rawSchema)
+
+	tblSchemaRef, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl)
+	test.CheckFail(err, t)
+
+	tblSchema, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl+"new")
+	test.CheckFail(err, t)
+
+	tblSchema.TableName = TestTbl //make table names equal for comparison
+
+	if !reflect.DeepEqual(tblSchemaRef, tblSchema) {
+		t.Fatalf("Wrong table create from raw schema")
+	}
+
+	dropTestSchemaTable(t)
 }
 
 // Test fetching schema from MySQL
 func TestGetMySQLTableSchema(t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 
-	err := createTestSchemaTable()
-	test.CheckFail(err, t)
+	createTestSchemaTable(t)
+
 	tblSchema, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl)
 	test.Assert(t, err == nil, fmt.Sprintf("Fetch MySQL schema errored out: %v", err))
 	test.Assert(t, tblSchema.DBName == TestDb, "Not OK")
@@ -96,7 +141,7 @@ func TestGetMySQLTableSchema(t *testing.T) {
 		test.Assert(t, schemaTesttbl[tblCol.Name] != "", "Not OK")
 		test.Assert(t, strings.ToUpper(tblCol.DataType) == schemaTesttbl[strings.ToLower(tblCol.Name)], "Not OK")
 	}
-	test.CheckFail(dropTestSchemaTable(), t)
+	dropTestSchemaTable(t)
 }
 
 // Test GetMySQLTableSchema on non-existent table returns error
@@ -111,8 +156,8 @@ func TestGetMySQLTableSchema_Fail(t *testing.T) {
 func TestConvertToAvroSchema(t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 
-	err := createTestSchemaTable()
-	test.CheckFail(err, t)
+	createTestSchemaTable(t)
+
 	serAvroSchema, err := ConvertToAvro(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, "avro")
 	test.CheckFail(err, t)
 
@@ -126,19 +171,20 @@ func TestConvertToAvroSchema(t *testing.T) {
 
 	//TODO: Validate by calling heatpipe endpoint as well
 
-	test.CheckFail(dropTestSchemaTable(), t)
+	dropTestSchemaTable(t)
 }
 
 func TestMain(m *testing.M) {
-	cfg = test.LoadConfig()
+	_ = test.LoadConfig()
+
 	var err error
-	DbConn, err = db.OpenService(&db.Loc{Service: TestSvc, Name: TestDb}, "")
+	conn, err = db.OpenService(&db.Loc{Service: TestSvc, Name: TestDb}, "")
 	if err != nil {
 		log.Warnf("MySQL not available")
 		os.Exit(0)
 	}
 	defer func() {
-		err := DbConn.Close()
+		err := conn.Close()
 		if err != nil {
 			os.Exit(1)
 		}

@@ -1,0 +1,4 @@
+ignore:
+    - test/*.go
+    - util/*.go
+    - types/*.go

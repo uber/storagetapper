@@ -45,6 +45,7 @@ type row struct {
 	Table         string
 	Input         string
 	Output        string
+	Version       int
 	Gtid          string
 	SeqNo         uint64
 	SchemaGtid    string
@@ -138,14 +139,15 @@ func create(cfg *config.AppConfig) bool {
 		tableName VARCHAR(128) NOT NULL,
 		input VARCHAR(128) NOT NULL,
 		output VARCHAR(128) NOT NULL,
+		version INT NOT NULL DEFAULT 0,
 		gtid TEXT NOT NULL,
 		seqno BIGINT NOT NULL DEFAULT 0,
 		schemaGTID TEXT NOT NULL,
 		rawSchema TEXT NOT NULL,
 		needBootstrap BOOLEAN NOT NULL DEFAULT TRUE,
 		PRIMARY KEY(id),
-		UNIQUE KEY(service, db, tableName),
-		UNIQUE KEY(cluster, db, tableName)
+		UNIQUE KEY(service, db, tableName, input, output, version),
+		UNIQUE KEY(cluster, db, tableName, input, output, version)
 	) ENGINE=INNODB`)
 	if err != nil {
 		log.Errorf("state table create failed: " + err.Error())
@@ -248,7 +250,7 @@ func parseRows(rows *sql.Rows) (Type, error) {
 	res := make(Type, 0)
 	var r row
 	for rows.Next() {
-		if err := rows.Scan(&r.ID, &r.Cluster, &r.Service, &r.Db, &r.Table, &r.Input, &r.Output, &r.Gtid, &r.SeqNo, &r.SchemaGtid, &r.RawSchema, &r.needBootstrap); err != nil {
+		if err := rows.Scan(&r.ID, &r.Cluster, &r.Service, &r.Db, &r.Table, &r.Input, &r.Output, &r.Version, &r.Gtid, &r.SeqNo, &r.SchemaGtid, &r.RawSchema, &r.needBootstrap); err != nil {
 			return nil, err
 		}
 		res = append(res, r)
@@ -260,7 +262,7 @@ func parseRows(rows *sql.Rows) (Type, error) {
 }
 
 func allStateFields() string {
-	return "id, cluster, service, db, tablename, input, output, gtid, seqno, schemagtid, rawschema, needbootstrap"
+	return "id, cluster, service, db, tablename, input, output, version, gtid, seqno, schemagtid, rawschema, needbootstrap"
 }
 
 //GetCond returns rows with given condition in the state
@@ -368,7 +370,7 @@ func GetSchema(svc string, sdb string, table string) (*types.TableSchema, error)
 //state with new versions provided as parameters
 //If oldGtid is empty adds it as new table to the state
 //FIXME: To big function. Split it.
-func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema string, oldGtid string, gtid string, input string, output string) bool {
+func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema string, oldGtid string, gtid string, input string, output string, version int) bool {
 	tx, err := conn.Begin()
 	if log.E(err) {
 		return false
@@ -377,7 +379,7 @@ func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema s
 	if oldGtid != "" {
 		log.Debugf("Replacing schema for table %+v", s.TableName)
 		var sgtid string
-		err = tx.QueryRow("SELECT schemaGtid FROM state WHERE service=? AND db=? AND tableName=? FOR UPDATE", svc, s.DBName, s.TableName).Scan(&sgtid)
+		err = tx.QueryRow("SELECT schemaGtid FROM state WHERE service=? AND db=? AND tableName=? AND input=? AND output=? AND version=? FOR UPDATE", svc, s.DBName, s.TableName, input, output, version).Scan(&sgtid)
 		if log.E(err) {
 			return false
 		}
@@ -392,12 +394,12 @@ func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema s
 			return true
 		}
 
-		if _, err = tx.Exec("UPDATE state SET rawSchema=?, schemaGtid=? WHERE service=? AND db=? AND tableName=?", rawSchema, gtid, svc, s.DBName, s.TableName); log.E(err) {
+		if _, err = tx.Exec("UPDATE state SET rawSchema=?, schemaGtid=? WHERE service=? AND db=? AND tableName=? AND input=? AND output=? AND version=?", rawSchema, gtid, svc, s.DBName, s.TableName, input, output, version); log.E(err) {
 			return false
 		}
 	} else {
-		log.Debugf("Inserting schema for table %+v", s.TableName)
-		if _, err := tx.Exec("INSERT INTO state (service, cluster, db, tableName, gtid, schemaGTID, rawSchema, input, output) VALUES (?,?,?,?,'',?,?,?,?)", svc, cluster, s.DBName, s.TableName, gtid, rawSchema, input, output); err != nil {
+		log.Debugf("Inserting schema for table %+v input=%v output=%v v%v", s.TableName, input, output, version)
+		if _, err := tx.Exec("INSERT INTO state (service, cluster, db, tableName, gtid, schemaGTID, rawSchema, input, output, version) VALUES (?,?,?,?,'',?,?,?,?,?)", svc, cluster, s.DBName, s.TableName, gtid, rawSchema, input, output, version); err != nil {
 			if err.(*mysql.MySQLError).Number == 1062 { //Duplicate key
 				log.Warnf("Newer schema version found in the state, my: (current: %v, new: %v), state: ?. service=%v, db=%v, table=%v", "", gtid, svc, s.DBName, s.TableName)
 				log.E(tx.Rollback())
@@ -422,13 +424,13 @@ func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema s
 		return false
 	}
 
-	log.Debugf("Updated schema version from=%v, to=%v for service=%v, db=%v, table=%v", oldGtid, gtid, svc, s.DBName, s.TableName)
+	log.Debugf("Updated schema version from=%v, to=%v for service=%v, db=%v, table=%v input=%v output=%v v%v", oldGtid, gtid, svc, s.DBName, s.TableName, input, output, version)
 
 	return true
 }
 
 //RegisterTable adds table to the state
-func RegisterTable(dbl *db.Loc, table string, input string, output string) bool {
+func RegisterTable(dbl *db.Loc, table string, input string, output string, version int) bool {
 	ts, err := schema.Get(dbl, table)
 	if log.E(err) {
 		return false
@@ -444,25 +446,28 @@ func RegisterTable(dbl *db.Loc, table string, input string, output string) bool 
 		return false
 	}
 
-	if !ReplaceSchema(dbl.Service, dbl.Cluster, ts, rawSchema, "", sgtid, input, output) {
+	if !ReplaceSchema(dbl.Service, dbl.Cluster, ts, rawSchema, "", sgtid, input, output, version) {
 		return false
 	}
 
-	log.Debugf("Registered table: %+v, %v", dbl, table)
+	log.Debugf("Registered table: %+v, %v input=%v output=%v v=%v", dbl, table, input, output, version)
+
 	return true
 }
 
 //DeregisterTable removes given table from the state
-func DeregisterTable(svc string, sdb string, table string) bool {
-	if log.E(util.ExecSQL(conn, "DELETE FROM state WHERE service=? AND db=? AND tableName=?", svc, sdb, table)) {
+func DeregisterTable(svc string, sdb string, table string, input string, output string, version int) bool {
+	if log.E(util.ExecSQL(conn, "DELETE FROM state WHERE service=? AND db=? AND tableName=? AND input=? AND output=? AND version=?", svc, sdb, table, input, output, version)) {
 		return false
 	}
 
-	if log.E(util.ExecSQL(conn, "DELETE FROM columns WHERE service=? AND table_schema=? AND table_name=?", svc, sdb, table)) {
+	//The schema is the same for all copies of table, so remove only if removed
+	//last copy from the state
+	if log.E(util.ExecSQL(conn, "DELETE FROM columns WHERE service=? AND table_schema=? AND table_name=? AND NOT EXISTS (SELECT 1 FROM state WHERE service=? AND db=? AND tablename=?)", svc, sdb, table, svc, sdb, table)) {
 		return false
 	}
 
-	log.Debugf("Deregistered table: %v, %v, %v", svc, sdb, table)
+	log.Debugf("Deregistered table: %v, %v, %v %v %v v%d", svc, sdb, table, input, output, version)
 	return true
 }
 

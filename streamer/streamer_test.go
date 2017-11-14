@@ -89,7 +89,7 @@ func setupDB(t *testing.T) *sql.DB {
 		t.FailNow()
 	}
 
-	if !state.RegisterTable(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, "mysql", cfg.OutputPipeType) {
+	if !state.RegisterTable(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, "mysql", cfg.OutputPipeType, 0) {
 		log.Fatalf("Failed to register table")
 	}
 	execSQL(state.GetDB(), t, "UPDATE state SET gtid='fake-gtid' WHERE tableName=? AND service=? AND db=?", TestTbl, TestSvc, TestDb)
@@ -97,7 +97,7 @@ func setupDB(t *testing.T) *sql.DB {
 	// Store Avro schema in local db
 	avSch, err := schema.ConvertToAvro(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, "avro")
 	test.Assert(t, err == nil, "Error converting TestTbl to its Avro schema: %v", err)
-	err = state.InsertSchema(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl), "avro", util.BytesToString(avSch))
+	err = state.InsertSchema(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl, 0), "avro", util.BytesToString(avSch))
 	test.CheckFail(err, t)
 	return dbConn
 }
@@ -127,7 +127,7 @@ func setupWorker(bufPipe pipe.Pipe, t *testing.T) pipe.Consumer {
 		log.F(err)
 	}
 
-	outConsumer, err := outPipe["kafka"].NewConsumer(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl))
+	outConsumer, err := outPipe["kafka"].NewConsumer(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl, 0))
 
 	test.CheckFail(err, t)
 	shutdown.Register(1)
@@ -200,7 +200,7 @@ func TestStreamer_StreamFromConsistentSnapshot(t *testing.T) {
 
 	bufPipe, err := pipe.Create(shutdown.Context, "kafka", 16, cfg, nil)
 	test.CheckFail(err, t)
-	producer, err := bufPipe.NewProducer(config.GetTopicName(cfg.BufferTopicNameFormat, TestSvc, TestDb, TestTbl))
+	producer, err := bufPipe.NewProducer(config.GetTopicName(cfg.BufferTopicNameFormat, TestSvc, TestDb, TestTbl, 0))
 	test.CheckFail(err, t)
 
 	setupData(dbConn, 0, t)
@@ -245,7 +245,7 @@ func TestStreamerShutdown(t *testing.T) {
 		t.Fatalf("FetchNext failed")
 	}
 
-	if !state.DeregisterTable("storagetapper", "storagetapper", "test_snapstream") {
+	if !state.DeregisterTable("storagetapper", "storagetapper", "test_snapstream", "mysql", cfg.OutputPipeType, 0) {
 		t.Fatalf("Failed to deregister table")
 	}
 

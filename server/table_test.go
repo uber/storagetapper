@@ -116,8 +116,8 @@ func testServerTableListDelCommands(cmd string, t *testing.T) {
 
 	req.Cluster = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":""}
-{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":""}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"","Version":0}
+{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"","Version":0}
 ` {
 		t.Fatalf("wrong response 2: '%v'", string(resp.Body.Bytes()))
 	}
@@ -125,9 +125,9 @@ func testServerTableListDelCommands(cmd string, t *testing.T) {
 	req.Service = "*"
 	log.Debugf("ref %+v", req)
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":""}
-{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":""}
-{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":""}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"","Version":0}
+{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"","Version":0}
+{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"","Version":0}
 ` {
 		t.Fatalf("wrong response 3: '%v'", string(resp.Body.Bytes()))
 	}
@@ -135,11 +135,11 @@ func testServerTableListDelCommands(cmd string, t *testing.T) {
 	req.Cluster = "clst2"
 	req.Db = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":""}
-{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":""}
-{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":""}
-{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":""}
-{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":""}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":"","Version":0}
+{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":"","Version":0}
+{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":"","Version":0}
+{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"","Version":0}
+{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":"","Version":0}
 ` {
 		t.Fatalf("wrong response 4: '%v'", string(resp.Body.Bytes()))
 	}
@@ -148,13 +148,13 @@ func testServerTableListDelCommands(cmd string, t *testing.T) {
 	req.Cluster = "*"
 	req.Db = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":""}
-{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":""}
-{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":""}
-{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":""}
-{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":""}
-{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":""}
-{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":""}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"","Version":0}
+{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"","Version":0}
+{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":"","Version":0}
+{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":"","Version":0}
+{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":"","Version":0}
+{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"","Version":0}
+{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":"","Version":0}
 ` {
 		t.Fatalf("wrong response 5: '%v'", string(resp.Body.Bytes()))
 	}
@@ -197,15 +197,15 @@ func TestServerTableDelApplyCommands(t *testing.T) {
 
 	req.Cluster = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":""}
-{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":""}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"","Version":0}
+{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"","Version":0}
 ` {
 		t.Fatalf("wrong response 2: '%v'", string(resp.Body.Bytes()))
 	}
 
 	req.Service = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":""}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"","Version":0}
 ` {
 		t.Fatalf("wrong response 3: '%v'", string(resp.Body.Bytes()))
 	}
@@ -213,10 +213,10 @@ func TestServerTableDelApplyCommands(t *testing.T) {
 	req.Cluster = "clst2"
 	req.Db = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":""}
-{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":""}
-{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":""}
-{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":""}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":"","Version":0}
+{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":"","Version":0}
+{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":"","Version":0}
+{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":"","Version":0}
 ` {
 		t.Fatalf("wrong response 4: '%v'", string(resp.Body.Bytes()))
 	}
@@ -225,7 +225,7 @@ func TestServerTableDelApplyCommands(t *testing.T) {
 	req.Cluster = "*"
 	req.Db = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst3","Service":"svc3","Db":"db3","Table":"table6","Input":"","Output":""}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst3","Service":"svc3","Db":"db3","Table":"table6","Input":"","Output":"","Version":0}
 ` {
 		t.Fatalf("wrong response 5: '%v'", string(resp.Body.Bytes()))
 	}
@@ -258,7 +258,7 @@ func TestServerAddCommand(t *testing.T) {
 
 			resp := tableRequest(listReq, http.StatusOK, t)
 
-			ref += `{"Cluster":"clst1","Service":"svc1","Db":"st_table_http_test` + strconv.Itoa(i) + `","Table":"table_http_test` + strconv.Itoa(j) + `","Input":"mysql","Output":"kafka"}
+			ref += `{"Cluster":"clst1","Service":"svc1","Db":"st_table_http_test` + strconv.Itoa(i) + `","Table":"table_http_test` + strconv.Itoa(j) + `","Input":"mysql","Output":"kafka","Version":0}
 `
 			log.Debugf("ref %+v", ref)
 

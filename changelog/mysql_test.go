@@ -22,7 +22,6 @@ package changelog
 
 import (
 	"database/sql"
-	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -46,9 +45,11 @@ import (
 )
 
 var cfg *config.AppConfig
+var saveCfg config.AppConfig
 var globalTPoolProcs int32
 var fakePool pool.Thread
 var alterCh = make(chan bool)
+var testReader *mysqlReader
 
 //TODO: 1.8 export the t.Name() so no hack is needed
 var testName string
@@ -305,17 +306,15 @@ var testShutdownPrepare = []string{
 	)`,
 }
 
-func worker(cfg *config.AppConfig, p pipe.Pipe, tpool pool.Thread, t *testing.T) {
+func worker(cfg *config.AppConfig, bp pipe.Pipe, m *map[string]pipe.Pipe, tpool pool.Thread, t *testing.T) {
 	defer shutdown.Done()
 
+	var err error
 	log.Debugf("Starting binlog reader in test")
-	m := make(map[string]pipe.Pipe)
-	m[p.Type()] = p
-
-	w, err := createMySQLReader(shutdown.Context, cfg, p, &m, tpool)
+	testReader = &mysqlReader{ctx: shutdown.Context, tpool: tpool, bufPipe: bp, outPipes: m}
 	test.CheckFail(err, t)
 
-	if !w.Worker() {
+	if !testReader.Worker() {
 		t.FailNow()
 	}
 
@@ -326,7 +325,41 @@ func ExecSQL(db *sql.DB, t *testing.T, query string) {
 	test.CheckFail(util.ExecSQL(db, query), t)
 }
 
-func Prepare(pipeType string, create []string, t *testing.T) (*sql.DB, pipe.Pipe) {
+func regTableForMultiTableTest(pipeType string, secondPipe string, t *testing.T) {
+	if testName == "TestMultiTable" {
+		cfg.ReaderBuffer = false
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", pipeType, 0) {
+			t.FailNow()
+		}
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", pipeType, 1) {
+			t.FailNow()
+		}
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", secondPipe, 1) {
+			t.FailNow()
+		}
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "not_mysql", pipeType, 1) {
+			t.FailNow()
+		}
+	}
+}
+
+func Prepare(pipeType string, create []string, encoding string, t *testing.T) (*sql.DB, pipe.Pipe, pipe.Pipe) {
+	shutdown.Setup()
+
+	if testName == "TestMultiTable" {
+		cfg.OutputTopicNameFormat = "hp-tap-%s-%s-%s-v%d"
+		cfg.BufferTopicNameFormat = types.MySvcName + ".service.%s.db.%s.table.%s-v%d"
+		cfg.OutputFormat = encoding
+	}
+
+	cfg.InternalEncoding = encoding
+	cfg.ReaderOutputFormat = encoding
+	var err error
+	encoder.Internal, err = encoder.InitEncoder(cfg.InternalEncoding, "", "", "")
+	test.CheckFail(err, t)
+
+	log.Debugf("Test encoding: %+v", encoding)
+
 	dbc, err := db.OpenService(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1"}, "")
 	test.CheckFail(err, t)
 
@@ -347,31 +380,22 @@ func Prepare(pipeType string, create []string, t *testing.T) (*sql.DB, pipe.Pipe
 		ExecSQL(dbc, t, s)
 	}
 
-	p, err := pipe.Create(shutdown.Context, pipeType, 16, cfg, state.GetDB())
+	p1, err := pipe.Create(shutdown.Context, pipeType, 16, cfg, state.GetDB())
 	test.CheckFail(err, t)
-
-	if pipeType == "kafka" {
-		//FIXME: Rewrite test so it doesn't require events to come out inorder
-		//Configure producer so as everything will go to one partition
-		pipe.InitialOffset = sarama.OffsetNewest
-		pk := p.(*pipe.KafkaPipe)
-		pk.Config = sarama.NewConfig()
-		pk.Config.Producer.Partitioner = sarama.NewManualPartitioner
-		pk.Config.Producer.Return.Successes = true
-		pk.Config.Consumer.MaxWaitTime = 10 * time.Millisecond
+	secondPipe := "local"
+	if pipeType == "local" {
+		secondPipe = "kafka"
 	}
+	p2, err := pipe.Create(shutdown.Context, secondPipe, 16, cfg, state.GetDB())
+	test.CheckFail(err, t)
 
 	log.Debugf("Starting binlog reader. PipeType=%v", pipeType)
 
-	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1", "mysql", pipeType) {
+	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1", "mysql", pipeType, 0) {
 		t.FailNow()
 	}
 
-	if testName == "TestMultiTable" {
-		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", pipeType) {
-			t.FailNow()
-		}
-	}
+	regTableForMultiTableTest(pipeType, secondPipe, t)
 
 	fakePool = pool.Create()
 	globalTPoolProcs = 0
@@ -392,7 +416,12 @@ func Prepare(pipeType string, create []string, t *testing.T) (*sql.DB, pipe.Pipe
 	})
 
 	shutdown.Register(1)
-	go worker(cfg, p, fakePool, t)
+
+	m := make(map[string]pipe.Pipe)
+	m[p1.Type()] = p1
+	m[p2.Type()] = p2
+
+	go worker(cfg, p1, &m, fakePool, t)
 
 	/* Let binlog reader to initialize */
 	for {
@@ -404,7 +433,7 @@ func Prepare(pipeType string, create []string, t *testing.T) (*sql.DB, pipe.Pipe
 		time.Sleep(time.Millisecond * time.Duration(50))
 	}
 
-	return dbc, p
+	return dbc, p1, p2
 }
 
 /*
@@ -451,10 +480,10 @@ func CheckBinlogFormat(t *testing.T) {
 }
 */
 
-func initConsumeTableEvents(p pipe.Pipe, db string, table string, t *testing.T) pipe.Consumer {
-	tn := fmt.Sprintf("%s.service.test_svc1.db.%s.table.%s", types.MySvcName, db, table)
+func initConsumeTableEvents(p pipe.Pipe, db string, table string, version int, t *testing.T) pipe.Consumer {
+	tn := config.GetTopicName(cfg.BufferTopicNameFormat, "test_svc1", db, table, version)
 	if !cfg.ReaderBuffer {
-		tn = fmt.Sprintf("hp-tap-%s-%s-%s", "test_svc1", db, table)
+		tn = config.GetTopicName(cfg.OutputTopicNameFormat, "test_svc1", db, table, version)
 	}
 	pc, err := p.NewConsumer(tn)
 	test.CheckFail(err, t)
@@ -462,7 +491,8 @@ func initConsumeTableEvents(p pipe.Pipe, db string, table string, t *testing.T) 
 	return pc
 }
 
-func consumeTableEvents(pc pipe.Consumer, db string, table string, result []types.CommonFormatEvent, t *testing.T) {
+func consumeTableEvents(pc pipe.Consumer, db string, table string, result []types.CommonFormatEvent, seqnoShift uint64, t *testing.T) {
+	log.Debugf("consuming events %+v %+v", db, table)
 	enc, err := encoder.Create(cfg.ReaderOutputFormat, "test_svc1", db, table)
 	test.CheckFail(err, t)
 	if !cfg.ReaderBuffer {
@@ -503,13 +533,12 @@ func consumeTableEvents(pc pipe.Consumer, db string, table string, result []type
 			}
 		}
 
-		cf.SeqNo -= 1000000
+		cf.SeqNo -= 1000000 + seqnoShift
 		cf.Timestamp = 0
 		if !reflect.DeepEqual(*cf, v) {
 			log.Errorf("Received: %+v %+v", cf, cf.Fields)
 			log.Errorf("Reference: %+v %+v", &v, v.Fields)
-			t.Fail()
-			break
+			t.FailNow()
 		} else {
 			log.Infof("Successfully matched: i=%v %+v Fields=%v", i, cf, cf.Fields)
 		}
@@ -533,9 +562,8 @@ func testName(t *testing.T) string {
 
 func checkPoolControl(pipeType string, testName string, t *testing.T) {
 	if pipeType == "local" {
-		if (testName == "TestMultiTable" && globalTPoolProcs != 3) || (testName != "TestMultiTable" && globalTPoolProcs != 2) {
-			t.Errorf("Binlog reader should control number of streamers num=%v, pipe=%v", globalTPoolProcs, pipeType)
-			t.Fail()
+		if (testName == "TestMultiTable" && globalTPoolProcs != 5) || (testName != "TestMultiTable" && globalTPoolProcs != 2) {
+			t.Fatalf("Binlog reader should control number of streamers num=%v, pipe=%v", globalTPoolProcs, pipeType)
 		}
 	} else if globalTPoolProcs != 0 {
 		t.Errorf("Binlog reader shouldn't control number of streamers num=%v pipe=%v", globalTPoolProcs, pipeType)
@@ -549,17 +577,7 @@ func CheckQueries(pipeType string, prepare []string, queries []string, result []
 		test.SkipIfNoKafkaAvailable(t)
 	}
 
-	shutdown.Setup()
-
-	cfg.InternalEncoding = encoding
-	cfg.ReaderOutputFormat = encoding
-	var err error
-	encoder.Internal, err = encoder.InitEncoder(cfg.InternalEncoding, "", "", "")
-	test.CheckFail(err, t)
-
-	log.Debugf("Test encoding: %+v", encoding)
-
-	dbc, p := Prepare(pipeType, prepare, t)
+	dbc, p1, p2 := Prepare(pipeType, prepare, encoding, t)
 	defer func() { test.CheckFail(state.Close(), t) }()
 	defer func() { test.CheckFail(dbc.Close(), t) }()
 
@@ -569,22 +587,28 @@ func CheckQueries(pipeType string, prepare []string, queries []string, result []
 	shutdown.Register(1)
 	go func() {
 		defer shutdown.Done()
-		pc := initConsumeTableEvents(p, "db1", "t1", t)
-		var pc1 pipe.Consumer
+		pc := initConsumeTableEvents(p1, "db1", "t1", 0, t)
+		var pc1, pc2, pc3 pipe.Consumer
 		if testName == "TestMultiTable" {
-			pc1 = initConsumeTableEvents(p, "db9", "t1", t)
+			pc1 = initConsumeTableEvents(p1, "db9", "t1", 0, t)
+			pc2 = initConsumeTableEvents(p1, "db9", "t1", 1, t)
+			pc3 = initConsumeTableEvents(p2, "db9", "t1", 1, t)
 		}
+		log.Debugf("Signal that all consumer has been initialized")
 		initCh <- true
-		consumeTableEvents(pc, "db1", "t1", result, t)
+		consumeTableEvents(pc, "db1", "t1", result, 0, t)
 		if testName == "TestMultiTable" {
-			consumeTableEvents(pc1, "db9", "t1", testMultiTableResult2, t)
+			consumeTableEvents(pc1, "db9", "t1", testMultiTableResult2, 0, t)
+			consumeTableEvents(pc2, "db9", "t1", testMultiTableResult2, 1, t)
+			consumeTableEvents(pc3, "db9", "t1", testMultiTableResult2, 2, t)
 		}
+		log.Debugf("Signal that we finished consuming events")
 		initCh <- false
 		log.Debugf("Finished consumers")
 	}()
 
+	log.Debugf("Waiting pipe consumers to initialize")
 	<-initCh
-
 	log.Debugf("Starting workload")
 
 	usedb := 0
@@ -604,8 +628,8 @@ func CheckQueries(pipeType string, prepare []string, queries []string, result []
 		}
 	}
 
+	log.Debugf("Waiting consumer to consume all events and finish")
 	<-initCh
-
 	log.Debugf("Finishing test")
 
 	shutdown.Initiate()
@@ -613,7 +637,103 @@ func CheckQueries(pipeType string, prepare []string, queries []string, result []
 
 	checkPoolControl(pipeType, testName, t)
 
+	*cfg = saveCfg
+
 	log.Debugf("Finished test")
+}
+
+func inVersionArray(a []*table, output string, version int) bool {
+	j := 0
+	for ; j < len(a) && (a[j].version != version || a[j].output != output); j++ {
+	}
+	return j < len(a)
+}
+
+func TestMultiVersionsArray(t *testing.T) {
+	testName = "TestMultiTable"
+
+	//The content of this array predetermined by hardcoded RegisterTable(s) in
+	//Prepare()
+	tests := []struct {
+		db      string
+		t       string
+		input   string
+		output  string
+		version int
+		real    int
+	}{
+		{db: "db1", t: "t1", input: "mysql", output: "local", version: 0, real: 1},     //1
+		{db: "db9", t: "t1", input: "mysql", output: "local", version: 0, real: 1},     //2
+		{db: "db9", t: "t1", input: "mysql", output: "local", version: 1, real: 1},     //3
+		{db: "db9", t: "t1", input: "mysql", output: "kafka", version: 1, real: 1},     //4
+		{db: "db9", t: "t1", input: "not_mysql", output: "local", version: 1, real: 0}, //not managed by binlog reader
+	}
+
+	save := cfg.StateUpdateTimeout
+	cfg.StateUpdateTimeout = 1
+
+	dbc, _, _ := Prepare("local", testMultiTablePrepare, "json", t)
+	defer func() { test.CheckFail(state.Close(), t) }()
+	defer func() { test.CheckFail(dbc.Close(), t) }()
+
+	n := 0
+	for i := 0; i < len(tests); i++ {
+		if !test.WaitForNumProc(int32(len(tests)-n+2), 80*200) {
+			t.Fatalf("Binlog reader didn't finish int %v secs. NumProcs: %v", 80*50/1000, shutdown.NumProcs())
+		}
+
+		var dlen, tlen = 0, 0
+		if tests[i].real != 0 {
+			test.Assert(t, testReader.tables[tests[i].db] != nil, "Db not found in map: %v", tests[i].db)
+			dlen = len(testReader.tables[tests[i].db])
+			a := testReader.tables[tests[i].db][tests[i].t]
+			test.Assert(t, a != nil, "Table not found in map: %v", tests[i].t)
+			tlen = len(a)
+			test.Assert(t, inVersionArray(a, tests[i].output, tests[i].version), "Not found in map %v %v %v %v", tests[i].db, tests[i].t, tests[i].output, tests[i].version)
+		}
+
+		n += tests[i].real
+
+		if !state.DeregisterTable("test_svc1", tests[i].db, tests[i].t, tests[i].input, tests[i].output, tests[i].version) {
+			t.Fatalf("Failed to deregister table")
+		}
+
+		if !test.WaitForNumProc(int32(len(tests)-n+2), 80*200) {
+			t.Fatalf("Binlog reader didn't finish int %v secs. NumProcs: %v", 80*50/1000, shutdown.NumProcs())
+		}
+
+		//Check that table has been properly removed from the map and version array.
+		if tests[i].real != 0 {
+			if tlen > 1 {
+				test.Assert(t, testReader.tables[tests[i].db] != nil, "Db not found in map: %v", tests[i].db)
+				a := testReader.tables[tests[i].db][tests[i].t]
+				test.Assert(t, a != nil, "Table not found in map: %v", tests[i].t)
+
+				test.Assert(t, !inVersionArray(a, tests[i].output, tests[i].version), "Found in map %v %v %v %v", tests[i].db, tests[i].t, tests[i].output, tests[i].version)
+			} else {
+				if dlen > 1 {
+					test.Assert(t, testReader.tables[tests[i].db] != nil, "Db not found in map: %v", tests[i].db)
+					a := testReader.tables[tests[i].db][tests[i].t]
+					test.Assert(t, a == nil, "Table found in map: %v", tests[i].t)
+				} else {
+					test.Assert(t, testReader.tables[tests[i].db] == nil, "Db found in map: %v", tests[i].db)
+				}
+			}
+		}
+	}
+
+	fakePool.Adjust(0)
+	//so as we removed all the tables, we expect binlog reader to terminate
+	if !test.WaitForNumProc(1, 80*200) { // 1 remaining thread is signal handler
+		t.Fatalf("Binlog reader didn't finish int %v secs. NumProcs: %v", 80*50/1000, shutdown.NumProcs())
+	}
+
+	shutdown.Initiate()
+	shutdown.Wait()
+
+	cfg.StateUpdateTimeout = save
+
+	testName = ""
 }
 
 func TestBasic(t *testing.T) {
@@ -655,16 +775,14 @@ func TestDirectOutput(t *testing.T) {
 func TestReaderShutdown(t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 
-	shutdown.Setup()
-
 	save := cfg.StateUpdateTimeout
 	cfg.StateUpdateTimeout = 1
 
-	dbc, _ := Prepare("local", testShutdownPrepare, t)
+	dbc, _, _ := Prepare("local", testShutdownPrepare, "json", t)
 	defer func() { test.CheckFail(state.Close(), t) }()
 	defer func() { test.CheckFail(dbc.Close(), t) }()
 
-	if !state.DeregisterTable("test_svc1", "db1", "t1") {
+	if !state.DeregisterTable("test_svc1", "db1", "t1", "mysql", "local", 0) {
 		t.Fatalf("Failed to deregister table")
 	}
 
@@ -689,6 +807,14 @@ func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
 	cfg.ReaderOutputFormat = encoder.Internal.Type()
 	cfg.MaxNumProcs = 1
+	saveCfg = *cfg
+
+	pipe.InitialOffset = sarama.OffsetNewest
+	pipe.KafkaConfig = sarama.NewConfig()
+	pipe.KafkaConfig.Producer.Partitioner = sarama.NewManualPartitioner
+	pipe.KafkaConfig.Producer.Return.Successes = true
+	pipe.KafkaConfig.Consumer.MaxWaitTime = 10 * time.Millisecond
+
 	log.Debugf("Config loaded %v", cfg)
 	os.Exit(m.Run())
 	log.Debugf("Starting shutdown")

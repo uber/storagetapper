@@ -112,3 +112,10 @@ func Wait() {
 func NumProcs() int32 {
 	return atomic.LoadInt32(&numThreads)
 }
+
+/*InitiateAndWait is a helper which is often used in tests, where we want to
+Initiate shutdown and Wait program to shutdown on function exit*/
+func InitiateAndWait() {
+	Initiate()
+	Wait()
+}

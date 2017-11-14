@@ -26,10 +26,12 @@ import (
 )
 
 // GetTopicName returns Kafka topic name
-func GetTopicName(format string, svc string, db string, tbl string) string {
+func GetTopicName(format string, svc string, db string, tbl string, ver int) string {
 	//TODO: Implement this in a better way
-	n := strings.Count(format, "%s")
+	n := strings.Count(format, "%s") + strings.Count(format, "%d")
 	switch n {
+	case 4:
+		return fmt.Sprintf(format, svc, db, tbl, ver)
 	case 3:
 		return fmt.Sprintf(format, svc, db, tbl)
 	case 2:
@@ -41,6 +43,6 @@ func GetTopicName(format string, svc string, db string, tbl string) string {
 }
 
 // GetOutputTopicName returns output Kafka topic name
-func (c *AppConfig) GetOutputTopicName(svc string, db string, tbl string) string {
-	return GetTopicName(c.OutputTopicNameFormat, svc, db, tbl)
+func (c *AppConfig) GetOutputTopicName(svc string, db string, tbl string, ver int) string {
+	return GetTopicName(c.OutputTopicNameFormat, svc, db, tbl, ver)
 }

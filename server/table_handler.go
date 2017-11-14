@@ -46,6 +46,7 @@ type tableCmdReq struct {
 	Table   string
 	Input   string
 	Output  string
+	Version int
 	Apply   string
 }
 
@@ -78,6 +79,7 @@ type tableListResponse struct {
 	Table   string
 	Input   string
 	Output  string
+	Version int
 }
 
 func iterateRows(rows *sql.Rows, t *tableCmdReq) error {
@@ -86,7 +88,7 @@ func iterateRows(rows *sql.Rows, t *tableCmdReq) error {
 		if err := rows.Scan(&d, &n); err != nil {
 			return err
 		}
-		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: d}, n, t.Input, t.Output) {
+		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: d}, n, t.Input, t.Output, t.Version) {
 			return fmt.Errorf("Error registering table: %v.%v", d, n)
 		}
 	}
@@ -104,7 +106,7 @@ func handleAddCmd(w http.ResponseWriter, t *tableCmdReq) error {
 
 	//no wildcards case
 	if len(t.Db) != 0 && len(t.Table) != 0 && t.Db != "*" && t.Table != "*" && !strings.ContainsAny(t.Db, "%") && !strings.ContainsAny(t.Table, "%") {
-		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: t.Db}, t.Table, t.Input, t.Output) {
+		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: t.Db}, t.Table, t.Input, t.Output, t.Version) {
 			return errors.New("Error registering table")
 		}
 		updateTableRegCnt()
@@ -155,11 +157,11 @@ func handleDelListCmd(w http.ResponseWriter, t *tableCmdReq, del bool) error {
 		var resp []byte
 		for _, v := range rows {
 			var b []byte
-			if del && strings.ToLower(t.Apply) == "yes" && (!state.DeregisterTable(v.Service, v.Db, v.Table) || !pipe.DeleteKafkaOffsets(state.GetDB(), config.GetTopicName(BufferTopicNameFormat, v.Service, v.Db, v.Table))) {
+			if del && strings.ToLower(t.Apply) == "yes" && (!state.DeregisterTable(v.Service, v.Db, v.Table, v.Input, v.Output, v.Version) || !pipe.DeleteKafkaOffsets(state.GetDB(), config.GetTopicName(BufferTopicNameFormat, v.Service, v.Db, v.Table, v.Version))) {
 				err = fmt.Errorf("Error deregistering table: service=%v db=%v table=%v", v.Service, v.Db, v.Table)
 				break
 			}
-			if b, err = json.Marshal(&tableListResponse{Cluster: v.Cluster, Service: v.Service, Db: v.Db, Table: v.Table, Input: v.Input, Output: v.Output}); err != nil {
+			if b, err = json.Marshal(&tableListResponse{Cluster: v.Cluster, Service: v.Service, Db: v.Db, Table: v.Table, Input: v.Input, Output: v.Output, Version: v.Version}); err != nil {
 				break
 			}
 			resp = append(resp, b...)

@@ -44,20 +44,20 @@ func checkStateEqual(m1 Type, m2 Type) bool {
 }
 
 var refST1 = Type{
-	{1, "clst1", "svc1", "db1_state", "table1", "", "", "", 0, "", "", true},
-	{2, "clst1", "svc1", "db1_state", "table2", "", "", "", 0, "", "", true},
-	{3, "clst1", "svc1", "db2_state", "table1", "", "", "", 0, "", "", true},
-	{4, "clst1", "svc2", "db3_state", "table1", "", "", "", 0, "", "", true},
-	{5, "clst2", "svc2", "db2_state", "table1", "", "", "", 0, "", "", true},
+	{1, "clst1", "svc1", "db1_state", "table1", "", "", 0, "", 0, "", "", true},
+	{2, "clst1", "svc1", "db1_state", "table2", "", "", 0, "", 0, "", "", true},
+	{3, "clst1", "svc1", "db2_state", "table1", "", "", 0, "", 0, "", "", true},
+	{4, "clst1", "svc2", "db3_state", "table1", "", "", 0, "", 0, "", "", true},
+	{5, "clst2", "svc2", "db2_state", "table1", "", "", 0, "", 0, "", "", true},
 }
 
 var refST2 = Type{
-	{6, "clst1", "svc1", "db1_state", "table3", "", "", "", 0, "", "", true},
-	{7, "clst1", "svc2", "db2_state", "table2", "", "", "", 0, "", "", true},
+	{6, "clst1", "svc1", "db1_state", "table3", "", "", 0, "", 0, "", "", true},
+	{7, "clst1", "svc2", "db2_state", "table2", "", "", 0, "", 0, "", "", true},
 }
 
 var refST3 = Type{
-	{5, "clst2", "svc2", "db2_state", "table1", "", "", "", 0, "", "", true},
+	{5, "clst2", "svc2", "db2_state", "table1", "", "", 0, "", 0, "", "", true},
 }
 
 func insertStateRows(s Type, t1 *testing.T) {
@@ -373,7 +373,7 @@ func TestStateSchema(t *testing.T) {
 		t.FailNow()
 	}
 
-	if !ReplaceSchema("svc1", "clst1", ts, tsRaw, "", sgtid, "", "") {
+	if !ReplaceSchema("svc1", "clst1", ts, tsRaw, "", sgtid, "", "", 0) {
 		t.Fatalf("%+v %+v", ts, err)
 	}
 
@@ -400,7 +400,7 @@ func TestStateSchema(t *testing.T) {
 	log.Debugf("New schema: %+v", ts)
 	log.Debugf("New raw schema: %+v", tsRaw)
 
-	if !ReplaceSchema("svc1", "clst1", ts, tsRaw, sgtid, sgtid1, "", "") {
+	if !ReplaceSchema("svc1", "clst1", ts, tsRaw, sgtid, sgtid1, "", "", 0) {
 		t.FailNow()
 	}
 
@@ -455,11 +455,11 @@ func TestTableRegister(t *testing.T) {
 	*/
 	dbloc1 := &db.Loc{Cluster: "clst1", Service: "svc1", Name: "db1_state"}
 
-	if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1", "", "") {
+	if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1", "", "", 0) {
 		t.Fatalf("Fail register db1_state 1")
 	}
 
-	if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1", "", "") {
+	if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1", "", "", 0) {
 		t.Fatalf("Fail register db1_state 2")
 	}
 
@@ -468,18 +468,79 @@ func TestTableRegister(t *testing.T) {
 		t.Fatalf("Table was registered")
 	}
 
-	if !DeregisterTable("svc1", "db1_state", "REG_SCHEMA_TEST1") {
+	if !DeregisterTable("svc1", "db1_state", "REG_SCHEMA_TEST1", "", "", 0) {
 		log.Debugf("Fail deregister db1_state 1")
 		log.Debugf("3asdf")
 		t.FailNow()
 	}
 
-	if !DeregisterTable("svc1", "db1_state", "REG_SCHEMA_TEST1") {
+	if !DeregisterTable("svc1", "db1_state", "REG_SCHEMA_TEST1", "", "", 0) {
 		t.Fatalf("Fail deregister db1_state 2")
 	}
 
 	err = Close()
 	test.CheckFail(err, t)
+}
+
+func TestTableVersions(t *testing.T) {
+	initState(t)
+
+	test.ExecSQL(conn, t, `DROP DATABASE IF EXISTS db1_state`)
+	test.ExecSQL(conn, t, `CREATE DATABASE IF NOT EXISTS db1_state`)
+	test.ExecSQL(conn, t, `CREATE TABLE db1_state.REG_SCHEMA_TEST1 (
+		field1 BIGINT PRIMARY KEY,
+		field2 BIGINT NOT NULL DEFAULT 0,
+		UNIQUE INDEX(field2, field1)
+	)`)
+
+	dbloc1 := &db.Loc{Cluster: "clst1", Service: "svc1", Name: "db1_state"}
+
+	tests := []struct {
+		input   string
+		output  string
+		version int
+		real    int
+	}{
+		{input: "mysql", output: "kafka", version: 0, real: 1}, //1
+		{input: "mysql", output: "kafka", version: 1, real: 1}, //2
+		{input: "mysql", output: "kafka", version: 1, real: 0}, //duplicate
+		{input: "mysql", output: "file", version: 1, real: 1},  //3
+		{input: "mysql", output: "file", version: 2, real: 1},  //4
+		{input: "mysql", output: "file", version: 2, real: 0},  //duplicate
+		{input: "file", output: "kafka", version: 2, real: 1},  //5
+	}
+
+	for i := 0; i < len(tests); i++ {
+		if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1", tests[i].input, tests[i].output, tests[i].version) {
+			t.Fatalf("Fail to register %v, %v, %v", tests[i].input, tests[i].output, tests[i].version)
+		}
+	}
+
+	n := 0
+	for i := 0; i < len(tests); i++ {
+		cnt, err := GetCount()
+		log.Debugf("test: %+v cnt: %v", tests[i], cnt)
+
+		if log.E(err) || cnt != 5-n {
+			t.Fatalf("Expect %d rows in the state, got %d", 5-n, cnt)
+		}
+
+		n += tests[i].real
+
+		_, err = GetSchema("svc1", "db1_state", "REG_SCHEMA_TEST1")
+		test.CheckFail(err, t)
+
+		if !DeregisterTable("svc1", "db1_state", "REG_SCHEMA_TEST1", tests[i].input, tests[i].output, tests[i].version) {
+			t.Fatalf("Fail to deregister %v, %v, %v", tests[i].input, tests[i].output, tests[i].version)
+		}
+	}
+
+	_, err := GetSchema("svc1", "db1_state", "REG_SCHEMA_TEST1")
+	if err == nil {
+		t.Fatalf("Schema should be removed on last version removal")
+	}
+
+	test.CheckFail(Close(), t)
 }
 
 func TestClusterInfo(t *testing.T) {

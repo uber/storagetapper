@@ -31,12 +31,13 @@ var topicTests = [][]string{
 	{"hp-tap-%s", "hp-tap-p1"},
 	{"hp", "hp"},
 	{"nm.service.%s.db.%s.table.%s", "nm.service.p1.db.p2.table.p3"},
+	{"hp-tap-%s-%s-%s-v%d", "hp-tap-p1-p2-p3-v0"},
 }
 
 func TestTopicNameFormat(t *testing.T) {
 	for _, r := range topicTests {
-		if r[1] != GetTopicName(r[0], "p1", "p2", "p3") {
-			fmt.Printf("Received : %v", GetTopicName(r[0], "p1", "p2", "p3"))
+		if r[1] != GetTopicName(r[0], "p1", "p2", "p3", 0) {
+			fmt.Printf("Received : %v", GetTopicName(r[0], "p1", "p2", "p3", 0))
 			fmt.Printf("Reference: %v", r[1])
 		}
 	}

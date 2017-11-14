@@ -57,9 +57,9 @@ func createDB(a db.Addr, t *testing.T) {
 	ExecSQL(conn, t, "create database snap_test_db1")
 	ExecSQL(conn, t, "create table snap_test_db1.snap_test_t1 ( f1 int not null primary key, f2 varchar(32), f3 double)")
 
-	state.DeregisterTable("snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	state.DeregisterTable("snap_test_svc1", "snap_test_db1", "snap_test_t1", "mysql", "", 0)
 
-	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1", "mysql", "") {
+	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1", "mysql", "", 0) {
 		t.FailNow()
 	}
 }
@@ -225,11 +225,11 @@ func TestMoreFieldTypes(t *testing.T) {
 
 	ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", 1567, strconv.Itoa(1567), float64(1567)/3, "testtextfield", time.Now(), time.Now(), time.Now(), 2017, 98878, []byte("testbinaryfield"), 827738, 111.23, 222.34, 333.45, 444.56)
 
-	if !state.DeregisterTable("snap_test_svc1", "snap_test_db1", "snap_test_t1") {
+	if !state.DeregisterTable("snap_test_svc1", "snap_test_db1", "snap_test_t1", "mysql", "", 0) {
 		t.FailNow()
 	}
 
-	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1", "mysql", "") {
+	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1", "mysql", "", 0) {
 		t.FailNow()
 	}
 

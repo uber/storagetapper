@@ -1,7 +1,7 @@
 NAME := storagetapper
 GIT_REVISION := $(shell git rev-parse --short HEAD)
 
-PKGS := $(shell find . -maxdepth 1 -type d -not -path '*/\.*'|grep -v -e vendor -e doc -e debian -e scripts)
+PKGS := $(shell find . -maxdepth 1 -type d -not -path '*/\.*'|grep -v -e vendor -e doc -e debian -e scripts|sort -r)
 SRCS := $(shell find . -name "*.go" -not -path './vendor')
 
 $(NAME): $(SRCS) types/format_gen.go vendor

@@ -482,9 +482,6 @@ func CheckBinlogFormat(t *testing.T) {
 
 func initConsumeTableEvents(p pipe.Pipe, db string, table string, version int, t *testing.T) pipe.Consumer {
 	tn := config.GetTopicName(cfg.ChangelogTopicNameFormat, "test_svc1", db, table, version)
-	if !cfg.ChangelogBuffer {
-		tn = config.GetTopicName(cfg.OutputTopicNameFormat, "test_svc1", db, table, version)
-	}
 	pc, err := p.NewConsumer(tn)
 	test.CheckFail(err, t)
 	log.Debugf("Start event consumer from: " + tn)
@@ -495,10 +492,6 @@ func consumeTableEvents(pc pipe.Consumer, db string, table string, result []type
 	log.Debugf("consuming events %+v %+v", db, table)
 	enc, err := encoder.Create(cfg.ChangelogOutputFormat, "test_svc1", db, table)
 	test.CheckFail(err, t)
-	if !cfg.ChangelogBuffer {
-		enc, err = encoder.Create(cfg.OutputFormat, "test_svc1", db, table)
-		test.CheckFail(err, t)
-	}
 
 	for i, v := range result {
 		if !pc.FetchNext() {

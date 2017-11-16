@@ -286,7 +286,9 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 		return false
 	}
 
-	s.StreamTable(consumer, bootstrapCh)
+	if cfg.ChangelogBuffer {
+		s.StreamTable(consumer, bootstrapCh)
+	}
 
 	log.Debugf("Finished streamer")
 

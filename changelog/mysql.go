@@ -167,18 +167,16 @@ func (b *mysqlReader) addNewTable(st state.Type, i int) bool {
 		return true
 	}
 
-	cfg := config.Get()
-	pn := config.GetTopicName(cfg.ChangelogTopicNameFormat, t.Service, t.Db, t.Table, t.Version)
+	pn := config.GetTopicName(b.topicNameFormat, t.Service, t.Db, t.Table, t.Version)
 	pipe := b.bufPipe
 
-	if !cfg.ChangelogBuffer {
+	if !config.Get().ChangelogBuffer {
 		var ok bool
 		pipe, ok = (*b.outPipes)[t.Output]
 		if !ok {
-			b.log.Errorf("Service: %v Db: %v Table: %v. Unknown pipe: '%v'", t.Service, t.Db, t.Table, t.Output)
+			b.log.Errorf("Service: %v Db: %v Table: %v. Unknown pipe: %v", t.Service, t.Db, t.Table, t.Output)
 			return false
 		}
-		pn = cfg.GetOutputTopicName(t.Service, t.Db, t.Table, t.Version)
 	}
 
 	p, err := pipe.NewProducer(pn)
@@ -781,9 +779,6 @@ func (b *mysqlReader) start(cfg *config.AppConfig) bool {
 
 	thisInstanceCluster = b.dbl.Cluster
 	b.outputFormat = cfg.ChangelogOutputFormat
-	if !cfg.ChangelogBuffer {
-		b.outputFormat = cfg.OutputFormat
-	}
 	b.topicNameFormat = cfg.ChangelogTopicNameFormat
 	b.batchSize = cfg.PipeBatchSize
 

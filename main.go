@@ -113,7 +113,6 @@ func mainLow(cfg *config.AppConfig) {
 
 	db.GetInfo = connectInfoGet
 	encoder.GetLatestSchema = schemaGet
-	server.BufferTopicNameFormat = cfg.BufferTopicNameFormat
 
 	if !state.Init(cfg) {
 		log.Fatalf("StateInit failed")
@@ -125,7 +124,7 @@ func mainLow(cfg *config.AppConfig) {
 
 	nprocs := uint(cfg.MaxNumProcs)
 
-	if cfg.ReaderPipeType == "local" {
+	if cfg.ChangelogPipeType == "local" {
 		nprocs = 1 /*Start changelog reader only, it'll control the size of the thread pool*/
 	}
 
@@ -136,7 +135,7 @@ func mainLow(cfg *config.AppConfig) {
 	// * batch_size - in outP batch buffer
 	// * batch_size - in streamer helper channel buffer
 	// * +1 - waiting in streamer helper to be pushed when buffer is full
-	inP, err := pipe.Create(shutdown.Context, cfg.ReaderPipeType, 2*cfg.PipeBatchSize+1, cfg, state.GetDB())
+	inP, err := pipe.Create(shutdown.Context, cfg.ChangelogPipeType, 2*cfg.PipeBatchSize+1, cfg, state.GetDB())
 	log.F(err)
 
 	outP := make(map[string]pipe.Pipe)

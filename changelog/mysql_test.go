@@ -327,7 +327,7 @@ func ExecSQL(db *sql.DB, t *testing.T, query string) {
 
 func regTableForMultiTableTest(pipeType string, secondPipe string, t *testing.T) {
 	if testName == "TestMultiTable" {
-		cfg.ReaderBuffer = false
+		cfg.ChangelogBuffer = false
 		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", pipeType, 0) {
 			t.FailNow()
 		}
@@ -348,12 +348,12 @@ func Prepare(pipeType string, create []string, encoding string, t *testing.T) (*
 
 	if testName == "TestMultiTable" {
 		cfg.OutputTopicNameFormat = "hp-tap-%s-%s-%s-v%d"
-		cfg.BufferTopicNameFormat = types.MySvcName + ".service.%s.db.%s.table.%s-v%d"
+		cfg.ChangelogTopicNameFormat = types.MySvcName + ".service.%s.db.%s.table.%s-v%d"
 		cfg.OutputFormat = encoding
 	}
 
 	cfg.InternalEncoding = encoding
-	cfg.ReaderOutputFormat = encoding
+	cfg.ChangelogOutputFormat = encoding
 	var err error
 	encoder.Internal, err = encoder.InitEncoder(cfg.InternalEncoding, "", "", "")
 	test.CheckFail(err, t)
@@ -481,8 +481,8 @@ func CheckBinlogFormat(t *testing.T) {
 */
 
 func initConsumeTableEvents(p pipe.Pipe, db string, table string, version int, t *testing.T) pipe.Consumer {
-	tn := config.GetTopicName(cfg.BufferTopicNameFormat, "test_svc1", db, table, version)
-	if !cfg.ReaderBuffer {
+	tn := config.GetTopicName(cfg.ChangelogTopicNameFormat, "test_svc1", db, table, version)
+	if !cfg.ChangelogBuffer {
 		tn = config.GetTopicName(cfg.OutputTopicNameFormat, "test_svc1", db, table, version)
 	}
 	pc, err := p.NewConsumer(tn)
@@ -493,9 +493,9 @@ func initConsumeTableEvents(p pipe.Pipe, db string, table string, version int, t
 
 func consumeTableEvents(pc pipe.Consumer, db string, table string, result []types.CommonFormatEvent, seqnoShift uint64, t *testing.T) {
 	log.Debugf("consuming events %+v %+v", db, table)
-	enc, err := encoder.Create(cfg.ReaderOutputFormat, "test_svc1", db, table)
+	enc, err := encoder.Create(cfg.ChangelogOutputFormat, "test_svc1", db, table)
 	test.CheckFail(err, t)
-	if !cfg.ReaderBuffer {
+	if !cfg.ChangelogBuffer {
 		enc, err = encoder.Create(cfg.OutputFormat, "test_svc1", db, table)
 		test.CheckFail(err, t)
 	}
@@ -519,7 +519,7 @@ func consumeTableEvents(pc pipe.Consumer, db string, table string, result []type
 			test.CheckFail(err, t)
 		case []byte:
 			cf = &types.CommonFormatEvent{}
-			if !cfg.ReaderBuffer {
+			if !cfg.ChangelogBuffer {
 				cf, err = enc.DecodeEvent(b.([]byte))
 				test.CheckFail(err, t)
 			} else {
@@ -767,7 +767,7 @@ func TestMultiTable(t *testing.T) {
 }
 
 func TestDirectOutput(t *testing.T) {
-	cfg.ReaderBuffer = false
+	cfg.ChangelogBuffer = false
 	cfg.OutputFormat = "msgpack" //set to different from "json" to check that reader output in final format and not in buffer format
 	CheckQueries("kafka", testBasicPrepare, testBasic, testBasicResult, "json", t)
 }
@@ -805,7 +805,7 @@ func TestReaderShutdown(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
-	cfg.ReaderOutputFormat = encoder.Internal.Type()
+	cfg.ChangelogOutputFormat = encoder.Internal.Type()
 	cfg.MaxNumProcs = 1
 	saveCfg = *cfg
 

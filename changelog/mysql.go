@@ -168,10 +168,10 @@ func (b *mysqlReader) addNewTable(st state.Type, i int) bool {
 	}
 
 	cfg := config.Get()
-	pn := config.GetTopicName(cfg.BufferTopicNameFormat, t.Service, t.Db, t.Table, t.Version)
+	pn := config.GetTopicName(cfg.ChangelogTopicNameFormat, t.Service, t.Db, t.Table, t.Version)
 	pipe := b.bufPipe
 
-	if !cfg.ReaderBuffer {
+	if !cfg.ChangelogBuffer {
 		var ok bool
 		pipe, ok = (*b.outPipes)[t.Output]
 		if !ok {
@@ -384,7 +384,7 @@ func (b *mysqlReader) wrapEvent(key string, bd []byte, seqno uint64) ([]byte, er
 
 func (b *mysqlReader) produceRow(tp int, t *table, row *[]interface{}) error {
 	var err error
-	buffered := config.Get().ReaderBuffer
+	buffered := config.Get().ChangelogBuffer
 	seqno := b.nextSeqNo()
 	if seqno == 0 {
 		return fmt.Errorf("Failed to generate next seqno. Current seqno:%+v", b.seqNo)
@@ -780,11 +780,11 @@ func (b *mysqlReader) start(cfg *config.AppConfig) bool {
 	defer b.metrics.NumWorkers.Dec()
 
 	thisInstanceCluster = b.dbl.Cluster
-	b.outputFormat = cfg.ReaderOutputFormat
-	if !cfg.ReaderBuffer {
+	b.outputFormat = cfg.ChangelogOutputFormat
+	if !cfg.ChangelogBuffer {
 		b.outputFormat = cfg.OutputFormat
 	}
-	b.topicNameFormat = cfg.BufferTopicNameFormat
+	b.topicNameFormat = cfg.ChangelogTopicNameFormat
 	b.batchSize = cfg.PipeBatchSize
 
 	b.log = log.WithFields(log.Fields{"cluster": b.dbl.Cluster})

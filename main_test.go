@@ -285,8 +285,8 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	cfg.OutputFormat = outPipeFormat
 	cfg.OutputPipeType = outPipeType
-	cfg.ReaderPipeType = inPipeType
-	cfg.ReaderOutputFormat = inPipeFormat
+	cfg.ChangelogPipeType = inPipeType
+	cfg.ChangelogOutputFormat = inPipeFormat
 	if inPipeFormat == "json" || inPipeFormat == "msgpack" {
 		cfg.InternalEncoding = inPipeFormat
 		var err error

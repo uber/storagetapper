@@ -50,10 +50,6 @@ type tableCmdReq struct {
 	Apply   string
 }
 
-//BufferTopicNameFormat is a copy of config variable, used in DeregisterTable.
-//Initialized in main
-var BufferTopicNameFormat string
-
 func updateTableRegCnt() {
 	cnt, err := state.GetCount()
 	if err == nil {
@@ -157,7 +153,7 @@ func handleDelListCmd(w http.ResponseWriter, t *tableCmdReq, del bool) error {
 		var resp []byte
 		for _, v := range rows {
 			var b []byte
-			if del && strings.ToLower(t.Apply) == "yes" && (!state.DeregisterTable(v.Service, v.Db, v.Table, v.Input, v.Output, v.Version) || !pipe.DeleteKafkaOffsets(state.GetDB(), config.GetTopicName(BufferTopicNameFormat, v.Service, v.Db, v.Table, v.Version))) {
+			if del && strings.ToLower(t.Apply) == "yes" && (!state.DeregisterTable(v.Service, v.Db, v.Table, v.Input, v.Output, v.Version) || !pipe.DeleteKafkaOffsets(state.GetDB(), config.GetTopicName(config.Get().ChangelogTopicNameFormat, v.Service, v.Db, v.Table, v.Version))) {
 				err = fmt.Errorf("Error deregistering table: service=%v db=%v table=%v", v.Service, v.Db, v.Table)
 				break
 			}

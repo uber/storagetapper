@@ -186,7 +186,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 
 	log.Debugf("Started streamer thread")
 
-	if cfg.ReaderPipeType == "local" {
+	if cfg.ChangelogPipeType == "local" {
 		st, err = state.GetForCluster(changelog.ThisInstanceCluster())
 	} else {
 		st, err = state.Get()
@@ -275,7 +275,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 
 	//Consumer should registered before snapshot started, so it sees all the
 	//event during the snapshot
-	consumer, err := s.inPipe.NewConsumer(config.GetTopicName(cfg.BufferTopicNameFormat, s.svc, s.db, s.table, s.version))
+	consumer, err := s.inPipe.NewConsumer(config.GetTopicName(cfg.ChangelogTopicNameFormat, s.svc, s.db, s.table, s.version))
 	if log.EL(s.log, err) {
 		return false
 	}

@@ -42,10 +42,10 @@ type AppConfig struct {
 	StateConnectURL    string   `yaml:"state_connect_url"`
 	KafkaAddrs         []string `yaml:"kafka_addresses"`
 
-	ReaderPipeType        string `yaml:"reader_pipe_type"`
-	ReaderOutputFormat    string `yaml:"reader_output_format"`
-	BufferTopicNameFormat string `yaml:"buffer_topic_name_format"`
-	ReaderBuffer          bool   `yaml:"reader_buffer"`
+	ChangelogPipeType        string `yaml:"changelog_pipe_type"`
+	ChangelogOutputFormat    string `yaml:"changelog_output_format"`
+	ChangelogTopicNameFormat string `yaml:"changelog_topic_name_format"`
+	ChangelogBuffer          bool   `yaml:"changelog_buffer"`
 
 	OutputPipeType        string `yaml:"output_pipe_type"`
 	OutputFormat          string `yaml:"output_format"`
@@ -78,10 +78,10 @@ func GetDefaultConfig() *AppConfig {
 		MaxNumProcs:        runtime.NumCPU(),
 		StateUpdateTimeout: 300,
 
-		ReaderPipeType:        "kafka",
-		ReaderOutputFormat:    "json",
-		BufferTopicNameFormat: types.MySvcName + ".service.%s.db.%s.table.%s",
-		ReaderBuffer:          true,
+		ChangelogPipeType:        "kafka",
+		ChangelogOutputFormat:    "json",
+		ChangelogTopicNameFormat: types.MySvcName + ".service.%s.db.%s.table.%s",
+		ChangelogBuffer:          true,
 
 		OutputPipeType:        "kafka",
 		OutputFormat:          "avro",

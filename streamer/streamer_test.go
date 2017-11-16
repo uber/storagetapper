@@ -200,7 +200,7 @@ func TestStreamer_StreamFromConsistentSnapshot(t *testing.T) {
 
 	bufPipe, err := pipe.Create(shutdown.Context, "kafka", 16, cfg, nil)
 	test.CheckFail(err, t)
-	producer, err := bufPipe.NewProducer(config.GetTopicName(cfg.BufferTopicNameFormat, TestSvc, TestDb, TestTbl, 0))
+	producer, err := bufPipe.NewProducer(config.GetTopicName(cfg.ChangelogTopicNameFormat, TestSvc, TestDb, TestTbl, 0))
 	test.CheckFail(err, t)
 
 	setupData(dbConn, 0, t)

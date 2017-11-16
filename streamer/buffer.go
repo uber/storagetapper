@@ -206,7 +206,7 @@ L:
 
 // StreamTable attempts to acquire a lock on a table partition and streams events from
 // that table partition while periodically updating its state of the last kafka offset consumed
-func (s *Streamer) StreamTable(consumer pipe.Consumer, bootstrapCh chan bool) bool {
+func (s *Streamer) StreamTable(consumer pipe.Consumer) bool {
 	var saveOffsets = true
 
 	msgCh, exitCh := make(chan *result, s.batchSize), make(chan bool)
@@ -253,10 +253,6 @@ func (s *Streamer) StreamTable(consumer pipe.Consumer, bootstrapCh chan bool) bo
 				return true
 			}
 
-		case err := <-bootstrapCh:
-			if err {
-				return false
-			}
 		case next := <-msgCh:
 			if !next.hasNext {
 				return true

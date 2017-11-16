@@ -136,23 +136,9 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 	return true
 }
 
-func (s *Streamer) startBootstrap(input string, needsBootstrap bool, bootstrapCh chan bool, cfg *config.AppConfig) bool {
-	if needsBootstrap {
-		if cfg.ConcurrentBootstrap {
-			s.log.Debugf("Starting concurrent snapshot")
-			shutdown.Register(1)
-			go func() {
-				defer shutdown.Done()
-				bootstrapCh <- s.streamFromConsistentSnapshot(input, true, cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS)
-			}()
-		} else {
-			if !s.streamFromConsistentSnapshot(input, false, cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS) {
-				return false
-			}
-		}
-	}
-
-	return true
+func (s *Streamer) startBootstrap(needsBootstrap bool, cfg *config.AppConfig) bool {
+	return !needsBootstrap || s.streamFromConsistentSnapshot(s.input, false,
+		cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS)
 }
 
 func (s *Streamer) lockTable(st state.Type, outPipes *map[string]pipe.Pipe) {
@@ -280,14 +266,13 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 		return false
 	}
 
-	bootstrapCh := make(chan bool)
-	if !s.startBootstrap(s.input, needsBootstrap, bootstrapCh, cfg) {
+	if !s.startBootstrap(needsBootstrap, cfg) {
 		log.E(consumer.CloseOnFailure())
 		return false
 	}
 
 	if cfg.ChangelogBuffer {
-		s.StreamTable(consumer, bootstrapCh)
+		s.StreamTable(consumer)
 	}
 
 	log.Debugf("Finished streamer")

@@ -9,9 +9,11 @@ sudo useradd kafka -m || [ $? -eq 9 ]
 sudo -u kafka mkdir -p $DIR/config
 cd $DIR
 #echo 'ruok' | telnet localhost 2181
-[ -f kafka_2.11-0.8.2.1.tgz ] || sudo -u kafka wget "http://mirror.cc.columbia.edu/pub/software/apache/kafka/0.8.2.1/kafka_2.11-0.8.2.1.tgz" -O kafka_2.11-0.8.2.1.tgz 
-sudo -u kafka tar -xzf kafka_2.11-0.8.2.1.tgz --strip 1
-sudo /bin/bash -c "echo -e \"delete.topic.enable = true\nnum.partitions=8\n\" >> $DIR/config/server.properties"
+[ -f kafka_2.11-0.11.0.2.tgz ] || sudo -u kafka wget "http://mirror.metrocast.net/apache/kafka/0.11.0.2/kafka_2.11-0.11.0.2.tgz" -O kafka_2.11-0.11.0.2.tgz && \
+	echo "0169DED7E551476FF3F1CE70D76C518D31116ACC1AE43B15E89BEA4B072FA8727239E51E84C2306DFD668EFFFC26DBC83C9598ACBD355C283F650C64C4788188 kafka_2.11-0.11.0.2.tgz" |sha512sum -c
+sudo -u kafka tar -xzf kafka_2.11-0.11.0.2.tgz --strip 1
+sudo /bin/bash -c "echo -e \"\ndelete.topic.enable = true\nnum.partitions=8\n\" >> $DIR/config/server.properties"
+
 
 if [ -n "$DOCKER_BUILD" ]; then
 	exit

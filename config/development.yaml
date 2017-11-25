@@ -3,11 +3,14 @@ log_type: zap
 port: 7836
 
 logging:
-    level: debug
+  level: debug
 
 state_update_timeout: 10
 state_connect_url: "root@localhost"
 kafka_addresses:
-    - "localhost:9092"
-hadoop_address: "localhost:9000"
-
+  - "localhost:9092"
+hadoop:
+  user: hadoop
+  addresses:
+    - "localhost:9000"
+  base_dir: "/user/hadoop/tmp/hdfs_pipe_test"

@@ -9,24 +9,21 @@ import (
 	"github.com/uber/storagetapper/test"
 )
 
-var path = "/user/" + os.Getenv("USER") + "/tmp/hdfs_pipe_test"
-
 func deleteTestHdfsTopics(t *testing.T) {
-	client, err := hdfs.New(cfg.HadoopAddress)
+	cp := hdfs.ClientOptions{User: cfg.Hadoop.User, Addresses: cfg.Hadoop.Addresses}
+	client, err := hdfs.NewClient(cp)
 	test.CheckFail(err, t)
 
-	err = client.Remove(path)
+	err = client.Remove(cfg.Hadoop.BaseDir)
 	if !os.IsNotExist(err) {
 		test.CheckFail(err, t)
 	}
 
-	err = client.MkdirAll(path, 0770) //Pipe calls mkdirall so this may not be needed
+	err = client.MkdirAll(cfg.Hadoop.BaseDir, 0770) //Pipe calls mkdirall so this may not be needed
 	test.CheckFail(err, t)
 }
 
 func testHdfsBasic(size int64, t *testing.T) {
-	cfg.DataDir = path
-
 	p, err := initHdfsPipe(shutdown.Context, 128, cfg, nil)
 	test.CheckFail(err, t)
 

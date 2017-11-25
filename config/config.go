@@ -21,6 +21,7 @@
 package config
 
 import (
+	"fmt"
 	"runtime"
 
 	"github.com/uber/storagetapper/types"
@@ -37,11 +38,11 @@ type AppConfig struct {
 	Port        int    `yaml:"port"`
 	PortDyn     int
 
-	MaxNumProcs        int      `yaml:"max_num_procs"`
-	StateUpdateTimeout int      `yaml:"state_update_timeout"`
-	StateConnectURL    string   `yaml:"state_connect_url"`
-	KafkaAddrs         []string `yaml:"kafka_addresses"`
-	HadoopAddress      string   `yaml:"hadoop_address"`
+	MaxNumProcs        int          `yaml:"max_num_procs"`
+	StateUpdateTimeout int          `yaml:"state_update_timeout"`
+	StateConnectURL    string       `yaml:"state_connect_url"`
+	KafkaAddrs         []string     `yaml:"kafka_addresses"`
+	Hadoop             HadoopConfig `yaml:"hadoop"`
 
 	ChangelogPipeType        string `yaml:"changelog_pipe_type"`
 	ChangelogOutputFormat    string `yaml:"changelog_output_format"`
@@ -68,6 +69,13 @@ type AppConfig struct {
 	MaxFileSize int64  `yaml:"max_file_size"`
 
 	InternalEncoding string `yaml:"internal_encoding"`
+}
+
+// HadoopConfig holds hadoop output pipe configuration
+type HadoopConfig struct {
+	User      string   `yaml:"user"`
+	Addresses []string `yaml:"addresses"`
+	BaseDir   string   `yaml:"base_dir"`
 }
 
 // GetDefaultConfig returns default configuration
@@ -101,7 +109,7 @@ func GetDefaultConfig() *AppConfig {
 
 		DefaultInputType: "mysql",
 
-		DataDir:     "/var/lib/" + types.MySvcName,
+		DataDir:     fmt.Sprintf("/var/lib/%s", types.MySvcName),
 		MaxFileSize: 1024 * 1024 * 1024,
 
 		InternalEncoding: "json",

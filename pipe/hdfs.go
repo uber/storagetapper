@@ -24,7 +24,6 @@ import (
 	"bufio"
 	"database/sql"
 	"fmt"
-	"golang.org/x/net/context" //"context"
 	"io"
 	"os"
 	"sort"
@@ -35,6 +34,7 @@ import (
 	"github.com/colinmarc/hdfs"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/log"
+	"golang.org/x/net/context" //"context"
 )
 
 //TODO: Support reading hdfs currently open by producer
@@ -88,12 +88,16 @@ func init() {
 }
 
 func initHdfsPipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
-	client, err := hdfs.New(cfg.HadoopAddress)
+
+	cp := hdfs.ClientOptions{User: cfg.Hadoop.User, Addresses: cfg.Hadoop.Addresses}
+	client, err := hdfs.NewClient(cp)
 	if log.E(err) {
 		return nil, err
 	}
-	log.Debugf("Connected to HDFS cluster at: %v", cfg.HadoopAddress)
-	return &hdfsPipe{client, cfg.DataDir, cfg.MaxFileSize}, nil
+
+	log.Infof("Connected to HDFS cluster at: %v", cfg.Hadoop.Addresses)
+
+	return &hdfsPipe{client, cfg.Hadoop.BaseDir, cfg.MaxFileSize}, nil
 }
 
 // Type returns Pipe type as Hdfs
@@ -224,7 +228,7 @@ func (p *hdfsConsumer) seek(topic string, offset int64) (string, int64, error) {
 		return files[len(files)-1].Name(), files[len(files)-1].Size(), nil
 	}
 
-	return "", 0, fmt.Errorf("Arbitrary offsets not supported, only OffsetOldest and OffsetNewest offsets supported")
+	return "", 0, fmt.Errorf("arbitrary offsets not supported, only OffsetOldest and OffsetNewest offsets supported")
 }
 
 func (p *hdfsProducer) newFileName(key string) string {
@@ -404,7 +408,7 @@ func (p *hdfsConsumer) FetchNext() bool {
 			}
 
 			if len(p.msg) != 0 {
-				p.err = fmt.Errorf("Corrupted file. Not ending with delimiter: %v %v", p.file.Name(), string(p.msg))
+				p.err = fmt.Errorf("corrupted file. Not ending with delimiter: %v %v", p.file.Name(), string(p.msg))
 				return true
 			}
 		}

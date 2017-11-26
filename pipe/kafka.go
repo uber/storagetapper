@@ -597,6 +597,9 @@ func (p *kafkaConsumer) SaveOffset() error {
 	return p.commitConsumerPartitionOffsets()
 }
 
+func (p *kafkaProducer) SetFormat(format string) {
+}
+
 /*
 type saramaLogger struct {
 }

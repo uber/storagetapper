@@ -22,9 +22,11 @@ package pipe
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"golang.org/x/net/context" //"context"
+	"hash"
 	"io"
 	"io/ioutil"
 	"os"
@@ -53,11 +55,13 @@ type FilePipe struct {
 type file struct {
 	file   *os.File
 	offset int64
+	hash   hash.Hash
 	writer *bufio.Writer
 }
 
 // fileProducer synchronously pushes messages to File using topic specified during producer creation
 type fileProducer struct {
+	header  Header
 	datadir string
 	topic   string
 	gen     string
@@ -76,6 +80,7 @@ type fileConsumer struct {
 	gen     string
 	file    *os.File
 	reader  *bufio.Reader
+	header  *Header
 
 	msg []byte
 	err error
@@ -96,12 +101,12 @@ func (p *FilePipe) Type() string {
 
 //NewProducer registers a new sync producer
 func (p *FilePipe) NewProducer(topic string) (Producer, error) {
-	return &fileProducer{p.datadir, topic, "", make(map[string]*file), 0, p.maxFileSize}, nil
+	return &fileProducer{Header{}, p.datadir, topic, "", make(map[string]*file), 0, p.maxFileSize}, nil
 }
 
 //NewConsumer registers a new file consumer with context
 func (p *FilePipe) NewConsumer(topic string) (Consumer, error) {
-	c := &fileConsumer{nil, nil, p.datadir, topic, "", nil, nil, nil, nil}
+	c := &fileConsumer{nil, nil, p.datadir, topic, "", nil, nil, nil, nil, nil}
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 
 	fn, offset, err := c.seek(topic, InitialOffset)
@@ -259,16 +264,24 @@ func (p *fileProducer) newFile(key string) error {
 		return err
 	}
 
-	offset, err := f.Seek(0, os.SEEK_END)
+	offset, err := f.Seek(0, io.SeekEnd)
 	if err != nil {
 		return err
+	}
+
+	if offset == 0 {
+		var hash []byte
+		hash = make([]byte, sha256.Size)
+		if err := writeHeader(&p.header, hash, f); err != nil {
+			return err
+		}
 	}
 
 	_ = p.closeFile(p.files[key])
 
 	log.Debugf("Opened: %v, %v", key, f.Name())
 
-	p.files[key] = &file{f, offset, bufio.NewWriter(f)}
+	p.files[key] = &file{f, offset, sha256.New(), bufio.NewWriter(f)}
 
 	return nil
 }
@@ -288,6 +301,12 @@ func (p *fileProducer) closeFile(f *file) error {
 	var rerr error
 	if f != nil {
 		if err := f.writer.Flush(); log.E(err) {
+			rerr = err
+		}
+		if _, err := f.file.Seek(0, io.SeekStart); log.E(err) {
+			rerr = err
+		}
+		if err := writeHeader(&p.header, f.hash.Sum(nil), f.file); log.E(err) {
 			rerr = err
 		}
 		if err := f.file.Close(); log.E(err) {
@@ -319,9 +338,11 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 	if _, err := f.writer.Write(bytes); err != nil {
 		return err
 	}
+	_, _ = f.hash.Write(bytes)
 	if err := f.writer.WriteByte(delimiter); err != nil {
 		return err
 	}
+	_, _ = f.hash.Write([]byte{delimiter})
 
 	log.Debugf("Push: %v, len=%v", key, len(bytes))
 
@@ -377,7 +398,9 @@ func (p *fileProducer) PushSchema(key string, data []byte) error {
 	_ = p.closeFile(p.files[key])
 	p.files[key] = nil
 
-	return p.PushK(key, data)
+	p.header.Schema = data
+
+	return p.push(key, data, false)
 }
 
 // Close File Producer
@@ -440,6 +463,66 @@ func (p *fileConsumer) waitForNextFile(watcher *fsnotify.Watcher) (bool, error) 
 	}
 }
 
+func (p *fileConsumer) waitAndOpenNextFile() bool {
+	for {
+		curFn := ""
+		if p.file != nil {
+			curFn = p.file.Name()
+		}
+
+		log.Debugf("nextfile loop %v %v", curFn, p.topic)
+
+		//Need to start watching before p.nextFile() to avoid race condition
+		watcher, err := p.waitForNextFilePrepare()
+		if log.E(err) {
+			p.err = err
+			return true
+		}
+		defer func() { log.E(watcher.Close()) }()
+
+		nextFn, err := p.nextFile(p.topic, curFn)
+		if log.E(err) {
+			p.err = err
+			return true
+		}
+
+		log.Debugf("NextFn: %v %v", nextFn, p.topic)
+
+		if nextFn != "" && !strings.HasSuffix(nextFn, ".open") {
+			file, err := os.OpenFile(p.topicPath(p.topic)+nextFn, os.O_RDONLY, 0)
+			if log.E(err) {
+				p.err = err
+				return true
+			}
+
+			p.reader = bufio.NewReader(file)
+			p.file = file
+
+			h, err := readHeader(p.reader)
+			if log.E(err) {
+				p.err = err
+				return true
+			}
+			p.header = h
+
+			log.Debugf("Consumer opened: %v", file.Name())
+
+			return true
+		}
+
+		ctxDone, err := p.waitForNextFile(watcher)
+		log.Debugf("nextfile loop %v %v %v %v", curFn, ctxDone, err, p.topic)
+		if log.E(err) {
+			p.err = err
+			return true
+		}
+		if ctxDone {
+			log.Debugf("ctxDone")
+			return false
+		}
+	}
+}
+
 //FetchNext fetches next message from File and commits offset read
 func (p *fileConsumer) FetchNext() bool {
 	for {
@@ -462,56 +545,15 @@ func (p *fileConsumer) FetchNext() bool {
 				p.err = fmt.Errorf("Corrupted file. Not ending with delimiter: %v %v", p.file.Name(), string(p.msg))
 				return true
 			}
+
+			p.err = nil
 		}
 
-		for {
-			curFn := ""
-			if p.file != nil {
-				curFn = p.file.Name()
-			}
-
-			log.Debugf("nextfile loop %v %v", curFn, p.topic)
-
-			//Need to start watching before p.nextFile() to avoid race condition
-			watcher, err := p.waitForNextFilePrepare()
-			if log.E(err) {
-				p.err = err
-				return true
-			}
-			defer func() { log.E(watcher.Close()) }()
-
-			nextFn, err := p.nextFile(p.topic, curFn)
-			if log.E(err) {
-				p.err = err
-				return true
-			}
-
-			log.Debugf("NextFn: %v %v", nextFn, p.topic)
-
-			if nextFn != "" && !strings.HasSuffix(nextFn, ".open") {
-				file, err := os.OpenFile(p.topicPath(p.topic)+nextFn, os.O_RDONLY, 0)
-				if log.E(err) {
-					p.err = err
-					return true
-				}
-
-				p.reader = bufio.NewReader(file)
-				p.file = file
-
-				log.Debugf("Consumer opened: %v", file.Name())
-
-				break
-			}
-
-			ctxDone, err := p.waitForNextFile(watcher)
-			log.Debugf("nextfile loop %v %v %v %v", curFn, ctxDone, err, p.topic)
-			if log.E(err) {
-				p.err = err
-				return true
-			}
-			if ctxDone {
-				return false
-			}
+		if !p.waitAndOpenNextFile() {
+			return false //context canceled, no message
+		}
+		if p.err != nil {
+			return true //has message with error set
 		}
 	}
 }
@@ -544,4 +586,8 @@ func (p *fileConsumer) CloseOnFailure() error {
 
 func (p *fileConsumer) SaveOffset() error {
 	return nil
+}
+
+func (p *fileProducer) SetFormat(format string) {
+	p.header.Format = format
 }

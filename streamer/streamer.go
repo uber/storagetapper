@@ -228,6 +228,8 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 	}
 	defer func() { log.EL(s.log, s.outProducer.Close()) }()
 
+	s.outProducer.SetFormat(cfg.OutputFormat)
+
 	// Ensures that some binlog reader worker has started reading log events for the cluster on
 	// which the table resides.
 	gtid, err := s.ensureBinlogReaderStart()

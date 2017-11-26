@@ -58,6 +58,7 @@ type hdfsFile struct {
 
 // hdfsProducer synchronously pushes messages to Hdfs using topic specified during producer creation
 type hdfsProducer struct {
+	header  *Header
 	hdfs    *hdfs.Client
 	datadir string
 	topic   string
@@ -78,6 +79,7 @@ type hdfsConsumer struct {
 	gen     string
 	file    *hdfs.FileReader
 	reader  *bufio.Reader
+	header  *Header
 
 	msg []byte
 	err error
@@ -107,12 +109,12 @@ func (p *hdfsPipe) Type() string {
 
 //NewProducer registers a new sync producer
 func (p *hdfsPipe) NewProducer(topic string) (Producer, error) {
-	return &hdfsProducer{p.hdfs, p.datadir, topic, "", make(map[string]*hdfsFile), 0, p.maxFileSize}, nil
+	return &hdfsProducer{nil, p.hdfs, p.datadir, topic, "", make(map[string]*hdfsFile), 0, p.maxFileSize}, nil
 }
 
 //NewConsumer registers a new hdfs consumer with context
 func (p *hdfsPipe) NewConsumer(topic string) (Consumer, error) {
-	c := &hdfsConsumer{p.hdfs, nil, nil, p.datadir, topic, "", nil, nil, nil, nil}
+	c := &hdfsConsumer{p.hdfs, nil, nil, p.datadir, topic, "", nil, nil, nil, nil, nil}
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 
 	fn, offset, err := c.seek(topic, InitialOffset)
@@ -250,6 +252,10 @@ func (p *hdfsProducer) newFile(key string) error {
 		}
 	}
 
+	if err := writeHeader(p.header, []byte{}, f); err != nil {
+		return err
+	}
+
 	_ = p.closeFile(p.files[key])
 
 	log.Debugf("Opened: %v, %v", key, name)
@@ -363,7 +369,12 @@ func (p *hdfsProducer) PushSchema(key string, data []byte) error {
 	_ = p.closeFile(p.files[key])
 	p.files[key] = nil
 
-	return p.PushK(key, data)
+	if p.header == nil {
+		p.header = &Header{}
+	}
+	p.header.Schema = data
+
+	return nil
 }
 
 // Close HDFS Producer
@@ -439,6 +450,13 @@ func (p *hdfsConsumer) FetchNext() bool {
 				p.reader = bufio.NewReader(file)
 				p.file = file
 
+				h, err := readHeader(p.reader)
+				if log.E(err) {
+					p.err = err
+					return true
+				}
+				p.header = h
+
 				log.Debugf("Consumer opened: %v", file.Name())
 
 				break
@@ -479,4 +497,9 @@ func (p *hdfsConsumer) CloseOnFailure() error {
 
 func (p *hdfsConsumer) SaveOffset() error {
 	return nil
+}
+
+//SetFormat specifies format, which pipe can pass down the stack
+func (p *hdfsProducer) SetFormat(format string) {
+	p.header.Format = format
 }

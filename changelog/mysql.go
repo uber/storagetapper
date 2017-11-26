@@ -184,6 +184,8 @@ func (b *mysqlReader) addNewTable(st state.Type, i int) bool {
 		return false
 	}
 
+	p.SetFormat(b.outputFormat)
+
 	b.log.Infof("New table added to MySQL binlog reader (%v,%v,%v,%v,%v), will produce to: %v", t.Service, t.Db, t.Table, t.Output, t.Version, pn)
 
 	nt := &table{t.ID, false, p, t.RawSchema, t.SchemaGtid, t.Service, enc, t.Output, t.Version}

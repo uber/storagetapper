@@ -53,6 +53,8 @@ type Producer interface {
 	//PushCommit writes out all the messages queued by PushBatch
 	PushBatchCommit() error
 	Close() error
+
+	SetFormat(format string)
 }
 
 //Pipe connects named producers and consumers

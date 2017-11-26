@@ -153,3 +153,7 @@ func (p *localProducerConsumer) CloseOnFailure() error {
 func (p *localProducerConsumer) SaveOffset() error {
 	return nil
 }
+
+//SetFormat specifies format, which pipe can pass down the stack
+func (p *localProducerConsumer) SetFormat(format string) {
+}

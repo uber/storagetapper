@@ -9,15 +9,15 @@ import (
 )
 
 func deleteTestTopics(t *testing.T) {
-	err := os.RemoveAll("/tmp/file_pipe_test")
+	err := os.RemoveAll("/tmp/storagetapper/file_pipe_test")
 	test.CheckFail(err, t)
 
-	err = os.Mkdir("/tmp/file_pipe_test", 0770)
+	err = os.MkdirAll("/tmp/storagetapper/file_pipe_test", 0770)
 	test.CheckFail(err, t)
 }
 
 func testFileBasic(size int64, t *testing.T) {
-	p := &FilePipe{"/tmp/file_pipe_test", size}
+	p := &filePipe{"/tmp/storagetapper/file_pipe_test", size}
 
 	startCh = make(chan bool)
 
@@ -45,7 +45,7 @@ func TestSmallFile(t *testing.T) {
 func TestHeader(t *testing.T) {
 	deleteTestTopics(t)
 
-	fp := &FilePipe{"/tmp/file_pipe_test", 1024}
+	fp := &filePipe{"/tmp/storagetapper/file_pipe_test", 1024}
 
 	p, err := fp.NewProducer("header-test-topic")
 	test.CheckFail(err, t)

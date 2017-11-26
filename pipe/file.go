@@ -46,14 +46,24 @@ import (
 
 var delimiter byte = '\n'
 
-//FilePipe file pipe structure
-type FilePipe struct {
+//fs calls abstraction to reuse most of the code in HDFS pipe
+type fs interface {
+	MkdirAll(path string, perm os.FileMode) error
+	Rename(oldpath, newpath string) error
+	ReadDir(dirname string) ([]os.FileInfo, error)
+	OpenRead(name string, offset int64) (io.ReadCloser, error)
+	OpenWrite(name string) (io.WriteCloser, io.Seeker, error)
+}
+
+type filePipe struct {
 	datadir     string
 	maxFileSize int64
 }
 
 type file struct {
-	file   *os.File
+	name   string
+	file   io.WriteCloser
+	seek   io.Seeker
 	offset int64
 	hash   hash.Hash
 	writer *bufio.Writer
@@ -69,6 +79,7 @@ type fileProducer struct {
 	seqno   int
 
 	maxFileSize int64
+	fs          fs
 }
 
 // fileConsumer consumes messages from File using topic and partition specified during consumer creation
@@ -78,9 +89,11 @@ type fileConsumer struct {
 	datadir string
 	topic   string
 	gen     string
-	file    *os.File
+	file    io.ReadCloser
+	name    string
 	reader  *bufio.Reader
 	header  *Header
+	fs      fs
 
 	msg []byte
 	err error
@@ -91,25 +104,23 @@ func init() {
 }
 
 func initFilePipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
-	return &FilePipe{cfg.DataDir, cfg.MaxFileSize}, nil
+	return &filePipe{cfg.DataDir, cfg.MaxFileSize}, nil
 }
 
 // Type returns Pipe type as File
-func (p *FilePipe) Type() string {
+func (p *filePipe) Type() string {
 	return "file"
 }
 
 //NewProducer registers a new sync producer
-func (p *FilePipe) NewProducer(topic string) (Producer, error) {
-	return &fileProducer{Header{}, p.datadir, topic, "", make(map[string]*file), 0, p.maxFileSize}, nil
+func (p *filePipe) NewProducer(topic string) (Producer, error) {
+	return &fileProducer{Header{}, p.datadir, topic, "", make(map[string]*file), 0, p.maxFileSize, p}, nil
 }
 
-//NewConsumer registers a new file consumer with context
-func (p *FilePipe) NewConsumer(topic string) (Consumer, error) {
-	c := &fileConsumer{nil, nil, p.datadir, topic, "", nil, nil, nil, nil, nil}
+func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 
-	fn, offset, err := c.seek(topic, InitialOffset)
+	fn, offset, err := c.seek(c.topic, InitialOffset)
 	if log.E(err) {
 		return nil, err
 	}
@@ -118,22 +129,24 @@ func (p *FilePipe) NewConsumer(topic string) (Consumer, error) {
 		return c, nil
 	}
 
-	log.Debugf("Open %v", fn)
-
-	file, err := os.OpenFile(c.topicPath(topic)+fn, os.O_RDONLY, 0)
-	if log.E(err) {
-		return nil, err
-	}
-
-	_, err = file.Seek(offset, os.SEEK_SET)
+	file, err := c.fs.OpenRead(c.topicPath(c.topic)+fn, offset)
 	if log.E(err) {
 		return nil, err
 	}
 
 	c.file = file
 	c.reader = bufio.NewReader(file)
+	c.name = c.topicPath(c.topic) + fn
+
+	log.Debugf("Opened for read %v, file.Name()", fn)
 
 	return c, nil
+}
+
+//NewConsumer registers a new file consumer with context
+func (p *filePipe) NewConsumer(topic string) (Consumer, error) {
+	c := &fileConsumer{nil, nil, p.datadir, topic, "", nil, "", nil, nil, p, nil, nil}
+	return p.initConsumer(c)
 }
 
 //SetGen sets generation of the topic stream, separate directory with the string
@@ -162,8 +175,6 @@ func topicPath(datadir string, topic string, gen string) string {
 	if gen != "" {
 		r += gen + "/"
 	}
-
-	log.Debugf("TopicPath: %v", r)
 
 	return r
 }
@@ -195,13 +206,10 @@ func (p *fileConsumer) parseFileName(name string) (string, int64, error) {
 */
 
 func (p *fileConsumer) nextFile(topic string, curFile string) (string, error) {
-	files, err := ioutil.ReadDir(p.topicPath(topic))
+	files, err := p.fs.ReadDir(p.topicPath(topic))
 	if err != nil {
-		switch e := err.(type) {
-		case *os.PathError:
-			if e.Err == syscall.ENOENT {
-				return "", nil
-			}
+		if os.IsNotExist(err) {
+			return "", nil
 		}
 
 		return "", err
@@ -212,8 +220,9 @@ func (p *fileConsumer) nextFile(topic string, curFile string) (string, error) {
 	}
 
 	for _, v := range files {
-		log.Debugf("cmp: %v %v", v.Name(), curFile)
+		log.Debugf("cmp: '%v' '%v'", v.Name(), curFile)
 		if p.topicPath(topic)+v.Name() > curFile {
+			log.Debugf("NextFn: %v", v.Name())
 			return v.Name(), nil
 		}
 	}
@@ -222,13 +231,10 @@ func (p *fileConsumer) nextFile(topic string, curFile string) (string, error) {
 }
 
 func (p *fileConsumer) seek(topic string, offset int64) (string, int64, error) {
-	files, err := ioutil.ReadDir(p.topicPath(topic))
+	files, err := p.fs.ReadDir(p.topicPath(topic))
 	if err != nil {
-		switch e := err.(type) {
-		case *os.PathError:
-			if e.Err == syscall.ENOENT {
-				return "", 0, nil
-			}
+		if os.IsNotExist(err) {
+			return "", 0, nil
 		}
 
 		return "", 0, err
@@ -255,18 +261,22 @@ func (p *fileProducer) newFileName(key string) string {
 }
 
 func (p *fileProducer) newFile(key string) error {
-	if err := os.MkdirAll(p.topicPath(p.topic), 0770); err != nil {
+	if err := p.fs.MkdirAll(p.topicPath(p.topic), 0770); err != nil {
 		return err
 	}
 
-	f, err := os.OpenFile(p.newFileName(key), os.O_WRONLY|os.O_CREATE, 0640)
+	n := p.newFileName(key)
+	f, s, err := p.fs.OpenWrite(n)
 	if err != nil {
 		return err
 	}
 
-	offset, err := f.Seek(0, os.SEEK_END)
-	if err != nil {
-		return err
+	var offset int64
+	if s != nil {
+		offset, err = s.Seek(0, os.SEEK_END)
+		if err != nil {
+			return err
+		}
 	}
 
 	if offset == 0 {
@@ -279,9 +289,9 @@ func (p *fileProducer) newFile(key string) error {
 
 	_ = p.closeFile(p.files[key])
 
-	log.Debugf("Opened: %v, %v", key, f.Name())
+	log.Debugf("Opened: %v, %v", key, n)
 
-	p.files[key] = &file{f, offset, sha256.New(), bufio.NewWriter(f)}
+	p.files[key] = &file{n, f, s, offset, sha256.New(), bufio.NewWriter(f)}
 
 	return nil
 }
@@ -303,19 +313,21 @@ func (p *fileProducer) closeFile(f *file) error {
 		if err := f.writer.Flush(); log.E(err) {
 			rerr = err
 		}
-		if _, err := f.file.Seek(0, os.SEEK_SET); log.E(err) {
-			rerr = err
-		}
-		if err := writeHeader(&p.header, f.hash.Sum(nil), f.file); log.E(err) {
-			rerr = err
+		if f.seek != nil {
+			if _, err := f.seek.Seek(0, os.SEEK_SET); log.E(err) {
+				rerr = err
+			}
+			if err := writeHeader(&p.header, f.hash.Sum(nil), f.file); log.E(err) {
+				rerr = err
+			}
 		}
 		if err := f.file.Close(); log.E(err) {
 			rerr = err
 		}
-		if err := os.Rename(f.file.Name(), strings.TrimSuffix(f.file.Name(), ".open")); log.E(err) {
+		if err := p.fs.Rename(f.name, strings.TrimSuffix(f.name, ".open")); log.E(err) {
 			rerr = err
 		}
-		log.Debugf("Closed: %v", f.file.Name())
+		log.Debugf("Closed: %v", f.name)
 	}
 	return rerr
 }
@@ -358,7 +370,7 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 			}
 		}
 		_ = p.closeFile(p.files[key])
-		p.files[key] = nil
+		delete(p.files, key)
 	}
 
 	return nil
@@ -396,7 +408,7 @@ func (p *fileProducer) PushSchema(key string, data []byte) error {
 		key = "default"
 	}
 	_ = p.closeFile(p.files[key])
-	p.files[key] = nil
+	delete(p.files, key)
 
 	p.header.Schema = data
 
@@ -465,13 +477,6 @@ func (p *fileConsumer) waitForNextFile(watcher *fsnotify.Watcher) (bool, error) 
 
 func (p *fileConsumer) waitAndOpenNextFile() bool {
 	for {
-		curFn := ""
-		if p.file != nil {
-			curFn = p.file.Name()
-		}
-
-		log.Debugf("nextfile loop %v %v", curFn, p.topic)
-
 		//Need to start watching before p.nextFile() to avoid race condition
 		watcher, err := p.waitForNextFilePrepare()
 		if log.E(err) {
@@ -480,42 +485,23 @@ func (p *fileConsumer) waitAndOpenNextFile() bool {
 		}
 		defer func() { log.E(watcher.Close()) }()
 
-		nextFn, err := p.nextFile(p.topic, curFn)
+		nextFn, err := p.nextFile(p.topic, p.name)
 		if log.E(err) {
 			p.err = err
 			return true
 		}
 
-		log.Debugf("NextFn: %v %v", nextFn, p.topic)
-
 		if nextFn != "" && !strings.HasSuffix(nextFn, ".open") {
-			file, err := os.OpenFile(p.topicPath(p.topic)+nextFn, os.O_RDONLY, 0)
-			if log.E(err) {
-				p.err = err
-				return true
-			}
-
-			p.reader = bufio.NewReader(file)
-			p.file = file
-
-			h, err := readHeader(p.reader)
-			if log.E(err) {
-				p.err = err
-				return true
-			}
-			p.header = h
-
-			log.Debugf("Consumer opened: %v", file.Name())
-
+			p.openFile(nextFn, 0)
 			return true
 		}
 
 		ctxDone, err := p.waitForNextFile(watcher)
-		log.Debugf("nextfile loop %v %v %v %v", curFn, ctxDone, err, p.topic)
 		if log.E(err) {
 			p.err = err
 			return true
 		}
+
 		if ctxDone {
 			log.Debugf("ctxDone")
 			return false
@@ -523,32 +509,70 @@ func (p *fileConsumer) waitAndOpenNextFile() bool {
 	}
 }
 
+func (p *fileConsumer) openFile(nextFn string, offset int64) {
+	file, err := p.fs.OpenRead(p.topicPath(p.topic)+nextFn, 0)
+	if log.E(err) {
+		p.err = err
+	}
+
+	p.reader = bufio.NewReader(file)
+
+	h, err := readHeader(p.reader)
+	if log.E(err) {
+		p.err = err
+	}
+	p.header = h
+
+	if offset != 0 {
+		log.E(file.Close())
+		file, err = p.fs.OpenRead(p.topicPath(p.topic)+nextFn, offset)
+		if log.E(err) {
+			p.err = err
+		}
+		p.reader = bufio.NewReader(file)
+	}
+
+	p.file = file
+	p.name = p.topicPath(p.topic) + nextFn
+
+	log.Debugf("Consumer opened: %v", p.name)
+}
+
+func (p *fileConsumer) fetchNextLow() bool {
+	//reader and file can be nil when directory is empty during
+	//NewConsumer
+	if p.reader != nil {
+		p.msg, p.err = p.reader.ReadBytes(delimiter)
+		if p.err == nil {
+			p.msg = p.msg[:len(p.msg)-1]
+			log.Debugf("Consumed message: %v", string(p.msg))
+			return true
+		}
+
+		if p.err != io.EOF {
+			log.E(p.err)
+			return true
+		}
+
+		log.E(p.file.Close())
+		log.Debugf("Consumer closed: %v", p.name)
+
+		if len(p.msg) != 0 {
+			p.err = fmt.Errorf("Corrupted file. Not ending with delimiter: %v %v", p.name, string(p.msg))
+			return true
+		}
+
+		p.err = nil
+	}
+	return false
+}
+
 //FetchNext fetches next message from File and commits offset read
 func (p *fileConsumer) FetchNext() bool {
 	for {
-		//reader and file can be nil when directory is empty during
-		//NewConsumer
-		if p.reader != nil {
-			p.msg, p.err = p.reader.ReadBytes(delimiter)
-			if p.err == nil {
-				p.msg = p.msg[:len(p.msg)-1]
-				log.Debugf("Consumed message: %v", string(p.msg))
-				return true
-			}
-
-			if p.err != io.EOF {
-				log.E(p.err)
-				return true
-			}
-
-			if len(p.msg) != 0 {
-				p.err = fmt.Errorf("Corrupted file. Not ending with delimiter: %v %v", p.file.Name(), string(p.msg))
-				return true
-			}
-
-			p.err = nil
+		if p.fetchNextLow() {
+			return true
 		}
-
 		if !p.waitAndOpenNextFile() {
 			return false //context canceled, no message
 		}
@@ -590,4 +614,33 @@ func (p *fileConsumer) SaveOffset() error {
 
 func (p *fileProducer) SetFormat(format string) {
 	p.header.Format = format
+}
+
+func (p *filePipe) MkdirAll(path string, perm os.FileMode) error {
+	return os.MkdirAll(path, perm)
+}
+
+func (p *filePipe) Rename(oldpath, newpath string) error {
+	return os.Rename(oldpath, newpath)
+}
+
+func (p *filePipe) ReadDir(dirname string) ([]os.FileInfo, error) {
+	return ioutil.ReadDir(dirname)
+}
+
+func (p *filePipe) OpenRead(name string, offset int64) (io.ReadCloser, error) {
+	f, err := os.OpenFile(name, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+	_, err = f.Seek(offset, os.SEEK_SET)
+	if err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+func (p *filePipe) OpenWrite(name string) (io.WriteCloser, io.Seeker, error) {
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE, 0640)
+	return f, f, err
 }

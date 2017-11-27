@@ -9,9 +9,10 @@ import (
 
 //Header represent file metadata in the beginning of the file
 type Header struct {
-	Format  string
-	Schema  []byte `json:",omitempty"`
-	HashSum string `json:"SHA256,omitempty"`
+	Format    string
+	Schema    []byte `json:",omitempty"`
+	Delimited bool   `json:",omitempty"`
+	HashSum   string `json:"SHA256,omitempty"`
 }
 
 func writeHeader(header *Header, hash []byte, f io.Writer) error {

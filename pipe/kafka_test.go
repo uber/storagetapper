@@ -146,10 +146,12 @@ func (p *kafkaProducer) pushPartition(key string, partition int, in interface{})
 
 func kafkaProducerWorker(p Pipe, key string, startFrom int, ptype int, nrecs int, t *testing.T) {
 	c, err := p.NewProducer(key)
+	test.CheckFail(err, t)
+
+	c.SetFormat("text")
 
 	log.Debugf("kafkaProducerWorker started: %v", key)
 
-	test.CheckFail(err, t)
 	for i := 0; i < nrecs; i++ {
 		log.Debugf("kafkaProducerWorker %v %v", i, key)
 		msg := key + "key" + "." + strconv.Itoa(i+startFrom)

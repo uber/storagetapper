@@ -24,6 +24,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"fmt"
 	"golang.org/x/net/context" //"context"
 	"hash"
@@ -45,7 +46,7 @@ import (
 //TODO: Support offset persistence
 
 var delimiter byte = '\n'
-var noDelimiter = true
+var delimited = false
 
 //fs calls abstraction to reuse most of the code in HDFS pipe
 type fs interface {
@@ -81,6 +82,7 @@ type fileProducer struct {
 
 	maxFileSize int64
 	fs          fs
+	text        bool //Can be changed by SetFormat
 }
 
 // fileConsumer consumes messages from File using topic and partition specified during consumer creation
@@ -95,6 +97,7 @@ type fileConsumer struct {
 	reader  *bufio.Reader
 	header  *Header
 	fs      fs
+	text    bool //Determined by the Format field of the file header. See openFile
 
 	msg []byte
 	err error
@@ -115,7 +118,7 @@ func (p *filePipe) Type() string {
 
 //NewProducer registers a new sync producer
 func (p *filePipe) NewProducer(topic string) (Producer, error) {
-	return &fileProducer{Header{}, p.datadir, topic, "", make(map[string]*file), 0, p.maxFileSize, p}, nil
+	return &fileProducer{datadir: p.datadir, topic: topic, files: make(map[string]*file), maxFileSize: p.maxFileSize, fs: p}, nil
 }
 
 func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
@@ -146,7 +149,7 @@ func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
 
 //NewConsumer registers a new file consumer with context
 func (p *filePipe) NewConsumer(topic string) (Consumer, error) {
-	c := &fileConsumer{nil, nil, p.datadir, topic, "", nil, "", nil, nil, p, nil, nil}
+	c := &fileConsumer{datadir: p.datadir, topic: topic, fs: p}
 	return p.initConsumer(c)
 }
 
@@ -281,6 +284,7 @@ func (p *fileProducer) newFile(key string) error {
 	}
 
 	if offset == 0 {
+		p.header.Delimited = delimited
 		var hash []byte
 		hash = make([]byte, sha256.Size)
 		if err := writeHeader(&p.header, hash, f); err != nil {
@@ -348,12 +352,23 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 		return err
 	}
 
+	//Prepend message with size in the case of binary delimited format
+	if !p.text && delimited {
+		sz := make([]byte, binary.MaxVarintLen64)
+		n := binary.PutUvarint(sz, uint64(len(bytes)))
+		if _, err := f.writer.Write(sz[:n]); err != nil {
+			return err
+		}
+		_, _ = f.hash.Write(sz[:n])
+	}
+
 	if _, err := f.writer.Write(bytes); err != nil {
 		return err
 	}
 	_, _ = f.hash.Write(bytes)
 
-	if !noDelimiter {
+	//In the case of text format apppend delimiter after the message
+	if p.text && delimited {
 		if err := f.writer.WriteByte(delimiter); err != nil {
 			return err
 		}
@@ -524,32 +539,61 @@ func (p *fileConsumer) openFile(nextFn string, offset int64) {
 	h, err := readHeader(p.reader)
 	if log.E(err) {
 		p.err = err
+		p.reader = nil
+		log.E(file.Close())
+		return
 	}
+
+	if !h.Delimited {
+		p.err = fmt.Errorf("cannot consume non delimited file")
+		p.reader = nil
+		log.E(file.Close())
+		return
+	}
+
 	p.header = h
+	p.text = h.Format == "json" || h.Format == "text"
 
 	if offset != 0 {
 		log.E(file.Close())
 		file, err = p.fs.OpenRead(p.topicPath(p.topic)+nextFn, offset)
 		if log.E(err) {
 			p.err = err
+			p.reader = nil
+			log.E(file.Close())
+		} else {
+			p.reader = bufio.NewReader(file)
 		}
-		p.reader = bufio.NewReader(file)
 	}
 
 	p.file = file
 	p.name = p.topicPath(p.topic) + nextFn
 
-	log.Debugf("Consumer opened: %v", p.name)
+	log.Debugf("Consumer opened: %v, header: %+v", p.name, p.header)
 }
 
 func (p *fileConsumer) fetchNextLow() bool {
 	//reader and file can be nil when directory is empty during
 	//NewConsumer
 	if p.reader != nil {
-		p.msg, p.err = p.reader.ReadBytes(delimiter)
+		if !p.text {
+			var sz uint64
+			sz, p.err = binary.ReadUvarint(p.reader)
+			if p.err == nil {
+				p.msg = make([]byte, sz)
+				_, p.err = io.ReadFull(p.reader, p.msg)
+				if p.err == nil {
+					log.Debugf("Consumed message: %x", p.msg)
+				}
+			}
+		} else {
+			p.msg, p.err = p.reader.ReadBytes(delimiter)
+			if p.err == nil {
+				p.msg = p.msg[:len(p.msg)-1]
+				log.Debugf("Consumed message: %v", string(p.msg))
+			}
+		}
 		if p.err == nil {
-			p.msg = p.msg[:len(p.msg)-1]
-			log.Debugf("Consumed message: %v", string(p.msg))
 			return true
 		}
 
@@ -561,7 +605,7 @@ func (p *fileConsumer) fetchNextLow() bool {
 		log.E(p.file.Close())
 		log.Debugf("Consumer closed: %v", p.name)
 
-		if len(p.msg) != 0 {
+		if p.text && delimited && len(p.msg) != 0 {
 			p.err = fmt.Errorf("Corrupted file. Not ending with delimiter: %v %v", p.name, string(p.msg))
 			return true
 		}
@@ -618,6 +662,7 @@ func (p *fileConsumer) SaveOffset() error {
 
 func (p *fileProducer) SetFormat(format string) {
 	p.header.Format = format
+	p.text = format == "json" || format == "text"
 }
 
 func (p *filePipe) MkdirAll(path string, perm os.FileMode) error {

@@ -97,12 +97,12 @@ func (p *hdfsPipe) Type() string {
 
 //NewProducer registers a new sync producer
 func (p *hdfsPipe) NewProducer(topic string) (Producer, error) {
-	return &hdfsProducer{fileProducer{Header{}, p.datadir, topic, "", make(map[string]*file), 0, p.maxFileSize, &hdfsClient{p.hdfs}}}, nil
+	return &hdfsProducer{fileProducer{Header{}, p.datadir, topic, "", make(map[string]*file), 0, p.maxFileSize, &hdfsClient{p.hdfs}, true}}, nil
 }
 
 //NewConsumer registers a new hdfs consumer with context
 func (p *hdfsPipe) NewConsumer(topic string) (Consumer, error) {
-	c := &hdfsConsumer{fileConsumer{nil, nil, p.datadir, topic, "", nil, "", nil, nil, &hdfsClient{p.hdfs}, nil, nil}}
+	c := &hdfsConsumer{fileConsumer{nil, nil, p.datadir, topic, "", nil, "", nil, nil, &hdfsClient{p.hdfs}, true, nil, nil}}
 	_, err := p.initConsumer(&c.fileConsumer)
 	return c, err
 }

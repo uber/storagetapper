@@ -45,6 +45,7 @@ import (
 //TODO: Support offset persistence
 
 var delimiter byte = '\n'
+var noDelimiter = true
 
 //fs calls abstraction to reuse most of the code in HDFS pipe
 type fs interface {
@@ -351,10 +352,13 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 		return err
 	}
 	_, _ = f.hash.Write(bytes)
-	if err := f.writer.WriteByte(delimiter); err != nil {
-		return err
+
+	if !noDelimiter {
+		if err := f.writer.WriteByte(delimiter); err != nil {
+			return err
+		}
+		_, _ = f.hash.Write([]byte{delimiter})
 	}
-	_, _ = f.hash.Write([]byte{delimiter})
 
 	log.Debugf("Push: %v, len=%v", key, len(bytes))
 

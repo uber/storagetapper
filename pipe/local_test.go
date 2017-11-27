@@ -100,5 +100,8 @@ func TestLocalBasic(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
+
+	noDelimiter = false
+
 	os.Exit(m.Run())
 }

@@ -101,7 +101,7 @@ func TestLocalBasic(t *testing.T) {
 func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
 
-	delimited = true
+	Delimited = true
 
 	os.Exit(m.Run())
 }

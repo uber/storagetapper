@@ -137,7 +137,7 @@ func TestNoDelimiter(t *testing.T) {
 	deleteTestTopics(t)
 
 	topic := "no-delimiter-test-topic"
-	delimited = false
+	Delimited = false
 
 	fp := &filePipe{baseDir, 1024}
 
@@ -175,5 +175,5 @@ func TestNoDelimiter(t *testing.T) {
 	test.Assert(t, string(r) == `{"Format":"json","SHA256":"da83f63e1a473003712c18f5afc5a79044221943d1083c7c5a7ac7236d85e8d2"}
 firstsecond`, "file content mismatch")
 
-	delimited = true
+	Delimited = true
 }

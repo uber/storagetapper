@@ -283,6 +283,8 @@ func createSecondTable(init bool, conn *sql.DB, t *testing.T) {
 func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPipeFormat string, init bool, keyShift int, t *testing.T) {
 	cfg := config.Get()
 
+	cfg.DataDir = "/tmp/storagetapper/main_test"
+	cfg.MaxFileSize = 1 // file per message
 	cfg.OutputFormat = outPipeFormat
 	cfg.OutputPipeType = outPipeType
 	cfg.ChangelogPipeType = inPipeType
@@ -307,7 +309,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	var jsonResult, avroResult []string = make([]string, 0), make([]string, 0)
 	var jsonResult2, avroResult2 []string = make([]string, 0), make([]string, 0)
 
-	trackingPipe, err := pipe.Create(shutdown.Context, "kafka", cfg.PipeBatchSize, cfg, nil)
+	trackingPipe, err := pipe.Create(shutdown.Context, outPipeType, cfg.PipeBatchSize, cfg, nil)
 	test.CheckFail(err, t)
 	trackingConsumer, err := trackingPipe.NewConsumer("hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
 	test.CheckFail(err, t)
@@ -344,7 +346,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	/*New consumer sees only new events, so register it before any events
 	* produced */
-	p, err := pipe.Create(shutdown.Context, "kafka", cfg.PipeBatchSize, cfg, nil)
+	p, err := pipe.Create(shutdown.Context, outPipeType, cfg.PipeBatchSize, cfg, nil)
 	test.CheckFail(err, t)
 	c, err := p.NewConsumer("hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
 	test.CheckFail(err, t)
@@ -510,14 +512,20 @@ func TestBasic(t *testing.T) {
 	pipe.KafkaConfig.Producer.Partitioner = sarama.NewManualPartitioner
 	pipe.KafkaConfig.Producer.Return.Successes = true
 	pipe.KafkaConfig.Consumer.MaxWaitTime = 10 * time.Millisecond
+	pipe.Delimited = true
 
-	for _, p := range []string{"local", "kafka"} {
-		for _, enc := range encoder.Encoders() {
-			//for _, enc := range []string{"avro"} {
-			testStep(p, "json", "kafka", enc, true, 0, t)
-			testStep(p, "json", "kafka", enc, false, 100000, t)
-			testStep(p, enc, "kafka", enc, true, 0, t)
-			testStep(p, enc, "kafka", enc, false, 100000, t)
+	for _, o := range []string{"kafka"} {
+		//for o := range pipe.Pipes { //FIXME: file and hdfs fail some time
+		if o == "local" {
+			continue
+		}
+		for _, b := range []string{"local", "kafka"} {
+			for _, enc := range encoder.Encoders() {
+				testStep(b, "json", o, enc, true, 0, t)
+				testStep(b, "json", o, enc, false, 100000, t)
+				testStep(b, enc, o, enc, true, 0, t)
+				testStep(b, enc, o, enc, false, 100000, t)
+			}
 		}
 	}
 }

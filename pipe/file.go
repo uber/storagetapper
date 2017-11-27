@@ -46,7 +46,10 @@ import (
 //TODO: Support offset persistence
 
 var delimiter byte = '\n'
-var delimited = false
+
+//Delimited enables producing delimited message to text files and length
+//prepended messages to binary files
+var Delimited = false
 
 //fs calls abstraction to reuse most of the code in HDFS pipe
 type fs interface {
@@ -223,9 +226,9 @@ func (p *fileConsumer) nextFile(topic string, curFile string) (string, error) {
 		return "", nil
 	}
 
+	tp := p.topicPath(topic)
 	for _, v := range files {
-		log.Debugf("cmp: '%v' '%v'", v.Name(), curFile)
-		if p.topicPath(topic)+v.Name() > curFile {
+		if tp+v.Name() > curFile {
 			log.Debugf("NextFn: %v", v.Name())
 			return v.Name(), nil
 		}
@@ -284,9 +287,11 @@ func (p *fileProducer) newFile(key string) error {
 	}
 
 	if offset == 0 {
-		p.header.Delimited = delimited
+		p.header.Delimited = Delimited
 		var hash []byte
-		hash = make([]byte, sha256.Size)
+		if s != nil {
+			hash = make([]byte, sha256.Size)
+		}
 		if err := writeHeader(&p.header, hash, f); err != nil {
 			return err
 		}
@@ -353,7 +358,7 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 	}
 
 	//Prepend message with size in the case of binary delimited format
-	if !p.text && delimited {
+	if !p.text && Delimited {
 		sz := make([]byte, binary.MaxVarintLen64)
 		n := binary.PutUvarint(sz, uint64(len(bytes)))
 		if _, err := f.writer.Write(sz[:n]); err != nil {
@@ -368,7 +373,7 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 	_, _ = f.hash.Write(bytes)
 
 	//In the case of text format apppend delimiter after the message
-	if p.text && delimited {
+	if p.text && Delimited {
 		if err := f.writer.WriteByte(delimiter); err != nil {
 			return err
 		}
@@ -428,6 +433,10 @@ func (p *fileProducer) PushSchema(key string, data []byte) error {
 	}
 	_ = p.closeFile(p.files[key])
 	delete(p.files, key)
+
+	if len(data) == 0 {
+		return nil
+	}
 
 	p.header.Schema = data
 
@@ -603,9 +612,10 @@ func (p *fileConsumer) fetchNextLow() bool {
 		}
 
 		log.E(p.file.Close())
+		p.reader = nil
 		log.Debugf("Consumer closed: %v", p.name)
 
-		if p.text && delimited && len(p.msg) != 0 {
+		if p.text && Delimited && len(p.msg) != 0 {
 			p.err = fmt.Errorf("Corrupted file. Not ending with delimiter: %v %v", p.name, string(p.msg))
 			return true
 		}

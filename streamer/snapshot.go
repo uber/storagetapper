@@ -100,7 +100,7 @@ func (s *Streamer) pushSchema() bool {
 
 // StreamFromConsistentSnapshot initializes and pulls event from the Snapshot reader, serializes
 // them in Avro format and publishes to output Kafka topic.
-func (s *Streamer) streamFromConsistentSnapshot(input string, concurrent bool, throttleMB int64, throttleIOPS int64) bool {
+func (s *Streamer) streamFromConsistentSnapshot(input string, throttleMB int64, throttleIOPS int64) bool {
 	snReader, err := snapshot.InitReader(input)
 	if log.EL(s.log, err) {
 		return false
@@ -108,16 +108,8 @@ func (s *Streamer) streamFromConsistentSnapshot(input string, concurrent bool, t
 	snapshotMetrics := metrics.GetSnapshotMetrics(s.getTag())
 
 	outProducer := s.outProducer
-	if concurrent {
-		log.Debugf("Registered separate producer for concurrent snapshot")
-		outProducer, err := s.outPipe.NewProducer(s.topic)
-		if log.EL(s.log, err) {
-			return false
-		}
-		defer func() { log.EL(s.log, outProducer.Close()) }()
-	}
 
-	s.log.Infof("Starting consistent snapshot streamer for: %v, %v concurrent: %v", s.topic, s.outEncoder.Type(), concurrent)
+	s.log.Infof("Starting consistent snapshot streamer for: %v, %v", s.topic, s.outEncoder.Type())
 
 	//For JSON format push schema as a first message of the stream
 	if !s.pushSchema() {

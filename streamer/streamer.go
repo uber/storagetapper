@@ -137,7 +137,7 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 }
 
 func (s *Streamer) startBootstrap(needsBootstrap bool, cfg *config.AppConfig) bool {
-	return !needsBootstrap || s.streamFromConsistentSnapshot(s.input, false,
+	return !needsBootstrap || s.streamFromConsistentSnapshot(s.input,
 		cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS)
 }
 

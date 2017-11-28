@@ -51,7 +51,6 @@ type AppConfig struct {
 
 	OutputPipeType        string `yaml:"output_pipe_type"`
 	OutputFormat          string `yaml:"output_format"`
-	ConcurrentBootstrap   bool   `yaml:"concurrent_bootstrap"`
 	OutputTopicNameFormat string `yaml:"output_topic_name_format"`
 	ClusterConcurrency    int    `yaml:"cluster_concurrency"`
 

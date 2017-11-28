@@ -227,11 +227,11 @@ func (p *fileConsumer) nextFile(topic string, curFile string) (string, error) {
 	}
 
 	tp := p.topicPath(topic)
-	for _, v := range files {
-		if tp+v.Name() > curFile {
-			log.Debugf("NextFn: %v", v.Name())
-			return v.Name(), nil
-		}
+	i := sort.Search(len(files), func(i int) bool { return tp+files[i].Name() > curFile })
+
+	if i < len(files) {
+		log.Debugf("NextFile: %v,  CurFile: %v", files[i].Name(), curFile)
+		return files[i].Name(), nil
 	}
 
 	return "", nil

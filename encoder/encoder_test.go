@@ -368,6 +368,23 @@ func TestEncodeDecodeCommonFormatAllDataTypes(t *testing.T) {
 	}
 }
 
+func TestSchema(t *testing.T) {
+	Prepare(t, testBasicPrepare, "t2")
+
+	ref, err := state.GetSchema("enc_test_svc1", "db1", "t2")
+	test.CheckFail(err, t)
+
+	log.Debugf("Reference schema %+v", ref)
+
+	for encType := range encoders {
+		log.Debugf("Encoder: %v", encType)
+		enc, err := Create(encType, "enc_test_svc1", "db1", "t2")
+		test.CheckFail(err, t)
+
+		test.Assert(t, reflect.DeepEqual(enc.Schema(), ref), "this is not equal to ref %+v", enc.Schema())
+	}
+}
+
 func TestEncodeDecodeRowAllDataTypes(t *testing.T) {
 	Prepare(t, testBasicPrepare, "t2")
 

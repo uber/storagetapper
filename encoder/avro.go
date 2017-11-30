@@ -180,27 +180,6 @@ func encodeAvroRecord(codec goavro.Codec, r *goavro.Record) ([]byte, error) {
 	return w.Bytes(), nil
 }
 
-//DecodeAvroRecord deserializes(decodes) byte array into Avro record
-//Used by tests only
-func (e *avroEncoder) DecodeAvroRecord(b []byte) (*goavro.Record, error) {
-	r, err := e.codec.Decode(bytes.NewReader(b))
-	if err != nil {
-		return nil, err
-	}
-	return r.(*goavro.Record), nil
-}
-
-//DecodeAvroRecord deserializes(decodes) byte array into Avro record
-//Used by tests only
-func DecodeAvroRecord(enc Encoder, b []byte) (*goavro.Record, error) {
-	switch e := enc.(type) {
-	case *avroEncoder:
-		return e.DecodeAvroRecord(b)
-	default:
-		return nil, fmt.Errorf("this function is for avroEncoder type only")
-	}
-}
-
 //fillAvroKey fills Avro records row_key from primary key of the row
 func fillAvroKey(e *goavro.Record, row *[]interface{}, s *types.TableSchema) {
 	var rowKey string

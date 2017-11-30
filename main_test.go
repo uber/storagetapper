@@ -153,12 +153,7 @@ func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResu
 		test.CheckFail(err, t)
 
 		var b []byte
-		/* if format == "avro" {
-			r, err := encoder.DecodeAvroRecord(outEncoder, msg.([]byte))
-			test.CheckFail(err, t)
-			b, err = json.Marshal(r)
-			test.CheckFail(err, t)
-		} else */if format == "msgpack" || format == "avro" {
+		if format == "msgpack" || format == "avro" {
 			r, err := outEncoder.DecodeEvent(msg.([]byte))
 			test.CheckFail(err, t)
 			b, err = json.Marshal(r)

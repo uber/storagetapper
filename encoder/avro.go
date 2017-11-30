@@ -118,19 +118,6 @@ func convertCommonFormatToAvroRecord(rs goavro.RecordSetter, cfEvent *types.Comm
 			continue
 		}
 		field := (*cfEvent.Fields)[i]
-
-		/* If the field is integer convert it from JSON's float number */
-		if r, ok := field.Value.(float64); ok {
-			s, _ := rec.GetFieldSchema(field.Name)
-			for _, t := range s.(map[string]interface{})["type"].([]interface{}) {
-				switch t.(string) {
-				case "int":
-					field.Value = int32(r)
-				case "long":
-					field.Value = int64(r)
-				}
-			}
-		}
 		_ = rec.Set(field.Name, field.Value)
 	}
 }

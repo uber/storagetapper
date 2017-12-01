@@ -151,9 +151,7 @@ func mySQLToDriverType(p *interface{}, mysql string) {
 		*p = new(sql.RawBytes)
 	case "date", "datetime", "timestamp", "time":
 		*p = new(sql.NullString)
-	case "binary", "varbinary":
-		*p = new(sql.RawBytes)
-	default:
+	default: // "binary", "varbinary" and others
 		*p = new(sql.RawBytes)
 	}
 }

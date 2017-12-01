@@ -52,10 +52,5 @@ func InitReader(input string) (Reader, error) {
 		return nil, fmt.Errorf("Unsupported snapshot input type: %s", strings.ToLower(input))
 	}
 
-	rd, err := init()
-	if err != nil {
-		return nil, err
-	}
-
-	return rd, nil
+	return init()
 }

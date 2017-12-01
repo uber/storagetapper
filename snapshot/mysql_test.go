@@ -22,7 +22,6 @@ package snapshot
 
 import (
 	"database/sql"
-	"os"
 	"reflect"
 	"strconv"
 	"testing"
@@ -40,57 +39,116 @@ import (
 
 var cfg *config.AppConfig
 
-func ExecSQL(conn *sql.DB, t *testing.T, query string, param ...interface{}) {
+func execSQL(conn *sql.DB, t *testing.T, query string, param ...interface{}) {
 	test.CheckFail(util.ExecSQL(conn, query, param...), t)
 }
 
-func createDB(a db.Addr, t *testing.T) {
-	a.Db = ""
-	conn, err := db.Open(&a)
-	test.CheckFail(err, t)
-	defer func() {
-		err := conn.Close()
-		test.CheckFail(err, t)
-	}()
+func resetState(t *testing.T) {
+	test.SkipIfNoMySQLAvailable(t)
 
-	ExecSQL(conn, t, "drop database if exists snap_test_db1")
-	ExecSQL(conn, t, "create database snap_test_db1")
-	ExecSQL(conn, t, "create table snap_test_db1.snap_test_t1 ( f1 int not null primary key, f2 varchar(32), f3 double)")
+	a := db.GetInfo(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1", Cluster: "snap_test_cluster1"},
+		db.Slave)
+	test.Assert(t, a != nil, "Error")
+
+	a.Db = ""
+	conn, err := db.Open(a)
+	test.CheckFail(err, t)
+	defer func() { test.CheckFail(conn.Close(), t) }()
+
+	execSQL(conn, t, "DROP DATABASE IF EXISTS "+types.MyDbName)
+
+	if !state.Init(cfg) {
+		log.Fatalf("State init failed")
+	}
+}
+
+func createDB(t *testing.T) *sql.DB {
+	a := db.GetInfo(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1", Cluster: "snap_test_cluster1"},
+		db.Slave)
+	test.Assert(t, a != nil, "Error")
+
+	a.Db = ""
+	conn, err := db.Open(a)
+	test.CheckFail(err, t)
+
+	execSQL(conn, t, "drop database if exists snap_test_db1")
+	execSQL(conn, t, "create database snap_test_db1")
+	execSQL(conn, t, "create table snap_test_db1.snap_test_t1 ( f1 int not null primary key, f2 varchar(32), f3 double)")
 
 	state.DeregisterTable("snap_test_svc1", "snap_test_db1", "snap_test_t1", "mysql", "", 0)
 
 	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1", "mysql", "", 0) {
 		t.FailNow()
 	}
+
+	err = conn.Close()
+	test.CheckFail(err, t)
+
+	a.Db = "snap_test_db1"
+	conn, err = db.Open(a)
+	test.CheckFail(err, t)
+
+	return conn
 }
 
-func TestEmptyTable(t *testing.T) {
-	test.SkipIfNoMySQLAvailable(t)
+func TestGetGtidError(t *testing.T) {
+	resetState(t)
 
-	if !state.Init(cfg) {
-		log.Fatalf("State init failed")
-	}
-	defer func() { test.CheckFail(state.Close(), t) }()
-
-	ci := db.GetInfo(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, db.Slave)
-	createDB(*ci, t)
-
-	conn, err := db.Open(ci)
-	test.CheckFail(err, t)
-	defer func() {
-		err := conn.Close()
-		test.CheckFail(err, t)
-	}()
+	conn := createDB(t)
+	defer func() { test.CheckFail(conn.Close(), t) }()
 
 	s, err := InitReader("mysql")
 	test.CheckFail(err, t)
 
-	var enc encoder.Encoder
-	if encoder.Internal.Type() == "msgpack" {
-		enc, err = encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
-	} else if encoder.Internal.Type() == "json" {
-		enc, err = encoder.Create("json", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
-	}
+	tx, err := conn.Begin()
+	test.CheckFail(err, t)
+
+	err = tx.Rollback()
+	test.CheckFail(err, t)
+
+	_, err = s.StartFromTx("snap_test_svc1", "snap_test_db1", "non_existent_table", nil, tx)
+
+	test.Assert(t, err != nil, "non existent table should fail")
+}
+
+func TestNonExistentTable(t *testing.T) {
+	resetState(t)
+
+	conn := createDB(t)
+	defer func() { test.CheckFail(conn.Close(), t) }()
+
+	s, err := InitReader("mysql")
+	test.CheckFail(err, t)
+
+	_, err = s.Start("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "non_existent_table", nil)
+
+	test.Assert(t, err != nil, "non existent table should fail")
+}
+
+func TestNonExistentDb(t *testing.T) {
+	resetState(t)
+
+	conn := createDB(t)
+	defer func() { test.CheckFail(conn.Close(), t) }()
+
+	s, err := InitReader("mysql")
+	test.CheckFail(err, t)
+
+	_, err = s.Start("snap_test_cluster1", "snap_test_svc1", "non_existent_db", "snap_test_t1", nil)
+
+	test.Assert(t, err != nil, "non existent db should fail")
+}
+
+func TestEmptyTable(t *testing.T) {
+	resetState(t)
+
+	conn := createDB(t)
+	defer func() { test.CheckFail(conn.Close(), t) }()
+
+	s, err := InitReader("mysql")
+	test.CheckFail(err, t)
+
+	enc, err := encoder.Create(encoder.Internal.Type(), "snap_test_svc1", "snap_test_db1", "snap_test_t1")
 
 	test.CheckFail(err, t)
 
@@ -107,25 +165,13 @@ func TestEmptyTable(t *testing.T) {
 }
 
 func TestBasic(t *testing.T) {
-	test.SkipIfNoMySQLAvailable(t)
+	resetState(t)
 
-	if !state.Init(cfg) {
-		log.Fatalf("State init failed")
-	}
-	defer func() { test.CheckFail(state.Close(), t) }()
+	conn := createDB(t)
+	defer func() { test.CheckFail(conn.Close(), t) }()
 
-	ci := db.GetInfo(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, db.Slave)
-	createDB(*ci, t)
-
-	conn, err := db.Open(ci)
-	test.CheckFail(err, t)
-	defer func() {
-		err := conn.Close()
-		test.CheckFail(err, t)
-	}()
-
-	for i := 0; i < 1000; i++ {
-		ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?)", i, strconv.Itoa(i), float64(i)/3)
+	for i := 0; i < 100; i++ {
+		execSQL(conn, t, "insert into snap_test_t1 values(?,?,?)", i, strconv.Itoa(i), float64(i)/3)
 	}
 
 	s, err := InitReader("mysql")
@@ -170,39 +216,27 @@ func TestBasic(t *testing.T) {
 }
 
 func TestMoreFieldTypes(t *testing.T) {
-	test.SkipIfNoMySQLAvailable(t)
+	resetState(t)
 
-	if !state.Init(cfg) {
-		log.Fatalf("State init failed")
-	}
-	defer func() { test.CheckFail(state.Close(), t) }()
-
-	ci := db.GetInfo(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, db.Slave)
-	createDB(*ci, t)
-
-	conn, err := db.Open(ci)
-	test.CheckFail(err, t)
-	defer func() {
-		err := conn.Close()
-		test.CheckFail(err, t)
-	}()
+	conn := createDB(t)
+	defer func() { test.CheckFail(conn.Close(), t) }()
 
 	for i := 0; i < 1; i++ {
-		ExecSQL(conn, t, "insert into snap_test_t1(f1) values(?)", i)
+		execSQL(conn, t, "insert into snap_test_t1(f1) values(?)", i)
 	}
 
-	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f4 text")
-	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f5 timestamp")
-	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f6 date")
-	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f7 time")
-	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f8 year")
-	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f9 bigint")
-	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f10 binary(128)")
-	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f11 int")
-	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f12 float")
-	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f13 double")
-	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f14 decimal")
-	ExecSQL(conn, t, "ALTER TABLE snap_test_t1 add f15 numeric")
+	execSQL(conn, t, "ALTER TABLE snap_test_t1 add f4 text")
+	execSQL(conn, t, "ALTER TABLE snap_test_t1 add f5 timestamp")
+	execSQL(conn, t, "ALTER TABLE snap_test_t1 add f6 date")
+	execSQL(conn, t, "ALTER TABLE snap_test_t1 add f7 time")
+	execSQL(conn, t, "ALTER TABLE snap_test_t1 add f8 year")
+	execSQL(conn, t, "ALTER TABLE snap_test_t1 add f9 bigint")
+	execSQL(conn, t, "ALTER TABLE snap_test_t1 add f10 binary(128)")
+	execSQL(conn, t, "ALTER TABLE snap_test_t1 add f11 int")
+	execSQL(conn, t, "ALTER TABLE snap_test_t1 add f12 float")
+	execSQL(conn, t, "ALTER TABLE snap_test_t1 add f13 double")
+	execSQL(conn, t, "ALTER TABLE snap_test_t1 add f14 decimal")
+	execSQL(conn, t, "ALTER TABLE snap_test_t1 add f15 numeric")
 
 	//msgpack doesn't preserve int size, so all int32 became int64
 	expectedType := []string{
@@ -223,7 +257,7 @@ func TestMoreFieldTypes(t *testing.T) {
 		"float64",
 	}
 
-	ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", 1567, strconv.Itoa(1567), float64(1567)/3, "testtextfield", time.Now(), time.Now(), time.Now(), 2017, 98878, []byte("testbinaryfield"), 827738, 111.23, 222.34, 333.45, 444.56)
+	execSQL(conn, t, "insert into snap_test_t1 values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", 1567, strconv.Itoa(1567), float64(1567)/3, "testtextfield", time.Now(), time.Now(), time.Now(), 2017, 98878, []byte("testbinaryfield"), 827738, 111.23, 222.34, 333.45, 444.56)
 
 	if !state.DeregisterTable("snap_test_svc1", "snap_test_db1", "snap_test_t1", "mysql", "", 0) {
 		t.FailNow()
@@ -242,7 +276,6 @@ func TestMoreFieldTypes(t *testing.T) {
 
 	_, err = s.Start("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
 	test.CheckFail(err, t)
-	defer s.End()
 
 	for s.HasNext() {
 		_, msg, err := s.GetNext()
@@ -253,10 +286,25 @@ func TestMoreFieldTypes(t *testing.T) {
 		for i, v := range *d.Fields {
 			if v.Value != nil && reflect.TypeOf(v.Value).String() != expectedType[i] {
 				log.Errorf("%v: got: %v expected: %v %v %v", v.Name, reflect.TypeOf(v.Value).String(), expectedType[i], sch.Columns[i].DataType, sch.Columns[i].Type)
+				s.End()
 				t.FailNow()
 			}
 		}
 	}
+
+	s.End()
+
+	execSQL(conn, t, "ALTER TABLE snap_test_t1 drop f15")
+
+	_, err = s.Start("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
+	test.CheckFail(err, t)
+
+	test.Assert(t, s.HasNext(), "there should be at leas one record")
+
+	_, _, err = s.GetNext()
+	test.Assert(t, err != nil, "encoder has old schema")
+
+	s.End()
 }
 
 func ChangeCfFields(cf *types.CommonFormatEvent) {
@@ -284,30 +332,18 @@ func ChangeCfFields(cf *types.CommonFormatEvent) {
 }
 
 func TestSnapshotConsistency(t *testing.T) {
-	test.SkipIfNoMySQLAvailable(t)
+	resetState(t)
 
-	if !state.Init(cfg) {
-		log.Fatalf("State init failed")
-	}
-	defer func() { test.CheckFail(state.Close(), t) }()
+	conn := createDB(t)
+	defer func() { test.CheckFail(conn.Close(), t) }()
 
-	ci := db.GetInfo(&db.Loc{Cluster: "snap_test_cluster1", Service: "snap_test_svc1", Name: "snap_test_db1"}, db.Slave)
-	createDB(*ci, t)
-
-	conn, err := db.Open(ci)
-	test.CheckFail(err, t)
-	defer func() {
-		err := conn.Close()
-		test.CheckFail(err, t)
-	}()
-
-	for i := 0; i < 1000; i++ {
-		ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?)", i, strconv.Itoa(i), float64(i)/3)
+	for i := 0; i < 100; i++ {
+		execSQL(conn, t, "insert into snap_test_t1 values(?,?,?)", i, strconv.Itoa(i), float64(i)/3)
 	}
 
 	/* Make some gaps */
-	ExecSQL(conn, t, "delete from snap_test_t1 where f1 > 700 && f1 < 800")
-	ExecSQL(conn, t, "delete from snap_test_t1 where f1 > 300 && f1 < 400")
+	execSQL(conn, t, "delete from snap_test_t1 where f1 > 70 && f1 < 80")
+	execSQL(conn, t, "delete from snap_test_t1 where f1 > 30 && f1 < 40")
 
 	s, err := InitReader("mysql")
 	test.CheckFail(err, t)
@@ -344,17 +380,17 @@ func TestSnapshotConsistency(t *testing.T) {
 				log.Errorf("Reference: %+v", encoder.GetCommonFormatKey(cf))
 				t.FailNow()
 			}
-			if i == 300 {
-				i = 400
-			} else if i == 700 {
+			if i == 30 {
+				i = 40
+			} else if i == 70 {
 				/* Insert/delete something in the gap we already left in the past */
-				ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?)", 350, "350", 350.0/3)
-				ExecSQL(conn, t, "delete from snap_test_t1 where f1 > 100 && f1 < 200")
+				execSQL(conn, t, "insert into snap_test_t1 values(?,?,?)", 35, "35", 35.0/3)
+				execSQL(conn, t, "delete from snap_test_t1 where f1 > 10 && f1 < 20")
 				/* Insert/delete data in the future gap, we shouldn't see it */
-				ExecSQL(conn, t, "insert into snap_test_t1 values(?,?,?)", 750, "750", 750.0/3)
-				ExecSQL(conn, t, "delete from snap_test_t1 where f1 > 850 && f1 < 900")
-				ExecSQL(conn, t, "update snap_test_t1 set f2='bbbb' where f1 > 950 && f1 < 970")
-				i = 800
+				execSQL(conn, t, "insert into snap_test_t1 values(?,?,?)", 75, "75", 75.0/3)
+				execSQL(conn, t, "delete from snap_test_t1 where f1 > 85 && f1 < 90")
+				execSQL(conn, t, "update snap_test_t1 set f2='bbbb' where f1 > 95 && f1 < 97")
+				i = 80
 			} else {
 				i++
 			}
@@ -364,7 +400,20 @@ func TestSnapshotConsistency(t *testing.T) {
 	s.End()
 }
 
-func TestMain(m *testing.M) {
-	cfg = test.LoadConfig()
-	os.Exit(m.Run())
+func TestSnapshotNilConnection(t *testing.T) {
+	resetState(t)
+
+	conn := createDB(t)
+	defer func() { test.CheckFail(conn.Close(), t) }()
+
+	s, err := InitReader("mysql")
+	test.CheckFail(err, t)
+
+	var enc encoder.Encoder
+	enc, err = encoder.Create(encoder.Internal.Type(), "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+
+	test.CheckFail(err, t)
+
+	_, err = s.Start("please_return_nil_db_addr", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
+	test.Assert(t, err != nil, "get connection should return nil")
 }

@@ -177,6 +177,19 @@ func TestFailRefresh(t *testing.T) {
 	lock2.Unlock()
 }
 
+func TestLockNegative(t *testing.T) {
+	test.SkipIfNoMySQLAvailable(t)
+
+	addr := *dbAddr
+	addr.Port = 55555
+
+	lock1 := Create(&addr, 1)
+
+	if res := lock1.Lock("test_lock_1"); res {
+		t.Fail()
+	}
+}
+
 func TestMain(m *testing.M) {
 	test.LoadConfig()
 	os.Exit(m.Run())

@@ -71,12 +71,9 @@ func (m *myLock) closeConn() bool {
 	if m.conn == nil {
 		return true
 	}
-	if err := m.conn.Close(); err != nil {
-		log.Warnf("Error closing connection: %v", err)
-		return false
-	}
+	res := log.E(m.conn.Close())
 	m.conn = nil
-	return true
+	return !res
 }
 
 func (m *myLock) Lock(s string) bool {
@@ -97,11 +94,7 @@ func (m *myLock) Lock(s string) bool {
 			log.Debugf("Acquired lock: %v, ticket: %v", s, m.n)
 			return true
 		}
-		if err != nil {
-			log.Debugf("Failed to acquire lock: %v, ticket: %v, Error: %v", s, m.n, err.Error())
-		} else {
-			log.Debugf("Failed to acquire lock: %v, ticket: %v", s, m.n)
-		}
+		log.Debugf("Failed to acquire lock: %v, ticket: %v. Error %v", s, m.n, err)
 	}
 	log.Debugf("Failed to acquire lock: " + s)
 	m.closeConn()

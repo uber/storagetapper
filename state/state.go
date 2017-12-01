@@ -189,7 +189,7 @@ func create(cfg *config.AppConfig) bool {
 		name varchar(128) NOT NULL,
 		type varchar(128) NOT NULL,
 		schemaBody TEXT NOT NULL,
-		primary key(name)
+		primary key(name,type)
 	) ENGINE=INNODB`)
 	if err != nil {
 		log.Errorf("schema table create failed: " + err.Error())

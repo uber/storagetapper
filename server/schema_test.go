@@ -32,6 +32,16 @@ import (
 	"github.com/uber/storagetapper/types"
 )
 
+func schemaRequest(cmd schemaReq, code int, t *testing.T) *httptest.ResponseRecorder {
+	body, _ := json.Marshal(cmd)
+	req, err := http.NewRequest("POST", "/schema", bytes.NewReader(body))
+	test.Assert(t, err == nil, "Failed: %v", err)
+	res := httptest.NewRecorder()
+	schemaCmd(res, req)
+	test.Assert(t, res.Code == code, "Not OK")
+	return res
+}
+
 func schemaTableInit(t *testing.T) {
 	conn := state.ConnectLow(cfg, true)
 	if conn == nil {
@@ -51,38 +61,16 @@ func TestSchemaInfoAddDelCommands(t *testing.T) {
 		Schema: "fake_schema_body", //TODO: No validation currently
 		Type:   "avro",
 	}
-	body, _ := json.Marshal(add)
-	req, err := http.NewRequest("POST", "/schema", bytes.NewReader(body))
-	test.Assert(t, err == nil, "Schema info add failed: %v", err)
-	res := httptest.NewRecorder()
-	schemaCmd(res, req)
-	test.Assert(t, res.Code == http.StatusOK, "Not OK")
+	schemaRequest(add, http.StatusOK, t)
+	schemaRequest(add, http.StatusInternalServerError, t)
 
-	req, err = http.NewRequest("POST", "/schema", bytes.NewReader(body))
-	test.CheckFail(err, t)
-	res = httptest.NewRecorder()
-	schemaCmd(res, req)
-	test.Assert(t, res.Code == http.StatusInternalServerError, "Not OK")
 	del := schemaReq{
 		Cmd:  "del",
 		Name: "test_schema_name1",
 		Type: "avro",
 	}
-	body, _ = json.Marshal(del)
-	_, err = http.NewRequest("POST", "/schema", bytes.NewReader(body))
-	test.Assert(t, err == nil, "Schema info del failed: %v", err)
-
-	res = httptest.NewRecorder()
-	req, err = http.NewRequest("POST", "/schema", bytes.NewReader(body))
-	test.CheckFail(err, t)
-	schemaCmd(res, req)
-	test.Assert(t, http.StatusOK == res.Code, "Not OK")
-
-	res = httptest.NewRecorder()
-	req, err = http.NewRequest("POST", "/schema", bytes.NewReader(body))
-	test.CheckFail(err, t)
-	schemaCmd(res, req)
-	test.Assert(t, http.StatusOK == res.Code, "Not OK")
+	schemaRequest(del, http.StatusOK, t)
+	schemaRequest(del, http.StatusOK, t)
 }
 
 func TestSchemaInfoNegative(t *testing.T) {
@@ -94,19 +82,20 @@ func TestSchemaInfoNegative(t *testing.T) {
 		Type:   "avro",
 	}
 	add.Name = ""
-	body, _ := json.Marshal(add)
-
-	req, err := http.NewRequest("POST", "/schema", bytes.NewReader(body))
-	test.Assert(t, err == nil, "Schema info add failed: %v", err)
-	res := httptest.NewRecorder()
-	schemaCmd(res, req)
-	test.Assert(t, res.Code == http.StatusInternalServerError, "Not OK: got %v", res.Code)
+	schemaRequest(add, http.StatusInternalServerError, t)
 
 	add.Name = "test_schema_name2"
 	add.Cmd = "update"
-	req, err = http.NewRequest("POST", "/schema", bytes.NewReader(body))
-	test.CheckFail(err, t)
-	res = httptest.NewRecorder()
+	schemaRequest(add, http.StatusInternalServerError, t)
+
+	add.Name = "test_schema_name2"
+	add.Cmd = "add"
+	add.Type = ""
+	schemaRequest(add, http.StatusInternalServerError, t)
+
+	req, err := http.NewRequest("POST", "/schema", bytes.NewReader([]byte("this is garbage json")))
+	test.Assert(t, err == nil, "Failed: %v", err)
+	res := httptest.NewRecorder()
 	schemaCmd(res, req)
 	test.Assert(t, res.Code == http.StatusInternalServerError, "Not OK")
 }

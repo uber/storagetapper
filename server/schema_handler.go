@@ -32,11 +32,6 @@ import (
 	"github.com/uber/storagetapper/state"
 )
 
-//TODO: Later use the http.Handler interface for SchemaHandler to handle errors better
-
-//SchemaHandler provides all handler functions for schema HTTP calls
-type SchemaHandler struct{}
-
 //SchemaRegReq defines the body format for a schema registration request
 type SchemaRegReq struct {
 	Svc string
@@ -50,11 +45,6 @@ type SchemaChgReq struct {
 	Db        string
 	Tbl       string
 	AlterStmt string
-}
-
-//NewSchemaHandler returns a new schema handler
-func NewSchemaHandler() *SchemaHandler {
-	return &SchemaHandler{}
 }
 
 //SchemaRegister handles the POST request to get Avro schema from table

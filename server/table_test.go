@@ -367,4 +367,10 @@ func TestServerTableNegative(t *testing.T) {
 	add.Cmd = "change" //unknown command
 	add.Table = "test_table_1"
 	tableRequest(add, http.StatusInternalServerError, t)
+
+	req, err := http.NewRequest("POST", "/table", bytes.NewReader([]byte("this is supposed to be garbage formatted json")))
+	test.Assert(t, err == nil, "Failed: %v", err)
+	res := httptest.NewRecorder()
+	tableCmd(res, req)
+	test.Assert(t, res.Code == http.StatusInternalServerError, "Not OK")
 }

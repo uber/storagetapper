@@ -43,8 +43,19 @@ func clustersTableInit(t *testing.T) {
 	test.CheckFail(err, t)
 }
 
+func clusterRequest(cmd clusterInfoReq, code int, t *testing.T) *httptest.ResponseRecorder {
+	body, _ := json.Marshal(cmd)
+	req, err := http.NewRequest("POST", "/cluster", bytes.NewReader(body))
+	test.Assert(t, err == nil, "Failed: %v", err)
+	res := httptest.NewRecorder()
+	clusterInfoCmd(res, req)
+	test.Assert(t, res.Code == code, "Not OK")
+	return res
+}
+
 func TestClusterInfoAddDelCommands(t *testing.T) {
 	clustersTableInit(t)
+
 	add := clusterInfoReq{
 		Cmd:  "add",
 		Name: "test_cluster_name1",
@@ -53,37 +64,17 @@ func TestClusterInfoAddDelCommands(t *testing.T) {
 		User: "ttt_usr1",
 		Pw:   "ttt_pwd1",
 	}
-	body, _ := json.Marshal(add)
-	req, err := http.NewRequest("POST", "/cluster", bytes.NewReader(body))
-	test.Assert(t, err == nil, "Cluster info add failed: %v", err)
-	res := httptest.NewRecorder()
-	clusterInfoCmd(res, req)
-	test.Assert(t, res.Code == http.StatusOK, "Not OK")
 
-	req, err = http.NewRequest("POST", "/cluster", bytes.NewReader(body))
-	test.CheckFail(err, t)
-	res = httptest.NewRecorder()
-	clusterInfoCmd(res, req)
-	test.Assert(t, res.Code == http.StatusInternalServerError, "Not OK")
+	clusterRequest(add, http.StatusOK, t)
+	clusterRequest(add, http.StatusInternalServerError, t)
+
 	del := clusterInfoReq{
 		Cmd:  "del",
 		Name: "test_cluster_name1",
 	}
-	body, _ = json.Marshal(del)
-	_, err = http.NewRequest("POST", "/cluster", bytes.NewReader(body))
-	test.Assert(t, err == nil, "Cluster info del failed: %v", err)
 
-	res = httptest.NewRecorder()
-	req, err = http.NewRequest("POST", "/cluster", bytes.NewReader(body))
-	test.CheckFail(err, t)
-	clusterInfoCmd(res, req)
-	test.Assert(t, http.StatusOK == res.Code, "Not OK")
-
-	res = httptest.NewRecorder()
-	req, err = http.NewRequest("POST", "/cluster", bytes.NewReader(body))
-	test.CheckFail(err, t)
-	clusterInfoCmd(res, req)
-	test.Assert(t, http.StatusOK == res.Code, "Not OK")
+	clusterRequest(del, http.StatusOK, t)
+	clusterRequest(del, http.StatusOK, t)
 }
 
 func TestClusterInfoNegative(t *testing.T) {
@@ -96,36 +87,25 @@ func TestClusterInfoNegative(t *testing.T) {
 		User: "ttt_usr1",
 		Pw:   "ttt_pwd1",
 	}
-	add.User = ""
-	body, _ := json.Marshal(add)
 
-	req, err := http.NewRequest("POST", "/cluster", bytes.NewReader(body))
-	test.Assert(t, err == nil, "Cluster info add failed: %v", err)
-	res := httptest.NewRecorder()
-	clusterInfoCmd(res, req)
-	test.Assert(t, res.Code == http.StatusInternalServerError, "Not OK")
+	add.User = ""
+	clusterRequest(add, http.StatusInternalServerError, t)
 
 	add.User = "ttt_user1"
 	add.Host = ""
-	req, err = http.NewRequest("POST", "/cluster", bytes.NewReader(body))
-	test.CheckFail(err, t)
-	res = httptest.NewRecorder()
-	clusterInfoCmd(res, req)
-	test.Assert(t, res.Code == http.StatusInternalServerError, "Not OK")
+	clusterRequest(add, http.StatusInternalServerError, t)
 
 	add.Host = "localhost"
 	add.Name = ""
-	req, err = http.NewRequest("POST", "/cluster", bytes.NewReader(body))
-	test.CheckFail(err, t)
-	res = httptest.NewRecorder()
-	clusterInfoCmd(res, req)
-	test.Assert(t, res.Code == http.StatusInternalServerError, "Not OK")
+	clusterRequest(add, http.StatusInternalServerError, t)
 
 	add.Name = "test_cluster_name2"
 	add.Cmd = "update"
-	req, err = http.NewRequest("POST", "/cluster", bytes.NewReader(body))
-	test.CheckFail(err, t)
-	res = httptest.NewRecorder()
+	clusterRequest(add, http.StatusInternalServerError, t)
+
+	req, err := http.NewRequest("POST", "/cluster", bytes.NewReader([]byte("this is supposed to be garbage formatted json")))
+	test.Assert(t, err == nil, "Failed: %v", err)
+	res := httptest.NewRecorder()
 	clusterInfoCmd(res, req)
 	test.Assert(t, res.Code == http.StatusInternalServerError, "Not OK")
 }

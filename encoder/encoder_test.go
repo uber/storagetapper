@@ -21,12 +21,14 @@
 package encoder
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
@@ -114,6 +116,8 @@ var testBasicPrepare = []string{
 	)`,
 }
 
+var outJSONSchema = `{"Type":"schema","Key":["f1"],"SeqNo":1,"Timestamp":0,"Fields":[{"Name":"f1","Value":"bigint(20)"},{"Name":"f2","Value":"char(16)"},{"Name":"f3","Value":"varchar(32)"},{"Name":"f4","Value":"text"},{"Name":"f5","Value":"timestamp"},{"Name":"f6","Value":"date"},{"Name":"f7","Value":"time"},{"Name":"f8","Value":"year(4)"},{"Name":"f9","Value":"bigint(20)"},{"Name":"f10","Value":"binary(1)"},{"Name":"f11","Value":"int(11)"},{"Name":"f12","Value":"float"},{"Name":"f13","Value":"double"},{"Name":"f14","Value":"decimal(10,0)"},{"Name":"f15","Value":"decimal(10,0)"}]}`
+
 // TestGetType tests basic type method
 func TestType(t *testing.T) {
 	Prepare(t, testBasicPrepare, "t1")
@@ -184,24 +188,6 @@ func TestEncodeDecodeCommonFormat(t *testing.T) {
 			decoded, err := enc.DecodeEvent(encoded)
 			log.Debugf("Post CF: %v %+v\n", decoded, decoded.Fields)
 			test.CheckFail(err, t)
-
-			/*
-				if decoded.Fields != nil {
-					log.Debugf("yyyy %v %v", reflect.TypeOf(decoded.SeqNo), reflect.TypeOf((ref.SeqNo)))
-					for k, v := range decoded.Key {
-						log.Debugf("kkkk %v %+v %v %v", k, v, reflect.TypeOf(k), reflect.TypeOf(ref.Key[k]))
-					}
-					for k, v := range *decoded.Fields {
-						log.Debugf("yyyy %v %+v %v %v", k, v, reflect.TypeOf(v.Value), reflect.TypeOf((*ref.Fields)[k].Value))
-					}
-				}
-
-					if decoded.Fields != nil {
-						for k, v := range *decoded.Fields {
-							log.Debugf("zzzz %v %+v %v %v", k, v, reflect.TypeOf(v.Value), reflect.TypeOf((*ref.Fields)[k].Value))
-						}
-					}
-			*/
 
 			if enc.Type() == "avro" && ref.Type == "delete" {
 				key := GetCommonFormatKey(&ref)
@@ -383,6 +369,390 @@ func TestSchema(t *testing.T) {
 
 		test.Assert(t, reflect.DeepEqual(enc.Schema(), ref), "this is not equal to ref %+v", enc.Schema())
 	}
+
+	for encType := range encoders {
+		log.Debugf("Encoder: %v", encType)
+		enc, err := Create(encType, "enc_test_svc1", "db1", "t2")
+		test.CheckFail(err, t)
+
+		schema, err := enc.EncodeSchema(1)
+		if enc.Type() == "avro" {
+			test.Assert(t, schema == nil && err == nil, "Avro doesn't support schema encoding")
+			continue
+		} else if enc.Type() == "msgpack" {
+			d, err := enc.DecodeEvent(schema)
+			test.CheckFail(err, t)
+			schema, err = json.Marshal(d)
+			test.CheckFail(err, t)
+		}
+		test.CheckFail(err, t)
+
+		test.Assert(t, string(schema) == outJSONSchema, "got %v", schema)
+	}
+}
+
+var outAvroSchemaWithDeletedf2f10f15 = `{"fields":[{"name":"f1","type":["null","long"]},{"name":"f3","type":["null","string"]},{"name":"f4","type":["null","bytes"]},{"name":"f5","type":["null","string"]},{"name":"f6","type":["null","string"]},{"name":"f7","type":["null","string"]},{"name":"f8","type":["null","int"]},{"name":"f9","type":["null","long"]},{"name":"f11","type":["null","int"]},{"name":"f12","type":["null","float"]},{"name":"f13","type":["null","double"]},{"name":"f14","type":["null","double"]},{"name":"ref_key","type":["long"]},{"name":"row_key","type":["bytes"]},{"name":"is_deleted","type":["null","boolean"]}],"name":"db1-t2","namespace":"storagetapper","owner":"db1","schema_id":0,"schemaVersion":0,"type":"record","last_modified":""}`
+
+var outJSONSchemaWithDeletedf1f2f10f15 = `{"Type":"schema","Key":["f1"],"SeqNo":1,"Timestamp":0,"Fields":[{"Name":"f3","Value":"varchar(32)"},{"Name":"f4","Value":"text"},{"Name":"f5","Value":"timestamp"},{"Name":"f6","Value":"date"},{"Name":"f7","Value":"time"},{"Name":"f8","Value":"year(4)"},{"Name":"f9","Value":"bigint(20)"},{"Name":"f11","Value":"int(11)"},{"Name":"f12","Value":"float"},{"Name":"f13","Value":"double"},{"Name":"f14","Value":"decimal(10,0)"}]}`
+
+var outAvroSchemaWithDeletedf2f10f15f3f8 = `{"fields":[{"name":"f1","type":["null","long"]},{"name":"f4","type":["null","bytes"]},{"name":"f5","type":["null","string"]},{"name":"f6","type":["null","string"]},{"name":"f7","type":["null","string"]},{"name":"f9","type":["null","long"]},{"name":"f11","type":["null","int"]},{"name":"f12","type":["null","float"]},{"name":"f13","type":["null","double"]},{"name":"f14","type":["null","double"]},{"name":"ref_key","type":["long"]},{"name":"row_key","type":["bytes"]},{"name":"is_deleted","type":["null","boolean"]}],"name":"db1-t2","namespace":"storagetapper","owner":"db1","schema_id":0,"schemaVersion":0,"type":"record","last_modified":""}`
+
+var outJSONSchemaWithDeletedf1f2f10f15f3f8 = `{"Type":"schema","Key":["f1"],"SeqNo":1,"Fields":[{"Name":"f4","Value":"text"},{"Name":"f5","Value":"timestamp"},{"Name":"f6","Value":"date"},{"Name":"f7","Value":"time"},{"Name":"f9","Value":"bigint(20)"},{"Name":"f11","Value":"int(11)"},{"Name":"f12","Value":"float"},{"Name":"f13","Value":"double"},{"Name":"f14","Value":"decimal(10,0)"}]}`
+
+//We can't remove metadata and primary key "f1" from the schema
+var outAvroSchemaWithAllFieldsDeleted = `{"fields":[{"name":"f1","type":["null","long"]}, {"name":"ref_key","type":["long"]},{"name":"row_key","type":["bytes"]},{"name":"is_deleted","type":["null","boolean"]}],"name":"db1-t2","namespace":"storagetapper","owner":"db1","schema_id":0,"schemaVersion":0,"type":"record","last_modified":""}`
+
+var outJSONSchemaWithAllFieldsDeleted = `{"Type":"schema","Key":["f1"],"SeqNo":1}`
+
+func TestOutputFilters(t *testing.T) {
+	Prepare(t, testBasicPrepare, "t2")
+
+	//Insert schema with deleted fields "f2", "f10", "f15" for all encoders
+	//and additionally "f1" for json and msgpack, which shouldn't be filtered
+	//because it's primary
+	err := state.DeleteSchema("hp-tap-enc_test_svc1-db1-t2", "avro")
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "avro", outAvroSchemaWithDeletedf2f10f15)
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "json", outJSONSchemaWithDeletedf1f2f10f15)
+	test.CheckFail(err, t)
+
+	encs := make([]Encoder, 0)
+	for encType := range encoders {
+		e, err := Create(encType, "enc_test_svc1", "db1", "t2")
+		test.CheckFail(err, t)
+
+		encs = append(encs, e)
+	}
+
+	for _, enc := range encs {
+		ref := testAllDataTypesResult[0]
+		copyEvent(&ref)
+		log.Debugf("Encoder: %v", enc.Type())
+		log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
+
+		encoded, err := enc.CommonFormat(&ref)
+		test.CheckFail(err, t)
+
+		decoded, err := enc.DecodeEvent(encoded)
+		test.CheckFail(err, t)
+
+		decoded.Timestamp = 0
+
+		f := make([]types.CommonFormatField, 0)
+		for _, v := range *ref.Fields {
+			if v.Name != "f2" && v.Name != "f10" && v.Name != "f15" {
+				f = append(f, v)
+			}
+		}
+		ref.Fields = &f
+
+		log.Debugf("Patched ref CF: %v %v\n", ref, ref.Fields)
+		log.Debugf("Post CF       : %v %v\n", decoded, decoded.Fields)
+
+		test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
+	}
+
+	//Remove "f3" and "f8"
+	err = state.DeleteSchema("hp-tap-enc_test_svc1-db1-t2", "avro")
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "avro", outAvroSchemaWithDeletedf2f10f15f3f8)
+	test.CheckFail(err, t)
+	err = state.DeleteSchema("hp-tap-enc_test_svc1-db1-t2", "json")
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "json", outJSONSchemaWithDeletedf1f2f10f15f3f8)
+	test.CheckFail(err, t)
+
+	//Fake schema event should trigger schema update
+	for _, enc := range encs {
+		_, err := enc.CommonFormat(&types.CommonFormatEvent{Type: "schema"})
+		test.CheckFail(err, t)
+	}
+
+	for _, enc := range encs {
+		ref := testAllDataTypesResult[0]
+		copyEvent(&ref)
+		log.Debugf("Encoder: %v", enc.Type())
+		log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
+
+		encoded, err := enc.CommonFormat(&ref)
+		test.CheckFail(err, t)
+
+		decoded, err := enc.DecodeEvent(encoded)
+		test.CheckFail(err, t)
+
+		decoded.Timestamp = 0
+
+		f := make([]types.CommonFormatField, 0)
+		for _, v := range *ref.Fields {
+			if v.Name != "f3" && v.Name != "f8" && v.Name != "f2" && v.Name != "f10" && v.Name != "f15" {
+				f = append(f, v)
+			}
+		}
+		ref.Fields = &f
+
+		log.Debugf("Patched ref CF: %v %v\n", ref, ref.Fields)
+		log.Debugf("Post CF       : %v %v\n", decoded, decoded.Fields)
+
+		test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
+	}
+}
+
+func TestOutputFiltersRow(t *testing.T) {
+	Prepare(t, testBasicPrepare, "t2")
+
+	//Insert schema with deleted fields "f2", "f10", "f15" for all encoders
+	//and additionally "f1" for json and msgpack, which shouldn't be filtered
+	//because it's primary
+	err := state.DeleteSchema("hp-tap-enc_test_svc1-db1-t2", "avro")
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "avro", outAvroSchemaWithDeletedf2f10f15)
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "json", outJSONSchemaWithDeletedf1f2f10f15)
+	test.CheckFail(err, t)
+
+	encs := make([]Encoder, 0)
+	for encType := range encoders {
+		e, err := Create(encType, "enc_test_svc1", "db1", "t2")
+		test.CheckFail(err, t)
+
+		encs = append(encs, e)
+	}
+
+	for _, enc := range encs {
+		refRow := testAllDataTypesResultRow[0]
+		ref := testAllDataTypesResult[0]
+		copyEvent(&ref)
+		log.Debugf("Encoder: %v", enc.Type())
+		log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
+
+		encoded, err := enc.Row(refRow.tp, &refRow.fields, 1)
+		test.CheckFail(err, t)
+
+		decoded, err := enc.DecodeEvent(encoded)
+		test.CheckFail(err, t)
+
+		decoded.Timestamp = 0
+
+		f := make([]types.CommonFormatField, 0)
+		for _, v := range *ref.Fields {
+			if v.Name != "f2" && v.Name != "f10" && v.Name != "f15" {
+				f = append(f, v)
+			}
+		}
+		ref.Fields = &f
+
+		log.Debugf("Patched ref CF: %v %v\n", ref, ref.Fields)
+		log.Debugf("Post CF       : %v %v\n", decoded, decoded.Fields)
+
+		test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
+	}
+
+	//Remove "f3" and "f8"
+	err = state.DeleteSchema("hp-tap-enc_test_svc1-db1-t2", "avro")
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "avro", outAvroSchemaWithDeletedf2f10f15f3f8)
+	test.CheckFail(err, t)
+	err = state.DeleteSchema("hp-tap-enc_test_svc1-db1-t2", "json")
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "json", outJSONSchemaWithDeletedf1f2f10f15f3f8)
+	test.CheckFail(err, t)
+
+	//Fake schema event should trigger schema update
+	for _, enc := range encs {
+		_, err := enc.CommonFormat(&types.CommonFormatEvent{Type: "schema"})
+		test.CheckFail(err, t)
+	}
+
+	for _, enc := range encs {
+		ref := testAllDataTypesResult[0]
+		copyEvent(&ref)
+		log.Debugf("Encoder: %v", enc.Type())
+		log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
+
+		encoded, err := enc.CommonFormat(&ref)
+		test.CheckFail(err, t)
+
+		decoded, err := enc.DecodeEvent(encoded)
+		test.CheckFail(err, t)
+
+		decoded.Timestamp = 0
+
+		f := make([]types.CommonFormatField, 0)
+		for _, v := range *ref.Fields {
+			if v.Name != "f3" && v.Name != "f8" && v.Name != "f2" && v.Name != "f10" && v.Name != "f15" {
+				f = append(f, v)
+			}
+		}
+		ref.Fields = &f
+
+		log.Debugf("Patched ref CF: %v %v\n", ref, ref.Fields)
+		log.Debugf("Post CF       : %v %v\n", decoded, decoded.Fields)
+
+		test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
+	}
+}
+
+func TestOutputFiltersBound(t *testing.T) {
+	Prepare(t, testBasicPrepare, "t2")
+
+	outAvroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1", Name: "db1"}, "t2", "avro")
+	test.CheckFail(err, t)
+
+	//Complete schema no fields should be filtered
+	err = state.DeleteSchema("hp-tap-enc_test_svc1-db1-t2", "avro")
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "avro", string(outAvroSchema))
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "json", outJSONSchema)
+	test.CheckFail(err, t)
+
+	encs := make([]Encoder, 0)
+	for encType := range encoders {
+		e, err := Create(encType, "enc_test_svc1", "db1", "t2")
+		test.CheckFail(err, t)
+
+		encs = append(encs, e)
+	}
+
+	for _, enc := range encs {
+		ref := testAllDataTypesResult[0]
+		copyEvent(&ref)
+		log.Debugf("Encoder: %v", enc.Type())
+		log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
+
+		encoded, err := enc.CommonFormat(&ref)
+		test.CheckFail(err, t)
+
+		decoded, err := enc.DecodeEvent(encoded)
+		test.CheckFail(err, t)
+
+		decoded.Timestamp = 0
+
+		log.Debugf("Patched ref CF: %v %v\n", ref, ref.Fields)
+		log.Debugf("Post CF       : %v %v\n", decoded, decoded.Fields)
+
+		test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
+	}
+
+	//All fields should be filtered
+	err = state.DeleteSchema("hp-tap-enc_test_svc1-db1-t2", "avro")
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "avro", outAvroSchemaWithAllFieldsDeleted)
+	test.CheckFail(err, t)
+	err = state.DeleteSchema("hp-tap-enc_test_svc1-db1-t2", "json")
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "json", outJSONSchemaWithAllFieldsDeleted)
+	test.CheckFail(err, t)
+
+	//Fake schema event should trigger schema update
+	for _, enc := range encs {
+		_, err := enc.CommonFormat(&types.CommonFormatEvent{Type: "schema"})
+		test.CheckFail(err, t)
+	}
+
+	for _, enc := range encs {
+		ref := testAllDataTypesResult[0]
+		copyEvent(&ref)
+		log.Debugf("Encoder: %v", enc.Type())
+		log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
+
+		encoded, err := enc.CommonFormat(&ref)
+		test.CheckFail(err, t)
+
+		decoded, err := enc.DecodeEvent(encoded)
+		test.CheckFail(err, t)
+
+		decoded.Timestamp = 0
+
+		*ref.Fields = (*ref.Fields)[:1]
+
+		log.Debugf("Patched ref CF: %v %v\n", ref, ref.Fields)
+		log.Debugf("Post CF       : %v %v\n", decoded, decoded.Fields)
+
+		test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
+	}
+}
+
+func TestOutputFiltersRowBound(t *testing.T) {
+	Prepare(t, testBasicPrepare, "t2")
+
+	outAvroSchema, err := schema.ConvertToAvro(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1", Name: "db1"}, "t2", "avro")
+	test.CheckFail(err, t)
+
+	err = state.DeleteSchema("hp-tap-enc_test_svc1-db1-t2", "avro")
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "avro", string(outAvroSchema))
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "json", outJSONSchema)
+	test.CheckFail(err, t)
+
+	encs := make([]Encoder, 0)
+	for encType := range encoders {
+		e, err := Create(encType, "enc_test_svc1", "db1", "t2")
+		test.CheckFail(err, t)
+
+		encs = append(encs, e)
+	}
+
+	for _, enc := range encs {
+		refRow := testAllDataTypesResultRow[0]
+		ref := testAllDataTypesResult[0]
+		copyEvent(&ref)
+		log.Debugf("Encoder: %v", enc.Type())
+		log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
+
+		encoded, err := enc.Row(refRow.tp, &refRow.fields, 1)
+		test.CheckFail(err, t)
+
+		decoded, err := enc.DecodeEvent(encoded)
+		test.CheckFail(err, t)
+
+		decoded.Timestamp = 0
+
+		log.Debugf("Patched ref CF: %v %v\n", ref, ref.Fields)
+		log.Debugf("Post CF       : %v %v\n", decoded, decoded.Fields)
+
+		test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
+	}
+
+	//Remove "f3" and "f8"
+	err = state.DeleteSchema("hp-tap-enc_test_svc1-db1-t2", "avro")
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "avro", outAvroSchemaWithAllFieldsDeleted)
+	test.CheckFail(err, t)
+	err = state.DeleteSchema("hp-tap-enc_test_svc1-db1-t2", "json")
+	test.CheckFail(err, t)
+	err = state.InsertSchema("hp-tap-enc_test_svc1-db1-t2", "json", outJSONSchemaWithAllFieldsDeleted)
+	test.CheckFail(err, t)
+
+	//Fake schema event should trigger schema update
+	for _, enc := range encs {
+		_, err := enc.CommonFormat(&types.CommonFormatEvent{Type: "schema"})
+		test.CheckFail(err, t)
+	}
+
+	for _, enc := range encs {
+		ref := testAllDataTypesResult[0]
+		copyEvent(&ref)
+		log.Debugf("Encoder: %v", enc.Type())
+		log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
+
+		encoded, err := enc.CommonFormat(&ref)
+		test.CheckFail(err, t)
+
+		decoded, err := enc.DecodeEvent(encoded)
+		test.CheckFail(err, t)
+
+		decoded.Timestamp = 0
+
+		*ref.Fields = (*ref.Fields)[:1]
+
+		log.Debugf("Patched ref CF: %v %v\n", ref, ref.Fields)
+		log.Debugf("Post CF       : %v %v\n", decoded, decoded.Fields)
+
+		test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
+	}
 }
 
 func TestEncodeDecodeRowAllDataTypes(t *testing.T) {
@@ -417,6 +787,72 @@ func TestEncodeDecodeRowAllDataTypes(t *testing.T) {
 			}
 
 			log.Debugf("Post CF: %v %v\n", decoded, decoded.Fields)
+
+			test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
+		}
+	}
+}
+
+func wrapEvent(enc Encoder, key string, bd []byte, seqno uint64) ([]byte, error) {
+	akey := make([]interface{}, 1)
+	akey[0] = key
+
+	cfw := types.CommonFormatEvent{
+		Type:      enc.Type(),
+		Key:       akey,
+		SeqNo:     seqno,
+		Timestamp: time.Now().UnixNano(),
+		Fields:    nil,
+	}
+
+	cfb, err := enc.CommonFormat(&cfw)
+	if err != nil {
+		return nil, err
+	}
+
+	buf := bytes.NewBuffer(cfb)
+	buf.Write(bd)
+
+	return buf.Bytes(), nil
+}
+
+func TestUnwrapEvent(t *testing.T) {
+	Prepare(t, testBasicPrepare, "t1")
+
+	for encType := range encoders {
+		log.Debugf("Encoder: %v", encType)
+		enc, err := Create(encType, "enc_test_svc1", "db1", "t1")
+		test.CheckFail(err, t)
+
+		for _, ref := range testBasicResult {
+			log.Debugf("Initial CF: %v %+v\n", ref, ref.Fields)
+			encoded, err := enc.CommonFormat(&ref)
+			test.CheckFail(err, t)
+
+			wrapped, err := wrapEvent(enc, "test key", encoded, 1)
+			test.CheckFail(err, t)
+
+			envelope := &types.CommonFormatEvent{}
+			payload, err := enc.UnwrapEvent(wrapped, envelope)
+			if enc.Type() == "avro" {
+				test.Assert(t, err != nil, "Avro doesn't support wrapping")
+				continue
+			}
+
+			test.CheckFail(err, t)
+
+			envelope.Timestamp = 0
+			test.Assert(t, reflect.DeepEqual(envelope, &types.CommonFormatEvent{Type: enc.Type(), Key: []interface{}{"test key"}, SeqNo: 1}), "got: %+v", envelope)
+
+			decoded, err := enc.DecodeEvent(payload)
+			log.Debugf("Post CF: %v %+v\n", decoded, decoded.Fields)
+			test.CheckFail(err, t)
+
+			if enc.Type() == "avro" && ref.Type == "delete" {
+				key := GetCommonFormatKey(&ref)
+				ref.Key = make([]interface{}, 0)
+				ref.Key = append(ref.Key, key)
+			}
 
 			test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
 		}
@@ -582,6 +1018,8 @@ func runBenchmarks() {
 
 func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
+
+	GenTime = func() int64 { return 0 }
 
 	if m.Run() != 0 {
 		os.Exit(1)

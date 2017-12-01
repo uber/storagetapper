@@ -83,11 +83,7 @@ func (e *avroEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, err
 func (e *avroEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) {
 	if cf.Type == "schema" {
 		err := e.UpdateCodec()
-		if err != nil {
-			return nil, err
-		}
-		e.prepareCommonFormatFilter(cf)
-		return nil, nil
+		return nil, err
 	}
 
 	//TODO: Explore using reader/writer interface
@@ -111,10 +107,8 @@ func convertCommonFormatToAvroRecord(rs goavro.RecordSetter, cfEvent *types.Comm
 		return
 	}
 
-	var j int
-	for i := 0; i < len(*cfEvent.Fields); i++ {
-		if j < len(filter) && filter[j] == i {
-			j++
+	for i, j := 0, 0; i < len(*cfEvent.Fields); i++ {
+		if filteredField(filter, i, &j) {
 			continue
 		}
 		field := (*cfEvent.Fields)[i]
@@ -150,7 +144,7 @@ func (e *avroEncoder) UpdateCodec() error {
 		return err
 	}
 
-	e.prepareRowFilter()
+	e.prepareFilter()
 
 	log.Debugf("Schema codec updated")
 
@@ -173,15 +167,15 @@ func fillAvroKey(e *goavro.Record, row *[]interface{}, s *types.TableSchema) {
 	//	rowKey := make([]interface{}, 0)
 	for i := 0; i < len(s.Columns); i++ {
 		if s.Columns[i].Key == "PRI" {
-			if row == nil {
+			/* if row == nil {
 				//rowKey = append(rowKey, s.Columns[i].Name)
 				k := fmt.Sprintf("%v", s.Columns[i].Name)
 				rowKey += fmt.Sprintf("%v%v", len(k), k)
-			} else {
-				//rowKey = append(rowKey, (*row)[i])
-				k := fmt.Sprintf("%v", (*row)[i])
-				rowKey += fmt.Sprintf("%v%v", len(k), k)
-			}
+			} else { */
+			//rowKey = append(rowKey, (*row)[i])
+			k := fmt.Sprintf("%v", (*row)[i])
+			rowKey += fmt.Sprintf("%v%v", len(k), k)
+			//}
 		}
 	}
 	_ = e.Set("row_key", []byte(rowKey))
@@ -191,30 +185,28 @@ func fillAvroKey(e *goavro.Record, row *[]interface{}, s *types.TableSchema) {
 //TODO: Remove ability to encode schema, so as receiver should have schema to decode
 //the record, so no point in pushing schema into stream
 func fillAvroFields(r *goavro.Record, row *[]interface{}, s *types.TableSchema, filter []int) {
-	var j int
-	for i := 0; i < len(s.Columns); i++ {
+	for i, j := 0, 0; i < len(s.Columns); i++ {
 		//Skip fields which are not present in output schema
-		if j < len(filter) && filter[j] == i {
-			j++
+		if filteredField(filter, i, &j) {
 			continue
 		}
 		var v interface{}
-		if row == nil {
+		/*if row == nil {
 			v = s.Columns[i].Type
-		} else {
-			switch b := (*row)[i].(type) {
-			case int8:
-				v = int32(b)
-			case uint8:
-				v = int32(b)
-			case int16:
-				v = int32(b)
-			case uint16:
-				v = int32(b)
-			default:
-				v = b
-			}
+		} else { */
+		switch b := (*row)[i].(type) {
+		case int8:
+			v = int32(b)
+		case uint8:
+			v = int32(b)
+		case int16:
+			v = int32(b)
+		case uint16:
+			v = int32(b)
+		default:
+			v = b
 		}
+		//}
 		//TODO: Consider passing primary key as fields in delete event, instead
 		//of separate row_key field
 		//if keyOnly && s.Columns[i].Key != "PRI" {
@@ -243,53 +235,48 @@ func convertRowToAvroFormat(tp int, row *[]interface{}, s *types.TableSchema, se
 	}
 }
 
-func (e *avroEncoder) prepareCommonFormatFilter(inSchema *types.CommonFormatEvent) {
-	nfiltered := len(*inSchema.Fields) - (len(e.outSchema.Fields) - numMetadataFields)
-	log.Debugf("prepareCommonFormatFilter %v", nfiltered)
+func (e *avroEncoder) prepareFilter() {
+	if e.outSchema == nil {
+		return
+	}
+
+	nfiltered := len(e.inSchema.Columns)
+	if e.outSchema.Fields != nil {
+		nfiltered = nfiltered - len(e.outSchema.Fields) - numMetadataFields
+	}
 	if nfiltered == 0 {
 		return
 	}
 
-	f := *inSchema.Fields
-	e.filter = make([]int, nfiltered)
-	var j int
-	for i := 0; i < len(f); i++ {
-		if (i-j) >= len(e.outSchema.Fields) || f[i].Name != e.outSchema.Fields[i-j].Name {
-			e.filter[j] = i
-			j++
-		}
-	}
-	log.Debugf("n=%v filter=(%v)", nfiltered, e.filter)
-}
-
-func (e *avroEncoder) prepareRowFilter() {
-	nfiltered := len(e.inSchema.Columns) - (len(e.outSchema.Fields) - numMetadataFields)
-	log.Debugf("prepareRowFilter %v", nfiltered)
-	if nfiltered == 0 {
-		return
-	}
-
-	e.filter = make([]int, nfiltered)
+	f := e.outSchema.Fields
+	e.filter = make([]int, 0)
 	var j int
 	for i := 0; i < len(e.inSchema.Columns); i++ {
-		if (i-j) >= len(e.outSchema.Fields) || e.inSchema.Columns[i].Name != e.outSchema.Fields[i-j].Name {
-			e.filter[j] = i
+		//Primary key cannot be filtered
+		if (i-j) >= len(f) || e.inSchema.Columns[i].Name != f[i-j].Name {
+			if e.inSchema.Columns[i].Key != "PRI" {
+				log.Debugf("Field %v will be filtered", e.inSchema.Columns[i].Name)
+				e.filter = append(e.filter, i)
+			}
 			j++
 		}
 	}
 
-	log.Debugf("n=%v filter=(%v)", nfiltered, e.filter)
+	log.Debugf("len=%v, filtered fields (%v)", len(e.filter), e.filter)
 }
 
 func (e *avroEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent) (payload []byte, err error) {
-	return nil, fmt.Errorf("Avro encoder doesn't support decoding")
+	return nil, fmt.Errorf("Avro encoder doesn't support wrapping")
 }
 
 func (e *avroEncoder) decodeEventFields(c *types.CommonFormatEvent, r *goavro.Record) error {
 	hasNonNil := false
 	c.Fields = new([]types.CommonFormatField)
 
-	for i := 0; i < len(e.inSchema.Columns); i++ {
+	for i, j := 0, 0; i < len(e.inSchema.Columns); i++ {
+		if filteredField(e.filter, i, &j) {
+			continue
+		}
 		n := e.inSchema.Columns[i].Name
 		v, err := r.Get(e.inSchema.Columns[i].Name)
 		if err != nil {

@@ -121,3 +121,11 @@ func GetCommonFormatKey(cf *types.CommonFormatEvent) string {
 	}
 	return key
 }
+
+func filteredField(filter []int, i int, j *int) bool {
+	if *j < len(filter) && filter[*j] == i {
+		(*j)++
+		return true
+	}
+	return false
+}

@@ -83,6 +83,22 @@ func (e *jsonEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, err
 	return e.CommonFormatEncode(cf)
 }
 
+func filterCommonFormat(filter []int, cf *types.CommonFormatEvent) *types.CommonFormatEvent {
+	if len(filter) == 0 || cf.Fields == nil || len(*cf.Fields) == 0 {
+		return cf
+	}
+
+	c := &types.CommonFormatEvent{SeqNo: cf.SeqNo, Type: cf.Type, Timestamp: cf.Timestamp, Key: cf.Key, Fields: new([]types.CommonFormatField)}
+	for i, j := 0, 0; i < len(*cf.Fields); i++ {
+		if filteredField(filter, i, &j) {
+			continue
+		}
+		*c.Fields = append(*c.Fields, (*cf.Fields)[i])
+	}
+
+	return c
+}
+
 //CommonFormat encodes common format event into byte array
 func (e *jsonEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) {
 	if cf.Type == "schema" {
@@ -91,8 +107,7 @@ func (e *jsonEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) 
 			return nil, err
 		}
 	}
-	//FIXME: cf is in input schema format, so we need to filter it
-	//to conform to output schema
+	cf = filterCommonFormat(e.filter, cf)
 	return e.CommonFormatEncode(cf)
 }
 
@@ -117,7 +132,7 @@ func (e *jsonEncoder) UpdateCodec() error {
 		}
 		e.outSchema = c
 
-		if len(e.inSchema.Columns)-(len(*e.outSchema.Fields)-numMetadataFields) < 0 {
+		if e.outSchema.Fields != nil && len(e.inSchema.Columns)-len(*e.outSchema.Fields) < 0 {
 			err = fmt.Errorf("Input schema has less fields than output schema")
 			log.E(err)
 			return err
@@ -157,11 +172,14 @@ func (e *jsonEncoder) fixFieldTypes(res *types.CommonFormatEvent) (err error) {
 
 	//Restore field types according to schema
 	if e.inSchema != nil && res.Type != "schema" {
+		var j int
 		for i := 0; i < len(e.inSchema.Columns); i++ {
-			// i >= len(*res.Fields) and k >= len(res.Key) can happen if we
-			//unmarshall JSON which doesn't conform to schema
-			if res.Fields != nil && i < len(*res.Fields) {
-				f := &(*res.Fields)[i]
+			if filteredField(e.filter, i, &j) {
+				continue
+			}
+
+			if res.Fields != nil && i-j < len(*res.Fields) {
+				f := &(*res.Fields)[i-j]
 				err = fixField(&f.Value, e.inSchema.Columns[i].DataType)
 				if err != nil {
 					return err
@@ -215,12 +233,8 @@ func fillCommonFormatKey(e *types.CommonFormatEvent, row *[]interface{}, s *type
 
 func fillCommonFormatFields(c *types.CommonFormatEvent, row *[]interface{}, schema *types.TableSchema, filter []int) {
 	f := make([]types.CommonFormatField, 0, len(schema.Columns))
-	var j int
-	for i := 0; i < len(schema.Columns); i++ {
-		//Skip fields which are not present in output schema
-		if j < len(filter) && filter[j] == i {
-			log.Debugf("Skipping field %v", j)
-			j++
+	for i, j := 0, 0; i < len(schema.Columns); i++ {
+		if filteredField(filter, i, &j) {
 			continue
 		}
 		var v interface{}
@@ -270,24 +284,26 @@ func (e *jsonEncoder) prepareFilter() {
 	if e.outSchema.Fields != nil {
 		nfiltered = nfiltered - len(*e.outSchema.Fields)
 	}
+
 	if nfiltered == 0 {
 		return
 	}
 
-	f := *e.outSchema.Fields
-	e.filter = make([]int, nfiltered)
+	f := e.outSchema.Fields
+	e.filter = make([]int, 0)
 	var j int
 	for i := 0; i < len(e.inSchema.Columns); i++ {
 		//Primary key cannot be filtered
-		if e.inSchema.Columns[i].Key == "PRI" {
-			continue
-		}
-		if (i-j) >= len(f) || e.inSchema.Columns[i].Name != f[i-j].Name {
-			e.filter[j] = i
+		if f == nil || len(*f) == 0 || (i-j) >= len(*f) || e.inSchema.Columns[i].Name != (*f)[i-j].Name {
+			if e.inSchema.Columns[i].Key != "PRI" {
+				log.Debugf("Field %v will be filtered", e.inSchema.Columns[i].Name)
+				e.filter = append(e.filter, i)
+			}
 			j++
 		}
 	}
-	log.Debugf("n=%v filter=(%v)", nfiltered, e.filter)
+
+	log.Debugf("len=%v, filtered fields (%v)", len(e.filter), e.filter)
 }
 
 // UnwrapEvent splits the event header and payload

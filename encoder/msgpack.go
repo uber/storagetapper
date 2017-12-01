@@ -34,16 +34,17 @@ func init() {
 // msgPackEncoder implements Encoder interface into message pack format.
 // It inherits the methods from jsonEnocder.
 type msgPackEncoder struct {
-	c jsonEncoder
+	jsonEncoder
 }
 
 func initMsgPackEncoder(service string, db string, table string) (Encoder, error) {
-	return &msgPackEncoder{c: jsonEncoder{Service: service, Db: db, Table: table}}, nil
+	return &msgPackEncoder{jsonEncoder{Service: service, Db: db, Table: table}}, nil
 }
 
-//Schema returns table schema
-func (e *msgPackEncoder) Schema() *types.TableSchema {
-	return e.c.inSchema
+//Row encodes row into CommonFormat
+func (e *msgPackEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, error) {
+	cf := e.convertRowToCommonFormat(tp, row, e.inSchema, seqno, e.filter)
+	return cf.MarshalMsg(nil)
 }
 
 //EncodeSchema encodes current output schema
@@ -51,28 +52,16 @@ func (e *msgPackEncoder) EncodeSchema(seqno uint64) ([]byte, error) {
 	return e.Row(types.Schema, nil, seqno)
 }
 
-//Row encodes row into CommonFormat
-func (e *msgPackEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, error) {
-	cf := e.c.convertRowToCommonFormat(tp, row, e.c.inSchema, seqno, e.c.filter)
-	return e.CommonFormatEncode(cf)
-}
-
-/*UpdateCodec refreshes the schema from state DB */
-func (e *msgPackEncoder) UpdateCodec() error {
-	return e.c.UpdateCodec()
-}
-
 //CommonFormat encodes common format event into byte array
 func (e *msgPackEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) {
 	if cf.Type == "schema" {
-		err := e.c.UpdateCodec()
+		err := e.UpdateCodec()
 		if err != nil {
 			return nil, err
 		}
 	}
-	//FIXME: Assume that cf is in input schema format, so we need to filter it
-	//to conform to output schema
-	return e.CommonFormatEncode(cf)
+	cf = filterCommonFormat(e.filter, cf)
+	return cf.MarshalMsg(nil)
 }
 
 //Type returns this encoder type
@@ -80,38 +69,32 @@ func (e *msgPackEncoder) Type() string {
 	return "msgpack"
 }
 
-// CommonFormatEncode encodes CommonFormatEvent into byte array based on the message pack
-// encoding system
-// By overriding these 2 methods we get full functionality of jsonEncoder
-// that implements MessagePack
-func (e *msgPackEncoder) CommonFormatEncode(c *types.CommonFormatEvent) ([]byte, error) {
-	return c.MarshalMsg(nil)
-	// return msgpack.Marshal(c)
-}
-
 func (e *msgPackEncoder) fixFieldTypes(cf *types.CommonFormatEvent) (err error) {
 	k := 0
 
 	//Restore field types according to schema
 	//MsgPack doesn't preserve int type size, so fix it
-	if e.c.inSchema != nil && cf.Type != "schema" {
-		for i := 0; i < len(e.c.inSchema.Columns); i++ {
-			if cf.Fields != nil && i < len(*cf.Fields) {
-				f := &(*cf.Fields)[i]
+	if e.inSchema != nil && cf.Type != "schema" {
+		for i, j := 0, 0; i < len(e.inSchema.Columns); i++ {
+			if filteredField(e.filter, i, &j) {
+				continue
+			}
+			if cf.Fields != nil && i-j < len(*cf.Fields) {
+				f := &(*cf.Fields)[i-j]
 				switch v := f.Value.(type) {
 				case int64:
-					switch e.c.inSchema.Columns[i].DataType {
+					switch e.inSchema.Columns[i].DataType {
 					case "int", "integer", "tinyint", "smallint", "mediumint", "year":
 						f.Value = int32(v)
 					}
 				}
 			}
 
-			if e.c.inSchema.Columns[i].Key == "PRI" && k < len(cf.Key) {
+			if e.inSchema.Columns[i].Key == "PRI" && k < len(cf.Key) {
 				f := &cf.Key[k]
 				switch v := (*f).(type) {
 				case float64:
-					switch e.c.inSchema.Columns[i].DataType {
+					switch e.inSchema.Columns[i].DataType {
 					case "int", "integer", "tinyint", "smallint", "mediumint", "year":
 						*f = int32(v)
 					}
@@ -132,12 +115,6 @@ func (e *msgPackEncoder) msgPackDecode(b []byte) (*types.CommonFormatEvent, []by
 
 	return cf, rem, e.fixFieldTypes(cf)
 }
-
-/*
-func (e *msgPackEncoder) schemaDecode(b []byte) (*types.CommonFormatEvent, error) {
-	return msgPackDecode(b)
-}
-*/
 
 // UnwrapEvent splits the event header and payload
 // cfEvent is populated with the 'header' information aka the first decoding.

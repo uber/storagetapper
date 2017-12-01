@@ -50,14 +50,14 @@ type AvroSchema struct {
 	SchemaID      int             `json:"schema_id"`
 	SchemaVersion int             `json:"schemaVersion"`
 	Type          AvroComplexType `json:"type"`
-	Doc           string          `json:"doc"`
-	LastModified  string          `json:"last_modified"`
+	Doc           string          `json:"doc,omitempty"`
+	LastModified  string          `json:"last_modified,omitempty"`
 }
 
 // AvroField represents structure of each of the fields in the schema
 type AvroField struct {
 	Name    string              `json:"name"`
 	Type    []AvroPrimitiveType `json:"type"`
-	Default interface{}         `json:"default"`
-	Doc     string              `json:"doc"`
+	Default interface{}         `json:"default,omitempty"`
+	Doc     string              `json:"doc,omitempty"`
 }

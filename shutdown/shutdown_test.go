@@ -67,6 +67,23 @@ func TestBasic(t *testing.T) {
 	log.Debugf("TestBasicFinished")
 }
 
+func TestInitiateAndWait(t *testing.T) {
+	log.Debugf("TestInitiateAndWait")
+	Setup()
+	Register(numProcs)
+	for i := int32(0); i < numProcs; i++ {
+		go worker()
+	}
+	if Initiated() {
+		t.Fatalf("Shouldn't be initiated")
+	}
+	InitiateAndWait()
+	if NumProcs() != 0 {
+		t.FailNow()
+	}
+	log.Debugf("TestInitiateAndWaitFinished")
+}
+
 func TestSignal(t *testing.T) {
 	log.Debugf("TestSignal")
 	Setup()

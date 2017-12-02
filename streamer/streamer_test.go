@@ -44,7 +44,6 @@ import (
 	"github.com/uber/storagetapper/util"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/linkedin/goavro"
 )
 
 var (
@@ -76,7 +75,7 @@ func createTestDB(dbConn *sql.DB, t *testing.T) {
 	execSQL(dbConn, t, fmt.Sprintf("DROP DATABASE IF EXISTS %s", TestDb))
 	execSQL(dbConn, t, fmt.Sprintf("CREATE DATABASE %s", TestDb))
 	execSQL(dbConn, t, fmt.Sprintf("CREATE TABLE %s.%s "+
-		"( f1 INT NOT NULL PRIMARY KEY, f2 VARCHAR(32) )", TestDb, TestTbl))
+		"( f1 BIGINT NOT NULL PRIMARY KEY, f2 VARCHAR(32) )", TestDb, TestTbl))
 	execSQL(dbConn, t, fmt.Sprintf("CREATE TABLE %s.%s "+
 		"( topic VARCHAR(96) NOT NULL PRIMARY KEY, avroschema TEXT )", TestDb, SchemaSvcTbl))
 }
@@ -88,11 +87,15 @@ func setupDB(t *testing.T) *sql.DB {
 	if !state.Init(cfg) {
 		t.FailNow()
 	}
-
-	if !state.RegisterTable(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, "mysql", cfg.OutputPipeType, 0) {
+	dbl := &db.Loc{Service: TestSvc, Name: TestDb}
+	if !state.RegisterTable(dbl, TestTbl, "mysql", cfg.OutputPipeType, 0) {
 		log.Fatalf("Failed to register table")
 	}
-	execSQL(state.GetDB(), t, "UPDATE state SET gtid='fake-gtid' WHERE tableName=? AND service=? AND db=?", TestTbl, TestSvc, TestDb)
+
+	gtid, err := state.GetCurrentGTIDForDB(dbl)
+	test.CheckFail(err, t)
+
+	execSQL(state.GetDB(), t, "UPDATE state SET gtid=? WHERE tableName=? AND service=? AND db=?", gtid, TestTbl, TestSvc, TestDb)
 
 	// Store Avro schema in local db
 	avSch, err := schema.ConvertToAvro(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, "avro")
@@ -103,23 +106,66 @@ func setupDB(t *testing.T) *sql.DB {
 }
 
 func setupData(dbConn *sql.DB, shiftKey int, t *testing.T) {
-	for i := shiftKey; i < 1000+shiftKey; i++ {
+	for i := shiftKey; i < 100+shiftKey; i++ {
 		execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(%v,'%v')", TestDb, TestTbl, i, strconv.Itoa(i)))
 	}
 }
 
-func setupBufferData(producer pipe.Producer, shiftKey int, t *testing.T) {
-	enc, err := encoder.Create("json", TestSvc, TestDb, TestTbl)
+func wrapEvent(enc encoder.Encoder, typ string, key string, bd []byte, seqno uint64) ([]byte, error) {
+	akey := make([]interface{}, 1)
+	akey[0] = key
+
+	cfw := types.CommonFormatEvent{
+		Type:      typ,
+		Key:       akey,
+		SeqNo:     seqno,
+		Timestamp: time.Now().UnixNano(),
+		Fields:    nil,
+	}
+
+	cfb, err := enc.CommonFormat(&cfw)
+	if err != nil {
+		return nil, err
+	}
+
+	buf := bytes.NewBuffer(cfb)
+	buf.Write(bd)
+
+	return buf.Bytes(), nil
+}
+
+func setupBufferData(producer pipe.Producer, bufFormat string, outFormat string, wrap int, shiftKey int, t *testing.T) {
+	enc, err := encoder.Create(bufFormat, TestSvc, TestDb, TestTbl)
 	test.CheckFail(err, t)
-	for i := shiftKey; i < 1000+shiftKey; i++ {
-		bd, err := enc.Row(types.Insert, &[]interface{}{i, strconv.Itoa(i)}, uint64(i))
+	outEnc, err := encoder.Create(outFormat, TestSvc, TestDb, TestTbl)
+	test.CheckFail(err, t)
+	for i := shiftKey; i < 100+shiftKey; i++ {
+		var bd []byte
+		var err error
+		if wrap == 2 {
+			bd, err = enc.Row(types.Insert, &[]interface{}{int64(i), strconv.Itoa(i)}, uint64(i))
+		} else {
+			bd, err = outEnc.Row(types.Insert, &[]interface{}{int64(i), strconv.Itoa(i)}, uint64(i))
+		}
 		test.CheckFail(err, t)
+		if wrap == 1 {
+			bd, err = wrapEvent(enc, outEnc.Type(), "key", bd, uint64(i))
+			test.CheckFail(err, t)
+		} else if wrap == 2 {
+			bd, err = wrapEvent(enc, enc.Type(), "key", bd, uint64(i))
+			test.CheckFail(err, t)
+		}
 		err = producer.Push(bd)
 		test.CheckFail(err, t)
 	}
+
+	bd, err := enc.EncodeSchema(10000)
+	test.CheckFail(err, t)
+	err = producer.Push(bd)
+	test.CheckFail(err, t)
 }
 
-func setupWorker(bufPipe pipe.Pipe, t *testing.T) pipe.Consumer {
+func setupWorker(bufPipe pipe.Pipe, outPipeType string, t *testing.T) pipe.Consumer {
 	var err error
 	outPipe := make(map[string]pipe.Pipe)
 	for p := range pipe.Pipes {
@@ -127,7 +173,7 @@ func setupWorker(bufPipe pipe.Pipe, t *testing.T) pipe.Consumer {
 		log.F(err)
 	}
 
-	outConsumer, err := outPipe["kafka"].NewConsumer(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl, 0))
+	outConsumer, err := outPipe[outPipeType].NewConsumer(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl, 0))
 
 	test.CheckFail(err, t)
 	shutdown.Register(1)
@@ -135,39 +181,42 @@ func setupWorker(bufPipe pipe.Pipe, t *testing.T) pipe.Consumer {
 	return outConsumer
 }
 
-func verifyFromOutputKafka(shiftKey int, outPConsumer pipe.Consumer, t *testing.T) {
+func verifyFromOutputKafka(shiftKey int, outPConsumer pipe.Consumer, outFormat string, t *testing.T) {
 	log.Debugf("verification started %v", shiftKey)
-	codec, _, err := encoder.GetLatestSchemaCodec(TestSvc, TestDb, TestTbl, "avro")
-	test.Assert(t, err == nil, "Error getting codec for avro decoding: %v", err)
 
-	lastRKey := int64(shiftKey)
-	for i := shiftKey; i < 1000+shiftKey && outPConsumer.FetchNext(); i++ {
+	enc, err := encoder.Create(outFormat, TestSvc, TestDb, TestTbl)
+	test.CheckFail(err, t)
+
+	lastRKey := uint64(shiftKey)
+	lastFKey := uint64(shiftKey)
+	for lastFKey < uint64(100+shiftKey) && outPConsumer.FetchNext() {
 		b, err := outPConsumer.Pop()
 		encodedMsg := b.([]byte)
 		test.CheckFail(err, t)
 		if encodedMsg == nil {
 			t.FailNow()
 		}
-		data, err := codec.Decode(bytes.NewBuffer(encodedMsg))
-		test.Assert(t, err == nil, "Error decoding Avro message using schema: %v", err)
-		record := data.(*goavro.Record)
-		rKey, err := record.Get("ref_key")
-		test.Assert(t, err == nil, "Error fetching ref key from decoded Avro record: %v", err)
-		r := rKey.(int64)
-		if (shiftKey != 0 && r != lastRKey) || (shiftKey == 0 && r != 0) {
-			t.Errorf("Events out of order when consuming from output Kafka! "+
-				"Current event ref key(%v) != expected (%v)",
-				r, lastRKey)
+		data, err := enc.DecodeEvent(encodedMsg)
+		test.Assert(t, err == nil, "Error decoding message: err=%v msg=%v", err, string(encodedMsg))
+		if (shiftKey != 0 && data.SeqNo != lastRKey) || (shiftKey == 0 && data.SeqNo != 0) {
+			t.Fatalf("Events out of order when consuming from output Kafka! "+
+				"Current event ref key(%v) != expected (%v) shiftKey=%v",
+				data.SeqNo, lastRKey, shiftKey)
 		}
-		f1, err := record.Get("f1")
-		test.Assert(t, err == nil, "Error fetching f1 key from decoded Avro record: %v", err)
-		f := int64(f1.(int32))
-		if f != lastRKey {
-			t.Errorf("Events out of order when consuming from output Kafka! "+
-				"Current event f1 field(%v) != expected (%v)",
-				f, lastRKey)
+		if data.Type == "schema" {
+			lastRKey++
+			continue
+		}
+		test.Assert(t, len(*data.Fields) == 2, "should be two fields in the table")
+		r, ok := (*data.Fields)[0].Value.(int64)
+		test.Assert(t, ok, "should be int64")
+		if uint64(r) != lastFKey /*|| (*data.Fields)[0].Name != "f1"*/ {
+			t.Fatalf("Events out of order when consuming from output Kafka! "+
+				"Current event f1 field(%v) != expected (%v) %v",
+				(*data.Fields)[0].Value, lastFKey, (*data.Fields)[0].Name)
 		}
 		lastRKey++
+		lastFKey++
 	}
 	log.Debugf("verification finished %v", shiftKey)
 }
@@ -188,36 +237,61 @@ func getSchemaTest(namespace string, schemaName string, typ string) (*types.Avro
 	return a, err
 }
 
-func TestStreamer_StreamFromConsistentSnapshot(t *testing.T) {
+func testStreamerStreamFromConsistentSnapshot(pipeType string, wrap int, outFormat string, t *testing.T) {
 	log.Debugf("TestStreamer_StreamFromConsistentSnapshot")
 	test.SkipIfNoMySQLAvailable(t)
 	test.SkipIfNoKafkaAvailable(t)
 
 	shutdown.Setup()
 
+	defer func() {
+		shutdown.Initiate()
+		shutdown.Wait()
+	}()
+
 	dbConn := setupDB(t)
 	defer func() { test.CheckFail(dbConn.Close(), t) }()
 
-	bufPipe, err := pipe.Create(shutdown.Context, "kafka", 16, cfg, nil)
+	bufPipe, err := pipe.Create(shutdown.Context, pipeType, 16, cfg, nil)
 	test.CheckFail(err, t)
+
 	producer, err := bufPipe.NewProducer(config.GetTopicName(cfg.ChangelogTopicNameFormat, TestSvc, TestDb, TestTbl, 0))
 	test.CheckFail(err, t)
 
 	setupData(dbConn, 0, t)
 
-	consumer := setupWorker(bufPipe, t)
+	cfg.OutputPipeType = pipeType
+	cfg.OutputFormat = outFormat
+	consumer := setupWorker(bufPipe, pipeType, t)
 
-	verifyFromOutputKafka(0, consumer, t)
+	verifyFromOutputKafka(0, consumer, outFormat, t)
 
-	setupBufferData(producer, 1000, t)
+	setupBufferData(producer, "json", outFormat, wrap, 100, t)
 
-	verifyFromOutputKafka(1000, consumer, t)
+	verifyFromOutputKafka(100, consumer, outFormat, t)
 
 	test.CheckFail(consumer.Close(), t)
 	test.CheckFail(producer.Close(), t)
 
-	shutdown.Initiate()
-	shutdown.Wait()
+}
+
+func TestStreamer_StreamFromConsistentSnapshotKafka(t *testing.T) {
+	testStreamerStreamFromConsistentSnapshot("kafka", 1, "avro", t)
+}
+
+func TestStreamer_StreamFromConsistentSnapshotJson(t *testing.T) {
+	testStreamerStreamFromConsistentSnapshot("kafka", 0, "json", t)
+}
+
+func TestStreamer_StreamFromConsistentSnapshotJsonWrapped(t *testing.T) {
+	testStreamerStreamFromConsistentSnapshot("kafka", 1, "json", t)
+}
+
+func TestStreamer_StreamFromConsistentSnapshotJsonWrappedWithAvroOutput(t *testing.T) {
+	testStreamerStreamFromConsistentSnapshot("kafka", 2, "avro", t)
+}
+
+func TestStreamer_BadOutputPipe(t *testing.T) {
 }
 
 func TestStreamerShutdown(t *testing.T) {
@@ -234,7 +308,7 @@ func TestStreamerShutdown(t *testing.T) {
 	bufPipe, err := pipe.Create(shutdown.Context, "local", 16, cfg, nil)
 	test.CheckFail(err, t)
 
-	outConsumer := setupWorker(bufPipe, t)
+	outConsumer := setupWorker(bufPipe, "kafka", t)
 
 	execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(0,'0')", TestDb, TestTbl))
 
@@ -266,6 +340,8 @@ func TestStreamerShutdown(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
+	cfg = test.LoadConfig()
+
 	encoder.GetLatestSchema = getSchemaTest
 
 	pipe.KafkaConfig = sarama.NewConfig()
@@ -273,7 +349,11 @@ func TestMain(m *testing.M) {
 	pipe.KafkaConfig.Producer.Return.Successes = true
 	pipe.KafkaConfig.Consumer.MaxWaitTime = 10 * time.Millisecond
 
-	cfg = test.LoadConfig()
+	cfg.ClusterConcurrency = 100
+	cfg.ThrottleTargetIOPS = 5
+	cfg.DataDir = "/tmp/storagetapper/streamer_test"
+	cfg.StateUpdateTimeout = 1
+
 	DbConn, err := db.OpenService(&db.Loc{Service: TestSvc, Name: TestDb}, "")
 	if err != nil {
 		log.Warnf("MySQL is not available")

@@ -31,6 +31,13 @@ func TestAlterAvro(t *testing.T) {
 
 	log.Debugf("%v", avroSchemaRef)
 
+	loc.Cluster = "please_return_nil_db_addr"
+	_, err = GetAvroSchemaFromAlterTable(loc, TestTbl, "avro", `ALTER TABLE `+loc.Name+`.`+TestTbl+` ADD f111  BIGINT`)
+	test.Assert(t, err != nil, "invalid DB location should fail")
+
+	_, err = ConvertToAvro(loc, TestTbl, "avro")
+	test.Assert(t, err != nil, "invalid DB location should fail")
+
 	dropTestSchemaTable(t)
 }
 

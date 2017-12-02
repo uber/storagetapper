@@ -43,10 +43,10 @@ func GetAvroSchemaFromAlterTable(dbl *db.Loc, tblName string, typ string,
 	DropTempTable := "DROP TEMPORARY TABLE %s"
 
 	conn, err := db.OpenService(dbl, "")
-	defer func() { log.E(conn.Close()) }()
 	if err != nil {
 		return nil, err
 	}
+	defer func() { log.E(conn.Close()) }()
 	currTbl := fmt.Sprintf("%s.%s", dbl.Name, tblName)
 	tempTbl := fmt.Sprintf("%s.%s", dbl.Name, fmt.Sprintf("tmptbl_%d", rand.Intn(100000)))
 

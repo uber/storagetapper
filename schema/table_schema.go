@@ -125,5 +125,4 @@ func GetColumns(conn *sql.DB, dbName string, tableName string, fromtable string,
 
 	log.Debugf("Got schema from '%v' for '%v.%v' = '%+v'", fromtable, dbName, tableName, tableSchema)
 	return &tableSchema, nil
-
 }

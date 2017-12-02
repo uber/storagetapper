@@ -106,15 +106,16 @@ func TestGetRaw(t *testing.T) {
 
 	createTestSchemaTable(t)
 
-	rawSchema, err := GetRaw(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl)
+	loc := &db.Loc{Service: TestSvc, Name: TestDb}
+	rawSchema, err := GetRaw(loc, TestTbl)
 	test.CheckFail(err, t)
 
 	test.ExecSQL(conn, t, `CREATE TABLE `+types.MyDbName+`.`+TestTbl+`new `+rawSchema)
 
-	tblSchemaRef, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl)
+	tblSchemaRef, err := Get(loc, TestTbl)
 	test.CheckFail(err, t)
 
-	tblSchema, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl+"new")
+	tblSchema, err := Get(loc, TestTbl+"new")
 	test.CheckFail(err, t)
 
 	tblSchema.TableName = TestTbl //make table names equal for comparison
@@ -122,6 +123,10 @@ func TestGetRaw(t *testing.T) {
 	if !reflect.DeepEqual(tblSchemaRef, tblSchema) {
 		t.Fatalf("Wrong table create from raw schema")
 	}
+
+	loc.Cluster = "please_return_nil_db_addr"
+	_, err = GetRaw(loc, TestTbl)
+	test.Assert(t, err != nil, "invalid db loc should fail")
 
 	dropTestSchemaTable(t)
 }
@@ -150,6 +155,9 @@ func TestGetMySQLTableSchema_Fail(t *testing.T) {
 
 	_, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl+"_nonexistent")
 	test.Assert(t, err != nil, "GetMySQLTableSchema on a non-existent table did not raise error")
+
+	_, err = Get(&db.Loc{Cluster: "please_return_nil_db_addr", Service: TestSvc, Name: TestDb}, TestTbl)
+	test.Assert(t, err != nil, "GetMySQLTableSchema on a nil-addr did not raise error")
 }
 
 // Test conversion of MySQL to Avro

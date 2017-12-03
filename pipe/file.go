@@ -32,7 +32,6 @@ import (
 	"io/ioutil"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -136,16 +135,7 @@ func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
 		return c, nil
 	}
 
-	file, err := c.fs.OpenRead(c.topicPath(c.topic)+fn, offset)
-	if log.E(err) {
-		return nil, err
-	}
-
-	c.file = file
-	c.reader = bufio.NewReader(file)
-	c.name = c.topicPath(c.topic) + fn
-
-	log.Debugf("Opened for read %v, file.Name()", fn)
+	c.openFile(fn, offset)
 
 	return c, nil
 }
@@ -156,6 +146,7 @@ func (p *filePipe) NewConsumer(topic string) (Consumer, error) {
 	return p.initConsumer(c)
 }
 
+/*
 //SetGen sets generation of the topic stream, separate directory with the string
 //representation of "gen" will be created inside the topic directory
 func (p *fileProducer) SetGen(gen int64) {
@@ -167,6 +158,7 @@ func (p *fileProducer) SetGen(gen int64) {
 func (p *fileConsumer) SetGen(gen int64) {
 	p.gen = strconv.FormatInt(gen, 10)
 }
+*/
 
 func topicPath(datadir string, topic string, gen string) string {
 	var r string
@@ -178,10 +170,11 @@ func topicPath(datadir string, topic string, gen string) string {
 	if topic != "" {
 		r += topic + "/"
 	}
-
-	if gen != "" {
-		r += gen + "/"
-	}
+	/*
+		if gen != "" {
+			r += gen + "/"
+		}
+	*/
 
 	return r
 }

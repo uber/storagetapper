@@ -51,3 +51,9 @@ func TestHdfsSmall(t *testing.T) {
 	t.Skip("Flaky in VM env. Skip for now")
 	testHdfsBasic(1, t)
 }
+
+func TestHdfsType(t *testing.T) {
+	pt := "hdfs"
+	p, _ := initHdfsPipe(nil, 0, cfg, nil)
+	test.Assert(t, p.Type() == pt, "type should be "+pt)
+}

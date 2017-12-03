@@ -487,6 +487,12 @@ func multiTestLoop(p Pipe, i int, t *testing.T) {
 	}
 }
 
+func TestKafkaType(t *testing.T) {
+	pt := "kafka"
+	p, _ := initKafkaPipe(nil, 0, cfg, nil)
+	test.Assert(t, p.Type() == pt, "type should be "+pt)
+}
+
 //WARN: There is no way to control number of partition programmatically
 //so the test relies on the server configuration:
 //num.partitions=8

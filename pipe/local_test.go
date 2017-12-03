@@ -98,6 +98,12 @@ func TestLocalBasic(t *testing.T) {
 	shutdown.Wait()
 }
 
+func TestLocalType(t *testing.T) {
+	pt := "local"
+	p, _ := initLocalPipe(nil, 0, cfg, nil)
+	test.Assert(t, p.Type() == pt, "type should be "+pt)
+}
+
 func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
 

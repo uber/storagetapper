@@ -51,4 +51,101 @@ func TestBasic(t *testing.T) {
 	if !EL(l, fmt.Errorf("Print error with fields")) {
 		t.Fatalf("Should return true when error is not nil")
 	}
+
+	l = WithFields(Fields{})
+
+	l.Debugf("msg with empty fields")
+	l.Infof("msg with empty fields")
+	l.Warnf("msg with empty fields")
+	l.Errorf("msg with empty fields")
+
+}
+
+func TestWrongLogger(t *testing.T) {
+	Configure("non_existent_logger", "debug", false)
+	if _, ok := def.(*stdlog); !ok {
+		t.Fatalf("stdlog should be created by default")
+	}
+
+}
+
+func TestWrongLevel(t *testing.T) {
+	if ParseLevel("non_existent_level") != Info {
+		t.Fatalf("default log level should info")
+	}
+}
+
+//implementation of log interface to test panicf and fatalf calls
+type nillog struct {
+	fatalf int
+	panicf int
+}
+
+//Debugf logs a message with given format and arguments
+func (log *nillog) Debugf(format string, args ...interface{}) {
+}
+
+//Infof logs a message with given format and arguments
+func (log *nillog) Infof(format string, args ...interface{}) {
+}
+
+//Warnf logs a message with given format and arguments
+func (log *nillog) Warnf(format string, args ...interface{}) {
+}
+
+//Errorf logs a message with given format and arguments
+func (log *nillog) Errorf(format string, args ...interface{}) {
+}
+
+//Fatalf logs a message with given format and arguments and then finishes the
+//process with error exit code
+func (log *nillog) Fatalf(format string, args ...interface{}) {
+	log.fatalf++
+}
+
+//Panicf logs a message with given format and arguments and then panics
+func (log *nillog) Panicf(format string, args ...interface{}) {
+	log.panicf++
+}
+
+//WithFields attaches given key/value fields and return new logger with those
+//fields attached
+func (log *nillog) WithFields(fields Fields) Logger {
+	return nil
+}
+
+func configureNil(level int, production bool) (Logger, error) {
+	return &nillog{}, nil
+}
+
+func TestPanicAndFatal(t *testing.T) {
+	registerPlugin("nillog", configureNil)
+
+	Configure("nillog", "debug", false)
+
+	nl, ok := def.(*nillog)
+
+	if !ok {
+		t.Fatalf("nillog should be created and be default logger")
+	}
+
+	Panicf("msg")
+
+	if nl.panicf != 1 {
+		t.Fatalf("panicf wasn't called")
+	}
+
+	Fatalf("msg")
+
+	if nl.fatalf != 1 {
+		t.Fatalf("fatalf wasn't called")
+	}
+
+	F(fmt.Errorf("Test error to pint"))
+	F(nil)
+
+	if nl.fatalf != 2 {
+		t.Fatalf("fatalf wasn't called")
+	}
+
 }

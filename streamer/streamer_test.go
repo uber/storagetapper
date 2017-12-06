@@ -100,7 +100,10 @@ func setupDB(t *testing.T) *sql.DB {
 	// Store Avro schema in local db
 	avSch, err := schema.ConvertToAvro(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, "avro")
 	test.Assert(t, err == nil, "Error converting TestTbl to its Avro schema: %v", err)
-	err = state.InsertSchema(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl, 0), "avro", util.BytesToString(avSch))
+	tn, err := cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl, "mysql", cfg.OutputPipeType, 0)
+	test.CheckFail(err, t)
+
+	err = state.InsertSchema(tn, "avro", util.BytesToString(avSch))
 	test.CheckFail(err, t)
 	return dbConn
 }
@@ -173,7 +176,10 @@ func setupWorker(bufPipe pipe.Pipe, outPipeType string, t *testing.T) pipe.Consu
 		log.F(err)
 	}
 
-	outConsumer, err := outPipe[outPipeType].NewConsumer(cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl, 0))
+	tn, err := cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl, "mysql", cfg.OutputPipeType, 0)
+	test.CheckFail(err, t)
+
+	outConsumer, err := outPipe[outPipeType].NewConsumer(tn)
 
 	test.CheckFail(err, t)
 	shutdown.Register(1)
@@ -254,8 +260,9 @@ func testStreamerStreamFromConsistentSnapshot(pipeType string, wrap int, outForm
 
 	bufPipe, err := pipe.Create(shutdown.Context, pipeType, 16, cfg, nil)
 	test.CheckFail(err, t)
-
-	producer, err := bufPipe.NewProducer(config.GetTopicName(cfg.ChangelogTopicNameFormat, TestSvc, TestDb, TestTbl, 0))
+	tn, err := config.Get().GetChangelogTopicName(TestSvc, TestDb, TestTbl, "mysql", cfg.OutputPipeType, 0)
+	test.CheckFail(err, t)
+	producer, err := bufPipe.NewProducer(tn)
 	test.CheckFail(err, t)
 
 	setupData(dbConn, 0, t)

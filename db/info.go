@@ -40,17 +40,6 @@ type Loc struct {
 	Name    string
 }
 
-/*TableLoc - table location */
-type TableLoc struct {
-	Service string
-	Cluster string
-	Db      string
-	Table   string
-	Input   string
-	Output  string
-	Version int
-}
-
 //Define connection types
 const (
 	Master = iota

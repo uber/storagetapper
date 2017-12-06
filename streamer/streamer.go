@@ -49,6 +49,7 @@ type Streamer struct {
 	topic       string
 	id          int64
 	input       string
+	output      string
 	inPipe      pipe.Pipe
 	outPipe     pipe.Pipe
 	outProducer pipe.Producer
@@ -157,10 +158,18 @@ func (s *Streamer) lockTable(st state.Type, outPipes *map[string]pipe.Pipe) {
 				return
 			}
 			s.input = row.Input
+			s.output = row.Output
 			s.version = row.Version
 			break
 		}
 	}
+}
+
+func readState(cfg *config.AppConfig) (state.Type, error) {
+	if cfg.ChangelogPipeType == "local" {
+		return state.GetForCluster(changelog.ThisInstanceCluster())
+	}
+	return state.Get()
 }
 
 func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) bool {
@@ -172,12 +181,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 
 	log.Debugf("Started streamer thread")
 
-	if cfg.ChangelogPipeType == "local" {
-		st, err = state.GetForCluster(changelog.ThisInstanceCluster())
-	} else {
-		st, err = state.Get()
-	}
-	if err != nil {
+	if st, err = readState(cfg); log.E(err) {
 		log.Errorf("Error reading state: %v", err.Error())
 	}
 
@@ -217,7 +221,10 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 
 	// Event Streamer worker has successfully acquired a lock on a table. Proceed further
 	// Each Event Streamer handles events from all partitions from Input buffer for a table
-	s.topic = cfg.GetOutputTopicName(s.svc, s.db, s.table, s.version)
+	s.topic, err = cfg.GetOutputTopicName(s.svc, s.db, s.table, s.input, s.output, s.version)
+	if log.E(err) {
+		return false
+	}
 	s.batchSize = cfg.PipeBatchSize
 
 	log.Debugf("Will be streaming to topic: %v", s.topic)
@@ -263,7 +270,11 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 
 	//Consumer should registered before snapshot started, so it sees all the
 	//event during the snapshot
-	consumer, err := s.inPipe.NewConsumer(config.GetTopicName(cfg.ChangelogTopicNameFormat, s.svc, s.db, s.table, s.version))
+	tn, err := config.Get().GetChangelogTopicName(s.svc, s.db, s.table, s.input, s.output, s.version)
+	if log.EL(s.log, err) {
+		return false
+	}
+	consumer, err := s.inPipe.NewConsumer(tn)
 	if log.EL(s.log, err) {
 		return false
 	}

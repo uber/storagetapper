@@ -291,7 +291,6 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		test.CheckFail(err, t)
 	}
 	cfg.StateUpdateTimeout = 1
-	cfg.OutputTopicNameFormat = "hp-tap-%s-%s-%s"
 	cfg.MaxNumProcs = 3
 	//	cfg.PipeBatchSize = 1
 	schema.HeatpipeNamespace = "hp"

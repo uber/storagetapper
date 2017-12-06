@@ -347,8 +347,6 @@ func Prepare(pipeType string, create []string, encoding string, t *testing.T) (*
 	shutdown.Setup()
 
 	if testName == "TestMultiTable" {
-		cfg.OutputTopicNameFormat = "hp-tap-%s-%s-%s-v%d"
-		cfg.ChangelogTopicNameFormat = types.MySvcName + ".service.%s.db.%s.table.%s-v%d"
 		cfg.OutputFormat = encoding
 	}
 
@@ -481,7 +479,8 @@ func CheckBinlogFormat(t *testing.T) {
 */
 
 func initConsumeTableEvents(p pipe.Pipe, db string, table string, version int, t *testing.T) pipe.Consumer {
-	tn := config.GetTopicName(cfg.ChangelogTopicNameFormat, "test_svc1", db, table, version)
+	tn, err := config.Get().GetChangelogTopicName("test_svc1", db, table, "mysql", "local", version)
+	test.CheckFail(err, t)
 	pc, err := p.NewConsumer(tn)
 	test.CheckFail(err, t)
 	log.Debugf("Start event consumer from: " + tn)

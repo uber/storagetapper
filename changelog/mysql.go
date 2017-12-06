@@ -64,24 +64,23 @@ type table struct {
 }
 
 type mysqlReader struct {
-	gtidSet         *mysql.MysqlGTIDSet
-	seqNo           uint64
-	masterCI        *db.Addr
-	tables          map[string]map[string][]*table
-	numTables       int
-	bufPipe         pipe.Pipe
-	outPipes        *map[string]pipe.Pipe
-	dbl             db.Loc
-	ctx             context.Context
-	log             log.Logger
-	alterRE         *regexp.Regexp
-	alterQuotedRE   *regexp.Regexp
-	tpool           pool.Thread
-	outputFormat    string
-	topicNameFormat string
-	metrics         *metrics.BinlogReader
-	batchSize       int
-	lock            lock.Lock
+	gtidSet       *mysql.MysqlGTIDSet
+	seqNo         uint64
+	masterCI      *db.Addr
+	tables        map[string]map[string][]*table
+	numTables     int
+	bufPipe       pipe.Pipe
+	outPipes      *map[string]pipe.Pipe
+	dbl           db.Loc
+	ctx           context.Context
+	log           log.Logger
+	alterRE       *regexp.Regexp
+	alterQuotedRE *regexp.Regexp
+	tpool         pool.Thread
+	outputFormat  string
+	metrics       *metrics.BinlogReader
+	batchSize     int
+	lock          lock.Lock
 }
 
 func init() {
@@ -167,7 +166,10 @@ func (b *mysqlReader) addNewTable(st state.Type, i int) bool {
 		return true
 	}
 
-	pn := config.GetTopicName(b.topicNameFormat, t.Service, t.Db, t.Table, t.Version)
+	pn, err := config.Get().GetChangelogTopicName(t.Service, t.Db, t.Table, t.Input, t.Output, t.Version)
+	if log.EL(b.log, err) {
+		return false
+	}
 	pipe := b.bufPipe
 
 	if !config.Get().ChangelogBuffer {
@@ -781,7 +783,6 @@ func (b *mysqlReader) start(cfg *config.AppConfig) bool {
 
 	thisInstanceCluster = b.dbl.Cluster
 	b.outputFormat = cfg.ChangelogOutputFormat
-	b.topicNameFormat = cfg.ChangelogTopicNameFormat
 	b.batchSize = cfg.PipeBatchSize
 
 	b.log = log.WithFields(log.Fields{"cluster": b.dbl.Cluster})

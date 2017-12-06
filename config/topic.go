@@ -21,28 +21,47 @@
 package config
 
 import (
-	"fmt"
-	"strings"
+	"bytes"
+	"text/template"
+
+	"github.com/uber/storagetapper/types"
 )
 
-// GetTopicName returns Kafka topic name
-func GetTopicName(format string, svc string, db string, tbl string, ver int) string {
-	//TODO: Implement this in a better way
-	n := strings.Count(format, "%s") + strings.Count(format, "%d")
-	switch n {
-	case 4:
-		return fmt.Sprintf(format, svc, db, tbl, ver)
-	case 3:
-		return fmt.Sprintf(format, svc, db, tbl)
-	case 2:
-		return fmt.Sprintf(format, svc, db)
-	case 1:
-		return fmt.Sprintf(format, svc)
+func getTopicName(template *template.Template, tloc *types.TableLoc) (string, error) {
+	buf := &bytes.Buffer{}
+	err := template.Execute(buf, tloc)
+	if err != nil {
+		return "", err
 	}
-	return fmt.Sprintf(format)
+	return string(buf.Bytes()), nil
 }
 
-// GetOutputTopicName returns output Kafka topic name
-func (c *AppConfig) GetOutputTopicName(svc string, db string, tbl string, ver int) string {
-	return GetTopicName(c.OutputTopicNameFormat, svc, db, tbl, ver)
+// GetOutputTopicName returns output topic name
+func (c *AppConfig) GetOutputTopicName(svc string, db string, tbl string, input string, output string, ver int) (string, error) {
+	tmpl := c.OutputTopicNameTemplateDefaultParsed
+
+	inp := c.OutputTopicNameTemplateParsed[input]
+	if inp != nil {
+		out := inp[output]
+		if out != nil {
+			tmpl = out
+		}
+	}
+
+	return getTopicName(tmpl, &types.TableLoc{Service: svc, Cluster: "", Db: db, Table: tbl, Input: input, Output: output, Version: ver})
+}
+
+// GetChangelogTopicName returns output topic name
+func (c *AppConfig) GetChangelogTopicName(svc string, db string, tbl string, input string, output string, ver int) (string, error) {
+	tmpl := c.ChangelogTopicNameTemplateDefaultParsed
+
+	inp := c.ChangelogTopicNameTemplateParsed[input]
+	if inp != nil {
+		out := inp[output]
+		if out != nil {
+			tmpl = out
+		}
+	}
+
+	return getTopicName(tmpl, &types.TableLoc{Service: svc, Cluster: "", Db: db, Table: tbl, Input: input, Output: output, Version: ver})
 }

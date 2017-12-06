@@ -35,6 +35,9 @@ const defaultEnvironment = "production"
 
 var paths = []string{"/etc/" + types.MySvcName, os.Getenv("HOME") + "/." + types.MySvcName, os.Getenv(strings.ToUpper(types.MySvcName) + "_CONFIG_DIR")}
 
+var loadFile = ioutil.ReadFile
+var exit = os.Exit
+
 type stdConfig struct {
 	environment string
 	cfg         *AppConfig
@@ -58,7 +61,7 @@ func (c *stdConfig) EnvProduction() bool {
 }
 
 func (c *stdConfig) loadFile(file string, cfg interface{}) error {
-	b, err := ioutil.ReadFile(file)
+	b, err := loadFile(file)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -99,14 +102,19 @@ func (c *stdConfig) LoadSection(cfg interface{}) error {
 
 //Load config from files
 func (c *stdConfig) Load() error {
-	cfg := GetDefaultConfig()
+	cfg := getDefaultConfig()
 
 	if err := c.LoadSection(cfg); err != nil {
 		return err
 	}
 
-	cfg.PortDyn = cfg.Port
-	c.cfg = cfg
+	cp, err := parseConfig(cfg)
+	if err != nil {
+		return err
+	}
+
+	cp.PortDyn = cfg.Port
+	c.cfg = cp
 
 	return nil
 }
@@ -117,7 +125,7 @@ func (c *stdConfig) Get() *AppConfig {
 		err := Load()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s", err.Error())
-			os.Exit(1)
+			exit(1)
 		}
 	}
 	return c.cfg

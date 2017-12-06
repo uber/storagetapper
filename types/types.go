@@ -27,3 +27,14 @@ type RowMessage struct {
 	Data  *[]interface{}
 	SeqNo uint64
 }
+
+/*TableLoc - table location */
+type TableLoc struct {
+	Service string
+	Cluster string
+	Db      string
+	Table   string
+	Input   string
+	Output  string
+	Version int
+}

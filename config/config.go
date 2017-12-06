@@ -23,12 +23,13 @@ package config
 import (
 	"fmt"
 	"runtime"
+	"text/template"
 
 	"github.com/uber/storagetapper/types"
 )
 
-// AppConfig is the config struct which the config gets loaded into
-type AppConfig struct {
+// AppConfigODS is the config struct which the config gets loaded into
+type AppConfigODS struct {
 	LogType  string `yaml:"log_type"`
 	LogLevel string `yaml:"log_level"`
 
@@ -36,7 +37,6 @@ type AppConfig struct {
 
 	ServiceName string `yaml:"serviceName"`
 	Port        int    `yaml:"port"`
-	PortDyn     int
 
 	MaxNumProcs        int          `yaml:"max_num_procs"`
 	StateUpdateTimeout int          `yaml:"state_update_timeout"`
@@ -44,15 +44,17 @@ type AppConfig struct {
 	KafkaAddrs         []string     `yaml:"kafka_addresses"`
 	Hadoop             HadoopConfig `yaml:"hadoop"`
 
-	ChangelogPipeType        string `yaml:"changelog_pipe_type"`
-	ChangelogOutputFormat    string `yaml:"changelog_output_format"`
-	ChangelogTopicNameFormat string `yaml:"changelog_topic_name_format"`
-	ChangelogBuffer          bool   `yaml:"changelog_buffer"`
+	ChangelogPipeType                 string                       `yaml:"changelog_pipe_type"`
+	ChangelogOutputFormat             string                       `yaml:"changelog_output_format"`
+	ChangelogTopicNameTemplateDefault string                       `yaml:"changelog_topic_name_template_default"`
+	ChangelogTopicNameTemplate        map[string]map[string]string `yaml:"changelog_topic_name_template"`
+	ChangelogBuffer                   bool                         `yaml:"changelog_buffer"`
 
-	OutputPipeType        string `yaml:"output_pipe_type"`
-	OutputFormat          string `yaml:"output_format"`
-	OutputTopicNameFormat string `yaml:"output_topic_name_format"`
-	ClusterConcurrency    int    `yaml:"cluster_concurrency"`
+	OutputPipeType                 string                       `yaml:"output_pipe_type"`
+	OutputFormat                   string                       `yaml:"output_format"`
+	OutputTopicNameTemplateDefault string                       `yaml:"output_topic_name_template_default"`
+	OutputTopicNameTemplate        map[string]map[string]string `yaml:"output_topic_name_template"`
+	ClusterConcurrency             int                          `yaml:"cluster_concurrency"`
 
 	PipeBatchSize int `yaml:"pipe_batch_size"`
 
@@ -70,6 +72,16 @@ type AppConfig struct {
 	InternalEncoding string `yaml:"internal_encoding"`
 }
 
+// AppConfig is the config struct which the config gets loaded into
+type AppConfig struct {
+	AppConfigODS
+	PortDyn                                 int
+	ChangelogTopicNameTemplateParsed        map[string]map[string]*template.Template
+	OutputTopicNameTemplateParsed           map[string]map[string]*template.Template
+	ChangelogTopicNameTemplateDefaultParsed *template.Template
+	OutputTopicNameTemplateDefaultParsed    *template.Template
+}
+
 // HadoopConfig holds hadoop output pipe configuration
 type HadoopConfig struct {
 	User      string   `yaml:"user"`
@@ -77,23 +89,21 @@ type HadoopConfig struct {
 	BaseDir   string   `yaml:"base_dir"`
 }
 
-// GetDefaultConfig returns default configuration
-func GetDefaultConfig() *AppConfig {
-	return &AppConfig{
-		Port:    7836,
-		PortDyn: 7836,
+func getDefaultConfig() *AppConfigODS {
+	return &AppConfigODS{
+		Port: 7836,
 
 		MaxNumProcs:        runtime.NumCPU(),
 		StateUpdateTimeout: 300,
 
-		ChangelogPipeType:        "kafka",
-		ChangelogOutputFormat:    "json",
-		ChangelogTopicNameFormat: types.MySvcName + ".service.%s.db.%s.table.%s",
-		ChangelogBuffer:          true,
+		ChangelogPipeType:                 "kafka",
+		ChangelogOutputFormat:             "json",
+		ChangelogTopicNameTemplateDefault: types.MySvcName + ".service.{{.Service}}.db.{{.Db}}.table.{{.Table}}",
+		ChangelogBuffer:                   true,
 
-		OutputPipeType:        "kafka",
-		OutputFormat:          "avro",
-		OutputTopicNameFormat: "hp-tap-%s-%s-%s",
+		OutputPipeType:                 "kafka",
+		OutputFormat:                   "avro",
+		OutputTopicNameTemplateDefault: "hp-tap-{{.Service}}-{{.Db}}-{{.Table}}",
 
 		PipeBatchSize:         256,
 		OutputPipeConcurrency: 1,
@@ -132,6 +142,59 @@ func Get() *AppConfig {
 //EnvProduction returns true in production environment
 func EnvProduction() bool {
 	return def.EnvProduction()
+}
+
+func parseTemplates(tmplMap map[string]map[string]string) (map[string]map[string]*template.Template, error) {
+	parsedMap := make(map[string]map[string]*template.Template)
+
+	for i, inp := range tmplMap {
+		for o, out := range inp {
+			t, err := template.New(i + "." + o).Parse(out)
+			if err != nil {
+				return nil, err
+			}
+			if parsedMap[i] == nil {
+				parsedMap[i] = make(map[string]*template.Template)
+			}
+			parsedMap[i][o] = t
+		}
+	}
+
+	return parsedMap, nil
+}
+
+func parseConfig(cfg *AppConfigODS) (*AppConfig, error) {
+	var c AppConfig
+
+	c.AppConfigODS = *cfg
+
+	t, err := parseTemplates(c.OutputTopicNameTemplate)
+	if err != nil {
+		return nil, err
+	}
+
+	c.OutputTopicNameTemplateParsed = t
+
+	t, err = parseTemplates(c.ChangelogTopicNameTemplate)
+	if err != nil {
+		return nil, err
+	}
+
+	c.ChangelogTopicNameTemplateParsed = t
+
+	td, err := template.New("otntd").Parse(c.OutputTopicNameTemplateDefault)
+	if err != nil {
+		return nil, err
+	}
+	c.OutputTopicNameTemplateDefaultParsed = td
+
+	td, err = template.New("ctntd").Parse(c.ChangelogTopicNameTemplateDefault)
+	if err != nil {
+		return nil, err
+	}
+	c.ChangelogTopicNameTemplateDefaultParsed = td
+
+	return &c, nil
 }
 
 //Load creates the config

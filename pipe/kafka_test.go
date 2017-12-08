@@ -43,8 +43,9 @@ var wg sync.WaitGroup
 
 //Push types. 0... - used for push to specific partition
 const (
-	KEY   = -2
-	NOKEY = -1
+	KEY   = -3
+	NOKEY = -2
+	BATCH = -1
 )
 
 func createPipe(batchSize int) *KafkaPipe {
@@ -158,14 +159,19 @@ func kafkaProducerWorker(p Pipe, key string, startFrom int, ptype int, nrecs int
 		b := []byte(msg)
 		if ptype == KEY {
 			err = c.PushK(msg, b)
-			//err = c.(*KafkaProducer).pushPartition(msg, 0, b)
 		} else if ptype == NOKEY {
 			err = c.Push(b)
-			//err = c.(*KafkaProducer).pushPartition("", 0, b)
+		} else if ptype == BATCH {
+			err = c.PushBatch(msg, b)
 		} else {
 			err = c.(*kafkaProducer).pushPartition(msg, ptype, b)
 		}
 		log.Debugf("Pushed: %v", msg)
+		test.CheckFail(err, t)
+	}
+
+	if ptype == BATCH {
+		err = c.PushBatchCommit()
 		test.CheckFail(err, t)
 	}
 

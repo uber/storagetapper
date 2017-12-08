@@ -70,6 +70,10 @@ type AppConfigODS struct {
 	MaxFileSize int64  `yaml:"max_file_size"`
 
 	InternalEncoding string `yaml:"internal_encoding"`
+
+	PipeAES256Key  string `yaml:"pipe_aes256_key"`
+	PipeHMACKey    string `yaml:"pipe_hmac_key"`
+	PipeVerifyHMAC bool   `yaml:"pipe_verify_hmac"`
 }
 
 // AppConfig is the config struct which the config gets loaded into

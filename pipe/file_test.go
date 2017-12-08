@@ -19,8 +19,9 @@ func deleteTestTopics(t *testing.T) {
 	test.CheckFail(err, t)
 }
 
-func testFileBasic(size int64, t *testing.T) {
-	p := &filePipe{baseDir, size}
+func testFileBasic(size int64, AESKey string, HMACKey string, t *testing.T) {
+	verifyHMAC := HMACKey != ""
+	p := &filePipe{datadir: baseDir, maxFileSize: size, AESKey: AESKey, HMACKey: HMACKey, verifyHMAC: verifyHMAC}
 
 	startCh = make(chan bool)
 
@@ -35,20 +36,23 @@ func testFileBasic(size int64, t *testing.T) {
 
 	deleteTestTopics(t)
 	testLoop(p, t, KEY)
+
+	deleteTestTopics(t)
+	testLoop(p, t, BATCH)
 }
 
 func TestFileBasic(t *testing.T) {
-	testFileBasic(1024, t)
+	testFileBasic(1024, "", "", t)
 }
 
 func TestFileSmall(t *testing.T) {
-	testFileBasic(1, t)
+	testFileBasic(1, "", "", t)
 }
 
 func TestFileHeader(t *testing.T) {
 	deleteTestTopics(t)
 
-	fp := &filePipe{baseDir, 1024}
+	fp := &filePipe{datadir: baseDir, maxFileSize: 1024}
 
 	p, err := fp.NewProducer("header-test-topic")
 	test.CheckFail(err, t)
@@ -86,7 +90,7 @@ func TestFileHeader(t *testing.T) {
 
 	test.Assert(t, h.Format == "json", "unexpected")
 	test.Assert(t, string(h.Schema) == "schema-to-test-header", "unexpected")
-	test.Assert(t, h.HashSum == "d814ab34da9e76c671066fa47d865c7afa7487f18225bf97ca849c080065536d", "unexpected")
+	test.Assert(t, h.HMAC == "79272b31d679f9ff72457002da87e985dad203a281ac84de6b5420631f9cb17c", "unexpected")
 
 	err = c.Close()
 	test.CheckFail(err, t)
@@ -95,7 +99,7 @@ func TestFileHeader(t *testing.T) {
 func TestFileBinary(t *testing.T) {
 	deleteTestTopics(t)
 
-	fp := &filePipe{baseDir, 1024}
+	fp := &filePipe{datadir: baseDir, maxFileSize: 1024}
 
 	p, err := fp.NewProducer("binary-test-topic")
 	test.CheckFail(err, t)
@@ -139,7 +143,7 @@ func TestFileNoDelimiter(t *testing.T) {
 	topic := "no-delimiter-test-topic"
 	Delimited = false
 
-	fp := &filePipe{baseDir, 1024}
+	fp := &filePipe{datadir: baseDir, maxFileSize: 1024}
 
 	p, err := fp.NewProducer(topic)
 	test.CheckFail(err, t)
@@ -172,7 +176,7 @@ func TestFileNoDelimiter(t *testing.T) {
 	test.Assert(t, len(dc) == 1, "expect exactly one file in the directory")
 
 	r, err := ioutil.ReadFile(baseDir + "/" + topic + "/" + dc[0].Name())
-	test.Assert(t, string(r) == `{"Format":"json","SHA256":"da83f63e1a473003712c18f5afc5a79044221943d1083c7c5a7ac7236d85e8d2"}
+	test.Assert(t, string(r) == `{"Format":"json","HMAC-SHA256":"e8bf2c23a49dda570ac39e0a90683fe305620263f9d50ade99f835d3bc0bb05e"}
 firstsecond`, "file content mismatch")
 
 	Delimited = true
@@ -192,7 +196,7 @@ func TestFileOffsets(t *testing.T) {
 	topic := "file-offsets-test-topic"
 	deleteTestTopics(t)
 
-	fp := &filePipe{baseDir, 1024}
+	fp := &filePipe{datadir: baseDir, maxFileSize: 1024}
 
 	p, err := fp.NewProducer(topic)
 	test.CheckFail(err, t)
@@ -246,4 +250,59 @@ func TestFileType(t *testing.T) {
 	pt := "file"
 	p, _ := initFilePipe(nil, 0, cfg, nil)
 	test.Assert(t, p.Type() == pt, "type should be "+pt)
+}
+
+func TestFileEncryption(t *testing.T) {
+	AESKey := "12345678901234567890123456789012"
+	testFileBasic(1, AESKey, "", t)
+}
+
+func TestFileVerifyHMAC(t *testing.T) {
+	AESKey := "12345678901234567890123456789012"
+	HMACKey := "qwertyuiopasdfghjklzxcvbnmqwerty"
+	testFileBasic(1, AESKey, HMACKey, t)
+}
+
+func TestFileEncryptionBinary(t *testing.T) {
+	deleteTestTopics(t)
+
+	AESKey := "12345678901234567890123456789012"
+	HMACKey := "qwertyuiopasdfghjklzxcvbnmqwerty"
+
+	fp := &filePipe{datadir: baseDir, maxFileSize: 1024, AESKey: AESKey, HMACKey: HMACKey, verifyHMAC: true}
+
+	p, err := fp.NewProducer("binary-test-topic")
+	test.CheckFail(err, t)
+	p.SetFormat("binary") // anything !json && !text are binary
+
+	c, err := fp.NewConsumer("binary-test-topic")
+	test.CheckFail(err, t)
+
+	msg1 := `first`
+	err = p.Push([]byte(msg1))
+	test.CheckFail(err, t)
+
+	msg2 := `second`
+	err = p.Push([]byte(msg2))
+	test.CheckFail(err, t)
+
+	err = p.Close()
+	test.CheckFail(err, t)
+
+	test.Assert(t, c.FetchNext(), "there should be first message")
+
+	m, err := c.Pop()
+	test.CheckFail(err, t)
+
+	test.Assert(t, string(m.([]byte)) == msg1, "read back incorrect first message")
+
+	test.Assert(t, c.FetchNext(), "there should be second message")
+
+	m, err = c.Pop()
+	test.CheckFail(err, t)
+
+	test.Assert(t, string(m.([]byte)) == msg2, "read back incorrect first message")
+
+	err = c.Close()
+	test.CheckFail(err, t)
 }

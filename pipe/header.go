@@ -12,12 +12,13 @@ type Header struct {
 	Format    string
 	Schema    []byte `json:",omitempty"`
 	Delimited bool   `json:",omitempty"`
-	HashSum   string `json:"SHA256,omitempty"`
+	HMAC      string `json:"HMAC-SHA256,omitempty"`
+	IV        string `json:"AES256-CFB-IV,omitempty"`
 }
 
 func writeHeader(header *Header, hash []byte, f io.Writer) error {
 	if len(hash) != 0 {
-		header.HashSum = fmt.Sprintf("%x", hash)
+		header.HMAC = fmt.Sprintf("%x", hash)
 	}
 
 	h, err := json.Marshal(header)

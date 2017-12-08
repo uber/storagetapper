@@ -46,9 +46,11 @@ func testHdfsBasic(size int64, t *testing.T) {
 }
 
 func TestHdfsBasic(t *testing.T) {
+	t.Skip("Flaky in VM env. Skip for now")
 	testHdfsBasic(1024, t)
 }
 
 func TestHdfsSmall(t *testing.T) {
+	t.Skip("Flaky in VM env. Skip for now")
 	testHdfsBasic(1, t)
 }

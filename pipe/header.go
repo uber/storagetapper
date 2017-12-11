@@ -10,10 +10,11 @@ import (
 //Header represent file metadata in the beginning of the file
 type Header struct {
 	Format    string
-	Schema    []byte `json:",omitempty"`
-	Delimited bool   `json:",omitempty"`
-	HMAC      string `json:"HMAC-SHA256,omitempty"`
-	IV        string `json:"AES256-CFB-IV,omitempty"`
+	Filters   []string `json:",omitempty"`
+	Schema    []byte   `json:",omitempty"`
+	Delimited bool     `json:",omitempty"`
+	HMAC      string   `json:"HMAC-SHA256,omitempty"`
+	IV        string   `json:"AES256-CFB-IV,omitempty"`
 }
 
 func writeHeader(header *Header, hash []byte, f io.Writer) error {

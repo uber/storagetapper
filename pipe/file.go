@@ -22,6 +22,7 @@ package pipe
 
 import (
 	"bufio"
+	"compress/zlib"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -70,6 +71,12 @@ type filePipe struct {
 	AESKey      string
 	HMACKey     string
 	verifyHMAC  bool
+	compression bool
+}
+
+type writerFlusher interface {
+	Write([]byte) (int, error)
+	Flush() error
 }
 
 type file struct {
@@ -78,8 +85,8 @@ type file struct {
 	seek    io.Seeker
 	offset  int64
 	crypter cipher.Stream
-	hash    hash.Hash
-	writer  *bufio.Writer
+	hash    *hashWriter
+	writer  writerFlusher
 }
 
 // fileProducer synchronously pushes messages to File using topic specified during producer creation
@@ -97,6 +104,8 @@ type fileProducer struct {
 
 	AESKey  string
 	HMACKey string
+
+	compression bool
 }
 
 // fileConsumer consumes messages from File using topic and partition specified during consumer creation
@@ -119,6 +128,19 @@ type fileConsumer struct {
 	AESKey     string
 	HMACKey    string
 	verifyHMAC bool
+
+	compression bool
+}
+
+type hashWriter struct {
+	writer io.Writer
+	hash   hash.Hash
+}
+
+func (w *hashWriter) Write(b []byte) (int, error) {
+	n, err := w.writer.Write(b)
+	_, _ = w.hash.Write(b)
+	return n, err
 }
 
 func init() {
@@ -126,7 +148,7 @@ func init() {
 }
 
 func initFilePipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
-	return &filePipe{cfg.DataDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC}, nil
+	return &filePipe{cfg.DataDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC, cfg.PipeCompression}, nil
 }
 
 // Type returns Pipe type as File
@@ -136,7 +158,7 @@ func (p *filePipe) Type() string {
 
 //NewProducer registers a new sync producer
 func (p *filePipe) NewProducer(topic string) (Producer, error) {
-	return &fileProducer{datadir: p.datadir, topic: topic, files: make(map[string]*file), maxFileSize: p.maxFileSize, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey}, nil
+	return &fileProducer{datadir: p.datadir, topic: topic, files: make(map[string]*file), maxFileSize: p.maxFileSize, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey, compression: p.compression}, nil
 }
 
 func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
@@ -158,7 +180,7 @@ func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
 
 //NewConsumer registers a new file consumer with context
 func (p *filePipe) NewConsumer(topic string) (Consumer, error) {
-	c := &fileConsumer{datadir: p.datadir, topic: topic, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey, verifyHMAC: p.verifyHMAC}
+	c := &fileConsumer{datadir: p.datadir, topic: topic, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey, verifyHMAC: p.verifyHMAC, compression: p.compression}
 	return p.initConsumer(c)
 }
 
@@ -282,14 +304,16 @@ func (p *fileProducer) newFile(key string) error {
 	}
 
 	n := p.newFileName(key)
-	f, s, err := p.fs.OpenWrite(n)
+	f, seeker, err := p.fs.OpenWrite(n)
 	if err != nil {
 		return err
 	}
 
+	var writer io.Writer = f
+
 	var offset int64
-	if s != nil {
-		offset, err = s.Seek(0, os.SEEK_END)
+	if seeker != nil {
+		offset, err = seeker.Seek(0, os.SEEK_END)
 		if err != nil {
 			return err
 		}
@@ -305,14 +329,24 @@ func (p *fileProducer) newFile(key string) error {
 
 	if offset == 0 {
 		p.header.Delimited = Delimited
+		p.header.Filters = nil
+		if p.AESKey != "" {
+			p.header.Filters = append(p.header.Filters, "aes256-cfb")
+		}
+		if p.compression {
+			p.header.Filters = append(p.header.Filters, "zlib")
+		}
 		var hash []byte
-		if s != nil {
+		if seeker != nil {
 			hash = make([]byte, sha256.Size)
 		}
-		if err := writeHeader(&p.header, hash, f); err != nil {
+		if err := writeHeader(&p.header, hash, writer); err != nil {
 			return err
 		}
 	}
+
+	hw := &hashWriter{writer, hmac.New(sha256.New, []byte(p.HMACKey))}
+	writer = hw
 
 	var crypter cipher.Stream
 	if p.AESKey != "" {
@@ -322,13 +356,19 @@ func (p *fileProducer) newFile(key string) error {
 		}
 
 		crypter = cipher.NewCFBEncrypter(block, iv)
+		writer = cipher.StreamWriter{S: crypter, W: writer}
+	}
+
+	var bufWriter writerFlusher = bufio.NewWriter(writer)
+	if p.compression {
+		bufWriter = zlib.NewWriter(writer)
 	}
 
 	_ = p.closeFile(p.files[key])
 
-	log.Debugf("Opened: %v, %v", key, n)
+	log.Debugf("Opened: %v, %v compression: %v", key, n, p.compression)
 
-	p.files[key] = &file{n, f, s, offset, crypter, hmac.New(sha256.New, []byte(p.HMACKey)), bufio.NewWriter(f)}
+	p.files[key] = &file{n, f, seeker, offset, crypter, hw, bufWriter}
 
 	return nil
 }
@@ -354,7 +394,7 @@ func (p *fileProducer) closeFile(f *file) error {
 			if _, err := f.seek.Seek(0, os.SEEK_SET); log.E(err) {
 				rerr = err
 			}
-			if err := writeHeader(&p.header, f.hash.Sum(nil), f.file); log.E(err) {
+			if err := writeHeader(&p.header, f.hash.hash.Sum(nil), f.file); log.E(err) {
 				rerr = err
 			}
 		}
@@ -376,15 +416,8 @@ func (p *fileProducer) writeBinaryMsgLength(f *file, len int) error {
 
 	sz := make([]byte, binary.MaxVarintLen64)
 	n := binary.PutUvarint(sz, uint64(len))
-	if f.crypter != nil {
-		f.crypter.XORKeyStream(sz, sz[:n])
-	}
-	if _, err := f.writer.Write(sz[:n]); err != nil {
-		return err
-	}
-	_, _ = f.hash.Write(sz[:n])
-
-	return nil
+	_, err := f.writer.Write(sz[:n])
+	return err
 }
 
 func (p *fileProducer) writeTextMsgDelimiter(f *file) error {
@@ -394,16 +427,9 @@ func (p *fileProducer) writeTextMsgDelimiter(f *file) error {
 
 	o := make([]byte, 0)
 	o = append(o, delimiter)
-	if f.crypter != nil {
-		f.crypter.XORKeyStream(o, o)
-	}
 
-	if _, err := f.writer.Write(o); err != nil {
-		return err
-	}
-	_, _ = f.hash.Write(o)
-
-	return nil
+	_, err := f.writer.Write(o)
+	return err
 }
 
 //Push produces message to File topic
@@ -426,14 +452,9 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 		return err
 	}
 
-	if f.crypter != nil {
-		f.crypter.XORKeyStream(bytes, bytes)
-	}
-
 	if _, err := f.writer.Write(bytes); err != nil {
 		return err
 	}
-	_, _ = f.hash.Write(bytes)
 
 	//In the case of text format apppend delimiter after the message
 	if err = p.writeTextMsgDelimiter(f); err != nil {
@@ -645,6 +666,51 @@ func (p *fileConsumer) checkHMAC(fn string, HMACRef string) error {
 	return nil
 }
 
+func (p *fileConsumer) openFileInitFilter() (err error) {
+	iv := make([]byte, hex.DecodedLen(len(p.header.IV)))
+	_, p.err = hex.Decode(iv, []byte(p.header.IV))
+	if p.err != nil {
+		return
+	}
+
+	//TODO: Get encryption and compression type from Filters field of the header
+	if p.AESKey != "" || p.compression {
+		//Header reader cached more then just a header, so need to reopen
+		log.E(p.file.Close())
+		p.file, err = p.fs.OpenRead(p.name, 0)
+		if log.E(err) {
+			return
+		}
+
+		if err = skipHeader(p.file); err != nil {
+			return
+		}
+
+		var reader io.Reader = p.file
+		if p.AESKey != "" {
+			var block cipher.Block
+			block, err = aes.NewCipher([]byte(p.AESKey))
+			if log.E(err) {
+				return
+			}
+
+			crypter := cipher.NewCFBDecrypter(block, iv)
+			reader = cipher.StreamReader{S: crypter, R: p.file}
+		}
+
+		if p.compression {
+			reader, err = zlib.NewReader(reader)
+			if log.E(err) {
+				return
+			}
+		}
+
+		p.reader = bufio.NewReader(reader)
+	}
+
+	return
+}
+
 func (p *fileConsumer) openFile(nextFn string, offset int64) {
 	p.file, p.err = p.fs.OpenRead(p.topicPath(p.topic)+nextFn, 0)
 	if log.E(p.err) {
@@ -690,35 +756,12 @@ func (p *fileConsumer) openFile(nextFn string, offset int64) {
 		p.reader = bufio.NewReader(p.file)
 	}
 
-	iv := make([]byte, hex.DecodedLen(len(p.header.IV)))
-	_, p.err = hex.Decode(iv, []byte(p.header.IV))
-	if p.err != nil {
+	p.name = p.topicPath(p.topic) + nextFn
+
+	p.err = p.openFileInitFilter()
+	if log.E(p.err) {
 		return
 	}
-
-	if p.AESKey != "" {
-		//Header reader cached more then just a header, so need to reopen
-		log.E(p.file.Close())
-		p.file, p.err = p.fs.OpenRead(p.topicPath(p.topic)+nextFn, 0)
-		if log.E(p.err) {
-			return
-		}
-
-		if p.err = skipHeader(p.file); p.err != nil {
-			return
-		}
-
-		var block cipher.Block
-		block, p.err = aes.NewCipher([]byte(p.AESKey))
-		if log.E(p.err) {
-			return
-		}
-
-		crypter := cipher.NewCFBDecrypter(block, iv)
-		p.reader = bufio.NewReader(cipher.StreamReader{S: crypter, R: p.file})
-	}
-
-	p.name = p.topicPath(p.topic) + nextFn
 
 	log.Debugf("Consumer opened: %v, header: %+v", p.name, p.header)
 }
@@ -748,7 +791,7 @@ func (p *fileConsumer) fetchNextLow() bool {
 			return true
 		}
 
-		if p.err != io.EOF {
+		if p.err != io.EOF && (!p.compression || p.err != io.ErrUnexpectedEOF) {
 			log.E(p.err)
 			return true
 		}

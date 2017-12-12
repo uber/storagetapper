@@ -21,7 +21,7 @@ func deleteTestTopics(t *testing.T) {
 
 func testFileBasic(size int64, AESKey string, HMACKey string, t *testing.T) {
 	verifyHMAC := HMACKey != ""
-	p := &filePipe{datadir: baseDir, maxFileSize: size, AESKey: AESKey, HMACKey: HMACKey, verifyHMAC: verifyHMAC, compression: cfg.PipeCompression, noHeader: cfg.PipeFileNoHeader}
+	p := &filePipe{datadir: baseDir, maxFileSize: size, AESKey: AESKey, HMACKey: HMACKey, verifyHMAC: verifyHMAC, compression: cfg.PipeCompression, noHeader: cfg.PipeFileNoHeader, delimited: true}
 
 	startCh = make(chan bool)
 
@@ -52,7 +52,7 @@ func TestFileSmall(t *testing.T) {
 func TestFileHeader(t *testing.T) {
 	deleteTestTopics(t)
 
-	fp := &filePipe{datadir: baseDir, maxFileSize: 1024}
+	fp := &filePipe{datadir: baseDir, maxFileSize: 1024, delimited: true}
 
 	p, err := fp.NewProducer("header-test-topic")
 	test.CheckFail(err, t)
@@ -99,7 +99,7 @@ func TestFileHeader(t *testing.T) {
 func TestFileBinary(t *testing.T) {
 	deleteTestTopics(t)
 
-	fp := &filePipe{datadir: baseDir, maxFileSize: 1024}
+	fp := &filePipe{datadir: baseDir, maxFileSize: 1024, delimited: true}
 
 	p, err := fp.NewProducer("binary-test-topic")
 	test.CheckFail(err, t)
@@ -141,9 +141,8 @@ func TestFileNoDelimiter(t *testing.T) {
 	deleteTestTopics(t)
 
 	topic := "no-delimiter-test-topic"
-	Delimited = false
 
-	fp := &filePipe{datadir: baseDir, maxFileSize: 1024}
+	fp := &filePipe{datadir: baseDir, maxFileSize: 1024, delimited: false}
 
 	p, err := fp.NewProducer(topic)
 	test.CheckFail(err, t)
@@ -166,7 +165,7 @@ func TestFileNoDelimiter(t *testing.T) {
 	test.Assert(t, c.FetchNext(), "there should be message with error set")
 
 	_, err = c.Pop()
-	test.Assert(t, err.Error() == "cannot consume non delimited file", err.Error())
+	test.Assert(t, err != nil && err.Error() == "cannot consume non delimited file", "should produce an error")
 
 	err = c.Close()
 	test.CheckFail(err, t)
@@ -178,8 +177,6 @@ func TestFileNoDelimiter(t *testing.T) {
 	r, err := ioutil.ReadFile(baseDir + "/" + topic + "/" + dc[0].Name())
 	test.Assert(t, string(r) == `{"Format":"json","HMAC-SHA256":"e8bf2c23a49dda570ac39e0a90683fe305620263f9d50ade99f835d3bc0bb05e"}
 firstsecond`, "file content mismatch")
-
-	Delimited = true
 }
 
 func consumeAndCheck(t *testing.T, c Consumer, msg string) {
@@ -196,7 +193,7 @@ func TestFileOffsets(t *testing.T) {
 	topic := "file-offsets-test-topic"
 	deleteTestTopics(t)
 
-	fp := &filePipe{datadir: baseDir, maxFileSize: 1024}
+	fp := &filePipe{datadir: baseDir, maxFileSize: 1024, delimited: true}
 
 	p, err := fp.NewProducer(topic)
 	test.CheckFail(err, t)
@@ -269,7 +266,7 @@ func TestFileEncryptionBinary(t *testing.T) {
 	AESKey := "12345678901234567890123456789012"
 	HMACKey := "qwertyuiopasdfghjklzxcvbnmqwerty"
 
-	fp := &filePipe{datadir: baseDir, maxFileSize: 1024, AESKey: AESKey, HMACKey: HMACKey, verifyHMAC: true}
+	fp := &filePipe{datadir: baseDir, maxFileSize: 1024, AESKey: AESKey, HMACKey: HMACKey, verifyHMAC: true, delimited: true}
 
 	p, err := fp.NewProducer("binary-test-topic")
 	test.CheckFail(err, t)

@@ -24,7 +24,10 @@ func deleteTestHdfsTopics(t *testing.T) {
 }
 
 func testHdfsBasic(size int64, t *testing.T) {
+	s := Delimited
+	Delimited = true
 	p, err := initHdfsPipe(shutdown.Context, 128, cfg, nil)
+	Delimited = s
 	test.CheckFail(err, t)
 
 	startCh = make(chan bool)

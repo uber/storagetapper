@@ -87,7 +87,7 @@ func initHdfsPipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db
 
 	log.Infof("Connected to HDFS cluster at: %v", cfg.Hadoop.Addresses)
 
-	return &hdfsPipe{filePipe{cfg.Hadoop.BaseDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC, cfg.PipeCompression, cfg.PipeFileNoHeader}, client}, nil
+	return &hdfsPipe{filePipe{cfg.Hadoop.BaseDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC, cfg.PipeCompression, cfg.PipeFileNoHeader, Delimited}, client}, nil
 }
 
 // Type returns Pipe type as Hdfs
@@ -97,12 +97,12 @@ func (p *hdfsPipe) Type() string {
 
 //NewProducer registers a new sync producer
 func (p *hdfsPipe) NewProducer(topic string) (Producer, error) {
-	return &hdfsProducer{fileProducer{datadir: p.datadir, topic: topic, files: make(map[string]*file), maxFileSize: p.maxFileSize, fs: &hdfsClient{p.hdfs}, AESKey: p.AESKey, HMACKey: p.HMACKey, compression: p.compression, noHeader: p.noHeader}}, nil
+	return &hdfsProducer{fileProducer{datadir: p.datadir, topic: topic, files: make(map[string]*file), maxFileSize: p.maxFileSize, fs: &hdfsClient{p.hdfs}, AESKey: p.AESKey, HMACKey: p.HMACKey, compression: p.compression, noHeader: p.noHeader, delimited: p.delimited}}, nil
 }
 
 //NewConsumer registers a new hdfs consumer with context
 func (p *hdfsPipe) NewConsumer(topic string) (Consumer, error) {
-	c := &hdfsConsumer{fileConsumer{datadir: p.datadir, topic: topic, fs: &hdfsClient{p.hdfs}, AESKey: p.AESKey, HMACKey: p.HMACKey, compression: p.compression, noHeader: p.noHeader}}
+	c := &hdfsConsumer{fileConsumer{datadir: p.datadir, topic: topic, fs: &hdfsClient{p.hdfs}, AESKey: p.AESKey, HMACKey: p.HMACKey, compression: p.compression, noHeader: p.noHeader, delimited: p.delimited}}
 	_, err := p.initConsumer(&c.fileConsumer)
 	return c, err
 }

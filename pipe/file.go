@@ -73,6 +73,7 @@ type filePipe struct {
 	verifyHMAC  bool
 	compression bool
 	noHeader    bool
+	delimited   bool
 }
 
 type writerFlusher interface {
@@ -108,6 +109,7 @@ type fileProducer struct {
 
 	compression bool
 	noHeader    bool
+	delimited   bool
 }
 
 // fileConsumer consumes messages from File using topic and partition specified during consumer creation
@@ -133,6 +135,7 @@ type fileConsumer struct {
 
 	compression bool
 	noHeader    bool
+	delimited   bool
 }
 
 type hashWriter struct {
@@ -151,7 +154,7 @@ func init() {
 }
 
 func initFilePipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
-	return &filePipe{cfg.DataDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC, cfg.PipeCompression, cfg.PipeFileNoHeader}, nil
+	return &filePipe{cfg.DataDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC, cfg.PipeCompression, cfg.PipeFileNoHeader, Delimited}, nil
 }
 
 // Type returns Pipe type as File
@@ -161,7 +164,7 @@ func (p *filePipe) Type() string {
 
 //NewProducer registers a new sync producer
 func (p *filePipe) NewProducer(topic string) (Producer, error) {
-	return &fileProducer{datadir: p.datadir, topic: topic, files: make(map[string]*file), maxFileSize: p.maxFileSize, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey, compression: p.compression, noHeader: p.noHeader}, nil
+	return &fileProducer{datadir: p.datadir, topic: topic, files: make(map[string]*file), maxFileSize: p.maxFileSize, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey, compression: p.compression, noHeader: p.noHeader, delimited: p.delimited}, nil
 }
 
 func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
@@ -183,7 +186,7 @@ func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
 
 //NewConsumer registers a new file consumer with context
 func (p *filePipe) NewConsumer(topic string) (Consumer, error) {
-	c := &fileConsumer{datadir: p.datadir, topic: topic, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey, verifyHMAC: p.verifyHMAC, compression: p.compression, noHeader: p.noHeader}
+	c := &fileConsumer{datadir: p.datadir, topic: topic, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey, verifyHMAC: p.verifyHMAC, compression: p.compression, noHeader: p.noHeader, delimited: p.delimited}
 	return p.initConsumer(c)
 }
 
@@ -331,7 +334,7 @@ func (p *fileProducer) newFile(key string) error {
 	}
 
 	if offset == 0 && !p.noHeader {
-		p.header.Delimited = Delimited
+		p.header.Delimited = p.delimited
 		p.header.Filters = nil
 		if p.AESKey != "" {
 			p.header.Filters = append(p.header.Filters, "aes256-cfb")
@@ -413,7 +416,7 @@ func (p *fileProducer) closeFile(f *file) error {
 }
 
 func (p *fileProducer) writeBinaryMsgLength(f *file, len int) error {
-	if p.text || !Delimited {
+	if p.text || !p.delimited {
 		return nil
 	}
 
@@ -424,7 +427,7 @@ func (p *fileProducer) writeBinaryMsgLength(f *file, len int) error {
 }
 
 func (p *fileProducer) writeTextMsgDelimiter(f *file) error {
-	if !p.text || !Delimited {
+	if !p.text || !p.delimited {
 		return nil
 	}
 
@@ -730,7 +733,7 @@ func (p *fileConsumer) openFile(nextFn string, offset int64) {
 
 	p.reader = bufio.NewReader(p.file)
 
-	p.header.Delimited = Delimited
+	p.header.Delimited = p.delimited
 	if !p.noHeader {
 		p.header, p.err = readHeader(p.reader)
 		if log.E(p.err) {
@@ -808,7 +811,7 @@ func (p *fileConsumer) fetchNextLow() bool {
 		p.file = nil
 		log.Debugf("Consumer closed: %v", p.name)
 
-		if p.text && Delimited && len(p.msg) != 0 {
+		if p.text && p.delimited && len(p.msg) != 0 {
 			p.err = fmt.Errorf("Corrupted file. Not ending with delimiter: %v %v", p.name, string(p.msg))
 			return true
 		}

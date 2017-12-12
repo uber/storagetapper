@@ -41,6 +41,10 @@ type Consumer interface {
 	FetchNext() bool
 	//Allows to explicitly persists current consumer position
 	SaveOffset() error
+
+	//SetFormat allow to tell consumer the format of the file when there is no
+	//header
+	SetFormat(format string)
 }
 
 //Producer producer interface for pipe

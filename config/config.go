@@ -75,7 +75,8 @@ type AppConfigODS struct {
 	PipeHMACKey    string `yaml:"pipe_hmac_key"`
 	PipeVerifyHMAC bool   `yaml:"pipe_verify_hmac"`
 
-	PipeCompression bool `yaml:"pipe_compression"`
+	PipeCompression  bool `yaml:"pipe_compression"`
+	PipeFileNoHeader bool `yaml:"pipe_file_no_header"`
 }
 
 // AppConfig is the config struct which the config gets loaded into

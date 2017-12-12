@@ -72,6 +72,7 @@ type filePipe struct {
 	HMACKey     string
 	verifyHMAC  bool
 	compression bool
+	noHeader    bool
 }
 
 type writerFlusher interface {
@@ -106,6 +107,7 @@ type fileProducer struct {
 	HMACKey string
 
 	compression bool
+	noHeader    bool
 }
 
 // fileConsumer consumes messages from File using topic and partition specified during consumer creation
@@ -118,7 +120,7 @@ type fileConsumer struct {
 	file    io.ReadCloser
 	name    string
 	reader  *bufio.Reader
-	header  *Header
+	header  Header
 	fs      fs
 	text    bool //Determined by the Format field of the file header. See openFile
 
@@ -130,6 +132,7 @@ type fileConsumer struct {
 	verifyHMAC bool
 
 	compression bool
+	noHeader    bool
 }
 
 type hashWriter struct {
@@ -148,7 +151,7 @@ func init() {
 }
 
 func initFilePipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
-	return &filePipe{cfg.DataDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC, cfg.PipeCompression}, nil
+	return &filePipe{cfg.DataDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC, cfg.PipeCompression, cfg.PipeFileNoHeader}, nil
 }
 
 // Type returns Pipe type as File
@@ -158,7 +161,7 @@ func (p *filePipe) Type() string {
 
 //NewProducer registers a new sync producer
 func (p *filePipe) NewProducer(topic string) (Producer, error) {
-	return &fileProducer{datadir: p.datadir, topic: topic, files: make(map[string]*file), maxFileSize: p.maxFileSize, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey, compression: p.compression}, nil
+	return &fileProducer{datadir: p.datadir, topic: topic, files: make(map[string]*file), maxFileSize: p.maxFileSize, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey, compression: p.compression, noHeader: p.noHeader}, nil
 }
 
 func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
@@ -180,7 +183,7 @@ func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
 
 //NewConsumer registers a new file consumer with context
 func (p *filePipe) NewConsumer(topic string) (Consumer, error) {
-	c := &fileConsumer{datadir: p.datadir, topic: topic, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey, verifyHMAC: p.verifyHMAC, compression: p.compression}
+	c := &fileConsumer{datadir: p.datadir, topic: topic, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey, verifyHMAC: p.verifyHMAC, compression: p.compression, noHeader: p.noHeader}
 	return p.initConsumer(c)
 }
 
@@ -327,7 +330,7 @@ func (p *fileProducer) newFile(key string) error {
 		p.header.IV = fmt.Sprintf("%0x", iv)
 	}
 
-	if offset == 0 {
+	if offset == 0 && !p.noHeader {
 		p.header.Delimited = Delimited
 		p.header.Filters = nil
 		if p.AESKey != "" {
@@ -390,7 +393,7 @@ func (p *fileProducer) closeFile(f *file) error {
 		if err := f.writer.Flush(); log.E(err) {
 			rerr = err
 		}
-		if f.seek != nil {
+		if f.seek != nil && !p.noHeader {
 			if _, err := f.seek.Seek(0, os.SEEK_SET); log.E(err) {
 				rerr = err
 			}
@@ -727,9 +730,13 @@ func (p *fileConsumer) openFile(nextFn string, offset int64) {
 
 	p.reader = bufio.NewReader(p.file)
 
-	p.header, p.err = readHeader(p.reader)
-	if log.E(p.err) {
-		return
+	p.header.Delimited = Delimited
+	if !p.noHeader {
+		p.header, p.err = readHeader(p.reader)
+		if log.E(p.err) {
+			return
+		}
+
 	}
 
 	if !p.header.Delimited {
@@ -854,6 +861,11 @@ func (p *fileConsumer) CloseOnFailure() error {
 
 func (p *fileConsumer) SaveOffset() error {
 	return nil
+}
+
+func (p *fileConsumer) SetFormat(format string) {
+	p.header.Format = format
+	p.text = format == "json" || format == "text"
 }
 
 func (p *fileProducer) SetFormat(format string) {

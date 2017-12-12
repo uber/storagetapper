@@ -34,18 +34,18 @@ func writeHeader(header *Header, hash []byte, f io.Writer) error {
 	return err
 }
 
-func readHeader(r *bufio.Reader) (*Header, error) {
+func readHeader(r *bufio.Reader) (Header, error) {
+	u := &Header{}
+
 	h, err := r.ReadBytes(delimiter)
 	if err != nil {
-		return nil, err
+		return *u, err
 	}
-
-	u := &Header{}
 
 	err = json.Unmarshal(h, u)
 	if err != nil {
-		return nil, err
+		return *u, err
 	}
 
-	return u, nil
+	return *u, nil
 }

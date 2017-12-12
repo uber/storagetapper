@@ -600,6 +600,9 @@ func (p *kafkaConsumer) SaveOffset() error {
 func (p *kafkaProducer) SetFormat(format string) {
 }
 
+func (p *kafkaConsumer) SetFormat(format string) {
+}
+
 /*
 type saramaLogger struct {
 }

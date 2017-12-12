@@ -21,7 +21,7 @@ func deleteTestTopics(t *testing.T) {
 
 func testFileBasic(size int64, AESKey string, HMACKey string, t *testing.T) {
 	verifyHMAC := HMACKey != ""
-	p := &filePipe{datadir: baseDir, maxFileSize: size, AESKey: AESKey, HMACKey: HMACKey, verifyHMAC: verifyHMAC, compression: cfg.PipeCompression}
+	p := &filePipe{datadir: baseDir, maxFileSize: size, AESKey: AESKey, HMACKey: HMACKey, verifyHMAC: verifyHMAC, compression: cfg.PipeCompression, noHeader: cfg.PipeFileNoHeader}
 
 	startCh = make(chan bool)
 
@@ -319,4 +319,10 @@ func TestFileCompressionAndEncryption(t *testing.T) {
 	AESKey := "12345678901234567890123456789012"
 	HMACKey := "qwertyuiopasdfghjklzxcvbnmqwerty"
 	testFileBasic(1, AESKey, HMACKey, t)
+}
+
+func TestFileNoHeader(t *testing.T) {
+	cfg.PipeFileNoHeader = true
+	defer func() { cfg.PipeFileNoHeader = false }()
+	testFileBasic(1, "", "", t)
 }

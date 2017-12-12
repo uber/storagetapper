@@ -86,6 +86,7 @@ func kafkaConsumerWorker(p Pipe, key string, i int, n int, graceful bool, t *tes
 	if err != nil {
 		t.Fatalf("NewConsumer failed: %v", err.Error())
 	}
+	c.SetFormat("text")
 	defer func() {
 		if graceful {
 			log.E(c.Close())

@@ -264,7 +264,7 @@ func (p *fileProducer) newFile(key string) error {
 		return err
 	}
 
-	offset, err := f.Seek(0, io.SeekEnd)
+	offset, err := f.Seek(0, os.SEEK_END)
 	if err != nil {
 		return err
 	}
@@ -303,7 +303,7 @@ func (p *fileProducer) closeFile(f *file) error {
 		if err := f.writer.Flush(); log.E(err) {
 			rerr = err
 		}
-		if _, err := f.file.Seek(0, io.SeekStart); log.E(err) {
+		if _, err := f.file.Seek(0, os.SEEK_SET); log.E(err) {
 			rerr = err
 		}
 		if err := writeHeader(&p.header, f.hash.Sum(nil), f.file); log.E(err) {

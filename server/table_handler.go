@@ -47,6 +47,7 @@ type tableCmdReq struct {
 	Input   string
 	Output  string
 	Version int
+	Format  string
 	Apply   string
 }
 
@@ -84,7 +85,7 @@ func iterateRows(rows *sql.Rows, t *tableCmdReq) error {
 		if err := rows.Scan(&d, &n); err != nil {
 			return err
 		}
-		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: d}, n, t.Input, t.Output, t.Version) {
+		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: d}, n, t.Input, t.Output, t.Version, t.Format) {
 			return fmt.Errorf("Error registering table: %v.%v", d, n)
 		}
 	}
@@ -102,7 +103,7 @@ func handleAddCmd(w http.ResponseWriter, t *tableCmdReq) error {
 
 	//no wildcards case
 	if len(t.Db) != 0 && len(t.Table) != 0 && t.Db != "*" && t.Table != "*" && !strings.ContainsAny(t.Db, "%") && !strings.ContainsAny(t.Table, "%") {
-		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: t.Db}, t.Table, t.Input, t.Output, t.Version) {
+		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: t.Db}, t.Table, t.Input, t.Output, t.Version, t.Format) {
 			return errors.New("Error registering table")
 		}
 		updateTableRegCnt()

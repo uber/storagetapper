@@ -328,16 +328,16 @@ func ExecSQL(db *sql.DB, t *testing.T, query string) {
 func regTableForMultiTableTest(pipeType string, secondPipe string, t *testing.T) {
 	if testName == "TestMultiTable" {
 		cfg.ChangelogBuffer = false
-		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", pipeType, 0) {
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", pipeType, 0, "") {
 			t.FailNow()
 		}
-		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", pipeType, 1) {
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", pipeType, 1, "") {
 			t.FailNow()
 		}
-		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", secondPipe, 1) {
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", secondPipe, 1, "") {
 			t.FailNow()
 		}
-		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "not_mysql", pipeType, 1) {
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "not_mysql", pipeType, 1, "") {
 			t.FailNow()
 		}
 	}
@@ -389,7 +389,7 @@ func Prepare(pipeType string, create []string, encoding string, t *testing.T) (*
 
 	log.Debugf("Starting binlog reader. PipeType=%v", pipeType)
 
-	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1", "mysql", pipeType, 0) {
+	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1", "mysql", pipeType, 0, "") {
 		t.FailNow()
 	}
 

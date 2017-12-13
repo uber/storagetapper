@@ -137,7 +137,14 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 	return true
 }
 
-func (s *Streamer) startBootstrap(needsBootstrap bool, cfg *config.AppConfig) bool {
+func (s *Streamer) startBootstrap(cfg *config.AppConfig) bool {
+	// Checks whether table is new and needs bootstrapping.
+	// Stream events by invoking Consistent Snapshot Reader and allowing it to complete
+	needsBootstrap, err := state.GetTableNewFlag(s.svc, s.db, s.table)
+	if log.EL(s.log, err) {
+		return false
+	}
+
 	return !needsBootstrap || s.streamFromConsistentSnapshot(s.input,
 		cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS)
 }
@@ -160,6 +167,7 @@ func (s *Streamer) lockTable(st state.Type, outPipes *map[string]pipe.Pipe) {
 			s.input = row.Input
 			s.output = row.Output
 			s.version = row.Version
+			s.outputFormat = row.Format
 			break
 		}
 	}
@@ -246,8 +254,10 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 
 	s.waitForGtid(s.svc, s.db, gtid)
 
-	s.outputFormat = cfg.OutputFormat
 	s.stateUpdateTimeout = cfg.StateUpdateTimeout
+	if s.outputFormat == "" {
+		s.outputFormat = cfg.OutputFormat
+	}
 
 	s.outEncoder, err = encoder.Create(s.outputFormat, s.svc, s.db, s.table)
 	if log.EL(s.log, err) {
@@ -257,13 +267,6 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 	//Transit format encoder, aka envelope encoder
 	//It must be per table to be able to decode schematized events
 	s.envEncoder, err = encoder.Create(encoder.Internal.Type(), s.svc, s.db, s.table)
-	if log.EL(s.log, err) {
-		return false
-	}
-
-	// Checks whether table is new and needs bootstrapping.
-	// Stream events by invoking Consistent Snapshot Reader and allowing it to complete
-	needsBootstrap, err := state.GetTableNewFlag(s.svc, s.db, s.table)
 	if log.EL(s.log, err) {
 		return false
 	}
@@ -279,7 +282,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 		return false
 	}
 
-	if !s.startBootstrap(needsBootstrap, cfg) {
+	if !s.startBootstrap(cfg) {
 		log.E(consumer.CloseOnFailure())
 		return false
 	}

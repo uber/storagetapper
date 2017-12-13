@@ -77,7 +77,7 @@ func createDB(t *testing.T) *sql.DB {
 
 	state.DeregisterTable("snap_test_svc1", "snap_test_db1", "snap_test_t1", "mysql", "", 0)
 
-	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1", "mysql", "", 0) {
+	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1", "mysql", "", 0, "") {
 		t.FailNow()
 	}
 
@@ -263,7 +263,7 @@ func TestMoreFieldTypes(t *testing.T) {
 		t.FailNow()
 	}
 
-	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1", "mysql", "", 0) {
+	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1", "mysql", "", 0, "") {
 		t.FailNow()
 	}
 

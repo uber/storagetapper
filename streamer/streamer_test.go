@@ -47,11 +47,11 @@ import (
 )
 
 var (
-	cfg          *config.AppConfig
-	TestSvc      = types.MySvcName
-	TestDb       = types.MyDbName
-	SchemaSvcTbl = "schemasvc"
-	TestTbl      = "test_snapstream"
+	cfg      *config.AppConfig
+	TestSvc  = types.MySvcName
+	TestDb   = types.MyDbName
+	TestTbl  = "test_snapstream"
+	TestTbl1 = "test_snapstream1"
 )
 
 func EventWorker(cfg *config.AppConfig, inP pipe.Pipe, outP map[string]pipe.Pipe, t *testing.T) {
@@ -72,12 +72,13 @@ func getDBConn(ci db.Addr, t *testing.T) *sql.DB {
 }
 
 func createTestDB(dbConn *sql.DB, t *testing.T) {
+	execSQL(dbConn, t, fmt.Sprintf("DROP DATABASE IF EXISTS %s", types.MyDbName))
 	execSQL(dbConn, t, fmt.Sprintf("DROP DATABASE IF EXISTS %s", TestDb))
 	execSQL(dbConn, t, fmt.Sprintf("CREATE DATABASE %s", TestDb))
 	execSQL(dbConn, t, fmt.Sprintf("CREATE TABLE %s.%s "+
 		"( f1 BIGINT NOT NULL PRIMARY KEY, f2 VARCHAR(32) )", TestDb, TestTbl))
 	execSQL(dbConn, t, fmt.Sprintf("CREATE TABLE %s.%s "+
-		"( topic VARCHAR(96) NOT NULL PRIMARY KEY, avroschema TEXT )", TestDb, SchemaSvcTbl))
+		"( f1 BIGINT NOT NULL PRIMARY KEY, f2 VARCHAR(32) )", TestDb, TestTbl1))
 }
 
 func setupDB(t *testing.T) *sql.DB {
@@ -88,7 +89,12 @@ func setupDB(t *testing.T) *sql.DB {
 		t.FailNow()
 	}
 	dbl := &db.Loc{Service: TestSvc, Name: TestDb}
-	if !state.RegisterTable(dbl, TestTbl, "mysql", cfg.OutputPipeType, 0) {
+
+	if !state.RegisterTable(dbl, TestTbl, "mysql", cfg.OutputPipeType, 0, "") {
+		log.Fatalf("Failed to register table")
+	}
+	//Output of this table should not be affected by global OutputFormat
+	if !state.RegisterTable(dbl, TestTbl1, "mysql", cfg.OutputPipeType, 0, "json") {
 		log.Fatalf("Failed to register table")
 	}
 
@@ -96,6 +102,7 @@ func setupDB(t *testing.T) *sql.DB {
 	test.CheckFail(err, t)
 
 	execSQL(state.GetDB(), t, "UPDATE state SET gtid=? WHERE tableName=? AND service=? AND db=?", gtid, TestTbl, TestSvc, TestDb)
+	execSQL(state.GetDB(), t, "UPDATE state SET gtid=? WHERE tableName=? AND service=? AND db=?", gtid, TestTbl1, TestSvc, TestDb)
 
 	// Store Avro schema in local db
 	avSch, err := schema.ConvertToAvro(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, "avro")
@@ -108,10 +115,15 @@ func setupDB(t *testing.T) *sql.DB {
 	return dbConn
 }
 
-func setupData(dbConn *sql.DB, shiftKey int, t *testing.T) {
+func setupDataLow(dbConn *sql.DB, shiftKey int, table string, t *testing.T) {
 	for i := shiftKey; i < 100+shiftKey; i++ {
-		execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(%v,'%v')", TestDb, TestTbl, i, strconv.Itoa(i)))
+		execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(%v,'%v')", TestDb, table, i, strconv.Itoa(i)))
 	}
+}
+
+func setupData(dbConn *sql.DB, shiftKey int, t *testing.T) {
+	setupDataLow(dbConn, shiftKey, TestTbl, t)
+	setupDataLow(dbConn, shiftKey, TestTbl1, t)
 }
 
 func wrapEvent(enc encoder.Encoder, typ string, key string, bd []byte, seqno uint64) ([]byte, error) {
@@ -168,7 +180,7 @@ func setupBufferData(producer pipe.Producer, bufFormat string, outFormat string,
 	test.CheckFail(err, t)
 }
 
-func setupWorker(bufPipe pipe.Pipe, outPipeType string, t *testing.T) pipe.Consumer {
+func setupWorker(bufPipe pipe.Pipe, outPipeType string, t *testing.T) (pipe.Consumer, pipe.Consumer) {
 	var err error
 	outPipe := make(map[string]pipe.Pipe)
 	for p := range pipe.Pipes {
@@ -180,17 +192,25 @@ func setupWorker(bufPipe pipe.Pipe, outPipeType string, t *testing.T) pipe.Consu
 	test.CheckFail(err, t)
 
 	outConsumer, err := outPipe[outPipeType].NewConsumer(tn)
-
 	test.CheckFail(err, t)
-	shutdown.Register(1)
+
+	tn, err = cfg.GetOutputTopicName(TestSvc, TestDb, TestTbl1, "mysql", cfg.OutputPipeType, 0)
+	test.CheckFail(err, t)
+
+	outConsumer1, err := outPipe[outPipeType].NewConsumer(tn)
+	test.CheckFail(err, t)
+
+	shutdown.Register(2)
 	go EventWorker(cfg, bufPipe, outPipe, t)
-	return outConsumer
+	go EventWorker(cfg, bufPipe, outPipe, t)
+
+	return outConsumer, outConsumer1
 }
 
-func verifyFromOutputKafka(shiftKey int, outPConsumer pipe.Consumer, outFormat string, t *testing.T) {
-	log.Debugf("verification started %v", shiftKey)
+func verifyFromOutputKafka(shiftKey int, outPConsumer pipe.Consumer, outFormat string, table string, t *testing.T) {
+	log.Debugf("verification started %v table=%v", shiftKey, table)
 
-	enc, err := encoder.Create(outFormat, TestSvc, TestDb, TestTbl)
+	enc, err := encoder.Create(outFormat, TestSvc, TestDb, table)
 	test.CheckFail(err, t)
 
 	lastRKey := uint64(shiftKey)
@@ -269,13 +289,14 @@ func testStreamerStreamFromConsistentSnapshot(pipeType string, wrap int, outForm
 
 	cfg.OutputPipeType = pipeType
 	cfg.OutputFormat = outFormat
-	consumer := setupWorker(bufPipe, pipeType, t)
+	consumer, consumer1 := setupWorker(bufPipe, pipeType, t)
 
-	verifyFromOutputKafka(0, consumer, outFormat, t)
+	verifyFromOutputKafka(0, consumer, outFormat, TestTbl, t)
+	verifyFromOutputKafka(0, consumer1, "json", TestTbl1, t)
 
 	setupBufferData(producer, "json", outFormat, wrap, 100, t)
 
-	verifyFromOutputKafka(100, consumer, outFormat, t)
+	verifyFromOutputKafka(100, consumer, outFormat, TestTbl, t)
 
 	test.CheckFail(consumer.Close(), t)
 	test.CheckFail(producer.Close(), t)
@@ -315,9 +336,10 @@ func TestStreamerShutdown(t *testing.T) {
 	bufPipe, err := pipe.Create(shutdown.Context, "local", 16, cfg, nil)
 	test.CheckFail(err, t)
 
-	outConsumer := setupWorker(bufPipe, "kafka", t)
+	outConsumer, outConsumer1 := setupWorker(bufPipe, "kafka", t)
 
 	execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(0,'0')", TestDb, TestTbl))
+	execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(0,'0')", TestDb, TestTbl1))
 
 	if outConsumer.FetchNext() {
 		_, err := outConsumer.Pop()
@@ -326,8 +348,23 @@ func TestStreamerShutdown(t *testing.T) {
 		t.Fatalf("FetchNext failed")
 	}
 
+	if outConsumer1.FetchNext() {
+		_, err := outConsumer1.Pop()
+		test.CheckFail(err, t)
+	} else {
+		t.Fatalf("FetchNext failed")
+	}
+
+	if !test.WaitForNumProc(3, 80*200) {
+		t.Fatalf("Streamer worker didn't finish %v", shutdown.NumProcs())
+	}
+
 	if !state.DeregisterTable("storagetapper", "storagetapper", "test_snapstream", "mysql", cfg.OutputPipeType, 0) {
 		t.Fatalf("Failed to deregister table")
+	}
+
+	if !state.DeregisterTable("storagetapper", "storagetapper", "test_snapstream1", "mysql", cfg.OutputPipeType, 0) {
+		t.Fatalf("Failed to deregister table 1")
 	}
 
 	if !test.WaitForNumProc(1, 80*200) {
@@ -335,6 +372,7 @@ func TestStreamerShutdown(t *testing.T) {
 	}
 
 	test.CheckFail(outConsumer.Close(), t)
+	test.CheckFail(outConsumer1.Close(), t)
 
 	if !test.WaitForNumProc(1, 80*200) {
 		t.Fatalf("Streamer worker didn't finish")

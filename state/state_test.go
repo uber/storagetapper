@@ -44,20 +44,20 @@ func checkStateEqual(m1 Type, m2 Type) bool {
 }
 
 var refST1 = Type{
-	{1, "clst1", "svc1", "db1_state", "table1", "", "", 0, "", 0, "", "", true},
-	{2, "clst1", "svc1", "db1_state", "table2", "", "", 0, "", 0, "", "", true},
-	{3, "clst1", "svc1", "db2_state", "table1", "", "", 0, "", 0, "", "", true},
-	{4, "clst1", "svc2", "db3_state", "table1", "", "", 0, "", 0, "", "", true},
-	{5, "clst2", "svc2", "db2_state", "table1", "", "", 0, "", 0, "", "", true},
+	{1, "clst1", "svc1", "db1_state", "table1", "", "", 0, "", "", 0, "", "", true},
+	{2, "clst1", "svc1", "db1_state", "table2", "", "", 0, "", "", 0, "", "", true},
+	{3, "clst1", "svc1", "db2_state", "table1", "", "", 0, "", "", 0, "", "", true},
+	{4, "clst1", "svc2", "db3_state", "table1", "", "", 0, "", "", 0, "", "", true},
+	{5, "clst2", "svc2", "db2_state", "table1", "", "", 0, "", "", 0, "", "", true},
 }
 
 var refST2 = Type{
-	{6, "clst1", "svc1", "db1_state", "table3", "", "", 0, "", 0, "", "", true},
-	{7, "clst1", "svc2", "db2_state", "table2", "", "", 0, "", 0, "", "", true},
+	{6, "clst1", "svc1", "db1_state", "table3", "", "", 0, "", "", 0, "", "", true},
+	{7, "clst1", "svc2", "db2_state", "table2", "", "", 0, "", "", 0, "", "", true},
 }
 
 var refST3 = Type{
-	{5, "clst2", "svc2", "db2_state", "table1", "", "", 0, "", 0, "", "", true},
+	{5, "clst2", "svc2", "db2_state", "table1", "", "", 0, "", "", 0, "", "", true},
 }
 
 func insertStateRows(s Type, t1 *testing.T) {
@@ -72,7 +72,7 @@ func insertStateRows(s Type, t1 *testing.T) {
 			log.Errorf("service and dbs need to be sorted in reference struture")
 			t1.FailNow()
 		}
-		err := util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,rawSchema,schemaGTID) VALUES (?,?,?,?,?,'','','','')", t.Service, t.Cluster, t.Db, t.Table, t.Gtid)
+		err := util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,format,rawSchema,schemaGTID) VALUES (?,?,?,?,?,'','','','','')", t.Service, t.Cluster, t.Db, t.Table, t.Gtid)
 		test.CheckFail(err, t1)
 	}
 }
@@ -174,9 +174,9 @@ func testGTIDs(t *testing.T) {
 	}
 
 	log.Debugf("Check that StateGetGTID return non-empty GTID")
-	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,rawSchema,schemaGTID) VALUES ('svc1', 'clst1', 'db1_state', 'table5', '', '','','','')")
+	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,format,rawSchema,schemaGTID) VALUES ('svc1', 'clst1', 'db1_state', 'table5', '', '','','','','')")
 	test.CheckFail(err, t)
-	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,rawSchema,schemaGTID) VALUES ('svc1', 'clst1', 'db1_state', 'table0', '', '','','','')")
+	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,format,rawSchema,schemaGTID) VALUES ('svc1', 'clst1', 'db1_state', 'table0', '', '', '','','','')")
 	test.CheckFail(err, t)
 
 	gts, err = GetGTID(dbloc1)
@@ -373,7 +373,7 @@ func TestStateSchema(t *testing.T) {
 		t.FailNow()
 	}
 
-	if !ReplaceSchema("svc1", "clst1", ts, tsRaw, "", sgtid, "", "", 0) {
+	if !ReplaceSchema("svc1", "clst1", ts, tsRaw, "", sgtid, "", "", 0, "") {
 		t.Fatalf("%+v %+v", ts, err)
 	}
 
@@ -400,7 +400,7 @@ func TestStateSchema(t *testing.T) {
 	log.Debugf("New schema: %+v", ts)
 	log.Debugf("New raw schema: %+v", tsRaw)
 
-	if !ReplaceSchema("svc1", "clst1", ts, tsRaw, sgtid, sgtid1, "", "", 0) {
+	if !ReplaceSchema("svc1", "clst1", ts, tsRaw, sgtid, sgtid1, "", "", 0, "") {
 		t.FailNow()
 	}
 
@@ -455,11 +455,11 @@ func TestTableRegister(t *testing.T) {
 	*/
 	dbloc1 := &db.Loc{Cluster: "clst1", Service: "svc1", Name: "db1_state"}
 
-	if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1", "", "", 0) {
+	if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1", "", "", 0, "") {
 		t.Fatalf("Fail register db1_state 1")
 	}
 
-	if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1", "", "", 0) {
+	if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1", "", "", 0, "") {
 		t.Fatalf("Fail register db1_state 2")
 	}
 
@@ -470,7 +470,6 @@ func TestTableRegister(t *testing.T) {
 
 	if !DeregisterTable("svc1", "db1_state", "REG_SCHEMA_TEST1", "", "", 0) {
 		log.Debugf("Fail deregister db1_state 1")
-		log.Debugf("3asdf")
 		t.FailNow()
 	}
 
@@ -511,7 +510,7 @@ func TestTableVersions(t *testing.T) {
 	}
 
 	for i := 0; i < len(tests); i++ {
-		if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1", tests[i].input, tests[i].output, tests[i].version) {
+		if !RegisterTable(dbloc1, "REG_SCHEMA_TEST1", tests[i].input, tests[i].output, tests[i].version, "") {
 			t.Fatalf("Fail to register %v, %v, %v", tests[i].input, tests[i].output, tests[i].version)
 		}
 	}
@@ -569,7 +568,7 @@ func TestClusterInfo(t *testing.T) {
 
 	log.Debugf("Test that we can resolve cluster name from service and db")
 
-	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,rawSchema,schemaGTID) VALUES (?,?,?,?,'','','','','')", "state_test_service1", "state_test_cluster1", "state_test_db1", "state_test_table1")
+	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,format,rawSchema,schemaGTID) VALUES (?,?,?,?,'','','','','','')", "state_test_service1", "state_test_cluster1", "state_test_db1", "state_test_table1")
 	test.CheckFail(err, t)
 
 	a = ConnectInfoGet(&db.Loc{Service: "state_test_service1", Name: "state_test_db1"}, db.Master)

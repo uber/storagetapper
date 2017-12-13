@@ -902,7 +902,7 @@ func Prepare(t test.Failer, create []string, table string) {
 		ExecSQL(dbc, t, s)
 	}
 
-	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1", Name: "db1"}, table, "mysql", "", 0) {
+	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "enc_test_svc1", Name: "db1"}, table, "mysql", "", 0, "") {
 		t.FailNow()
 	}
 

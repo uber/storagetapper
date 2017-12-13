@@ -82,60 +82,43 @@ type writerFlusher interface {
 }
 
 type file struct {
-	name    string
-	file    io.WriteCloser
-	seek    io.Seeker
-	offset  int64
-	crypter cipher.Stream
-	hash    *hashWriter
-	writer  writerFlusher
+	name   string
+	file   io.WriteCloser
+	seek   io.Seeker
+	offset int64
+	hash   *hashWriter
+	writer writerFlusher
 }
 
 // fileProducer synchronously pushes messages to File using topic specified during producer creation
 type fileProducer struct {
-	header  Header
-	datadir string
-	topic   string
-	gen     string
-	files   map[string]*file
-	seqno   int
+	*filePipe
 
-	maxFileSize int64
-	fs          fs
-	text        bool //Can be changed by SetFormat
+	header Header
+	topic  string
+	files  map[string]*file
+	seqno  int
 
-	AESKey  string
-	HMACKey string
-
-	compression bool
-	noHeader    bool
-	delimited   bool
+	fs   fs
+	text bool //Can be changed by SetFormat
 }
 
 // fileConsumer consumes messages from File using topic and partition specified during consumer creation
 type fileConsumer struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	datadir string
-	topic   string
-	gen     string
-	file    io.ReadCloser
-	name    string
-	reader  *bufio.Reader
-	header  Header
-	fs      fs
-	text    bool //Determined by the Format field of the file header. See openFile
+	*filePipe
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	topic  string
+	file   io.ReadCloser
+	name   string
+	reader *bufio.Reader
+	header Header
+	fs     fs
+	text   bool //Determined by the Format field of the file header. See openFile
 
 	msg []byte
 	err error
-
-	AESKey     string
-	HMACKey    string
-	verifyHMAC bool
-
-	compression bool
-	noHeader    bool
-	delimited   bool
 }
 
 type hashWriter struct {
@@ -164,7 +147,7 @@ func (p *filePipe) Type() string {
 
 //NewProducer registers a new sync producer
 func (p *filePipe) NewProducer(topic string) (Producer, error) {
-	return &fileProducer{datadir: p.datadir, topic: topic, files: make(map[string]*file), maxFileSize: p.maxFileSize, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey, compression: p.compression, noHeader: p.noHeader, delimited: p.delimited}, nil
+	return &fileProducer{filePipe: p, topic: topic, files: make(map[string]*file), fs: p}, nil
 }
 
 func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
@@ -186,7 +169,7 @@ func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
 
 //NewConsumer registers a new file consumer with context
 func (p *filePipe) NewConsumer(topic string) (Consumer, error) {
-	c := &fileConsumer{datadir: p.datadir, topic: topic, fs: p, AESKey: p.AESKey, HMACKey: p.HMACKey, verifyHMAC: p.verifyHMAC, compression: p.compression, noHeader: p.noHeader, delimited: p.delimited}
+	c := &fileConsumer{filePipe: p, topic: topic, fs: p}
 	return p.initConsumer(c)
 }
 
@@ -204,7 +187,7 @@ func (p *fileConsumer) SetGen(gen int64) {
 }
 */
 
-func topicPath(datadir string, topic string, gen string) string {
+func topicPath(datadir string, topic string) string {
 	var r string
 
 	if datadir != "" {
@@ -214,21 +197,16 @@ func topicPath(datadir string, topic string, gen string) string {
 	if topic != "" {
 		r += topic + "/"
 	}
-	/*
-		if gen != "" {
-			r += gen + "/"
-		}
-	*/
 
 	return r
 }
 
 func (p *fileProducer) topicPath(topic string) string {
-	return topicPath(p.datadir, topic, p.gen)
+	return topicPath(p.datadir, topic)
 }
 
 func (p *fileConsumer) topicPath(topic string) string {
-	return topicPath(p.datadir, topic, p.gen)
+	return topicPath(p.datadir, topic)
 }
 
 /*
@@ -304,6 +282,21 @@ func (p *fileProducer) newFileName(key string) string {
 	return fmt.Sprintf("%s%010d.%03d.%s.open", p.topicPath(p.topic), time.Now().Unix(), p.seqno, key)
 }
 
+func (p *fileProducer) initCrypterWriter(writer io.Writer, iv []byte) (io.Writer, error) {
+	var crypter cipher.Stream
+	if p.AESKey != "" {
+		block, err := aes.NewCipher([]byte(p.AESKey))
+		if err != nil {
+			return nil, err
+		}
+
+		crypter = cipher.NewCFBEncrypter(block, iv)
+		writer = cipher.StreamWriter{S: crypter, W: writer}
+	}
+
+	return writer, nil
+}
+
 func (p *fileProducer) newFile(key string) error {
 	if err := p.fs.MkdirAll(p.topicPath(p.topic), 0770); err != nil {
 		return err
@@ -354,15 +347,9 @@ func (p *fileProducer) newFile(key string) error {
 	hw := &hashWriter{writer, hmac.New(sha256.New, []byte(p.HMACKey))}
 	writer = hw
 
-	var crypter cipher.Stream
-	if p.AESKey != "" {
-		block, err := aes.NewCipher([]byte(p.AESKey))
-		if err != nil {
-			return err
-		}
-
-		crypter = cipher.NewCFBEncrypter(block, iv)
-		writer = cipher.StreamWriter{S: crypter, W: writer}
+	writer, err = p.initCrypterWriter(writer, iv)
+	if err != nil {
+		return err
 	}
 
 	var bufWriter writerFlusher = bufio.NewWriter(writer)
@@ -374,7 +361,7 @@ func (p *fileProducer) newFile(key string) error {
 
 	log.Debugf("Opened: %v, %v compression: %v", key, n, p.compression)
 
-	p.files[key] = &file{n, f, seeker, offset, crypter, hw, bufWriter}
+	p.files[key] = &file{n, f, seeker, offset, hw, bufWriter}
 
 	return nil
 }

@@ -29,12 +29,13 @@ thread for which register has been called already.
 package shutdown
 
 import (
-	"golang.org/x/net/context" //"context"
 	"os"
 	"os/signal"
 	"sync"
 	"sync/atomic"
 	"syscall"
+
+	"golang.org/x/net/context" //"context"
 )
 
 var group sync.WaitGroup
@@ -80,7 +81,7 @@ func Done() {
 
 /*Setup initializes shutdown framework. Setup signal listener for SIGINT,
 * SIGTERM */
-func Setup() context.CancelFunc {
+func Setup() {
 	atomic.StoreInt32(&flag, 0)
 	atomic.StoreInt32(&numThreads, 0)
 	sigs := make(chan os.Signal, 1)
@@ -99,8 +100,6 @@ func Setup() context.CancelFunc {
 		case <-InitiatedCh():
 		}
 	}()
-
-	return cancel //Return value is unused, it's here to make linter happy
 }
 
 /*Wait waits for all the registered threads to terminate*/

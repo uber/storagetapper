@@ -141,7 +141,7 @@ func create(cfg *config.AppConfig) bool {
 		input VARCHAR(128) NOT NULL,
 		output VARCHAR(128) NOT NULL,
 		version INT NOT NULL DEFAULT 0,
-		format VARCHAR(128) NOT NULL,
+		outputFormat VARCHAR(128) NOT NULL,
 		gtid TEXT NOT NULL,
 		seqno BIGINT NOT NULL DEFAULT 0,
 		schemaGTID TEXT NOT NULL,
@@ -264,7 +264,7 @@ func parseRows(rows *sql.Rows) (Type, error) {
 }
 
 func allStateFields() string {
-	return "id, cluster, service, db, tablename, input, output, version, format, gtid, seqno, schemagtid, rawschema, needbootstrap"
+	return "id, cluster, service, db, tablename, input, output, version, outputFormat, gtid, seqno, schemagtid, rawschema, needbootstrap"
 }
 
 //GetCond returns rows with given condition in the state
@@ -372,7 +372,7 @@ func GetSchema(svc string, sdb string, table string) (*types.TableSchema, error)
 //state with new versions provided as parameters
 //If oldGtid is empty adds it as new table to the state
 //FIXME: To big function. Split it.
-func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema string, oldGtid string, gtid string, input string, output string, version int, format string) bool {
+func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema string, oldGtid string, gtid string, input string, output string, version int, outputFormat string) bool {
 	tx, err := conn.Begin()
 	if log.E(err) {
 		return false
@@ -401,7 +401,7 @@ func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema s
 		}
 	} else {
 		log.Debugf("Inserting schema for table %+v input=%v output=%v v%v", s.TableName, input, output, version)
-		if _, err := tx.Exec("INSERT INTO state (service, cluster, db, tableName, gtid, schemaGTID, rawSchema, input, output, version, format) VALUES (?,?,?,?,'',?,?,?,?,?,?)", svc, cluster, s.DBName, s.TableName, gtid, rawSchema, input, output, version, format); err != nil {
+		if _, err := tx.Exec("INSERT INTO state (service, cluster, db, tableName, gtid, schemaGTID, rawSchema, input, output, version, outputFormat) VALUES (?,?,?,?,'',?,?,?,?,?,?)", svc, cluster, s.DBName, s.TableName, gtid, rawSchema, input, output, version, outputFormat); err != nil {
 			if err.(*mysql.MySQLError).Number == 1062 { //Duplicate key
 				log.Warnf("Newer schema version found in the state, my: (current: %v, new: %v), state: ?. service=%v, db=%v, table=%v", "", gtid, svc, s.DBName, s.TableName)
 				log.E(tx.Rollback())
@@ -432,7 +432,7 @@ func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema s
 }
 
 //RegisterTable adds table to the state
-func RegisterTable(dbl *db.Loc, table string, input string, output string, version int, format string) bool {
+func RegisterTable(dbl *db.Loc, table string, input string, output string, version int, outputFormat string) bool {
 	ts, err := schema.Get(dbl, table)
 	if log.E(err) {
 		return false
@@ -448,11 +448,11 @@ func RegisterTable(dbl *db.Loc, table string, input string, output string, versi
 		return false
 	}
 
-	if !ReplaceSchema(dbl.Service, dbl.Cluster, ts, rawSchema, "", sgtid, input, output, version, format) {
+	if !ReplaceSchema(dbl.Service, dbl.Cluster, ts, rawSchema, "", sgtid, input, output, version, outputFormat) {
 		return false
 	}
 
-	log.Debugf("Registered table: %+v, %v input=%v output=%v v=%v outputFormat=%v", dbl, table, input, output, version, format)
+	log.Debugf("Registered table: %+v, %v input=%v output=%v v=%v outputFormat=%v", dbl, table, input, output, version, outputFormat)
 
 	return true
 }

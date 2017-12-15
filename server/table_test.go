@@ -86,7 +86,7 @@ func tableRequest(cmd tableCmdReq, code int, t *testing.T) *httptest.ResponseRec
 }
 
 func addTable(cluster string, service string, db string, table string, t *testing.T) {
-	err := util.ExecSQL(state.GetDB(), "INSERT INTO state(cluster, service, db, tableName, input, output, format, gtid, schemaGTID, rawSchema) VALUES (?, ?, ?, ?, '', '', '', '', '', '')", cluster, service, db, table)
+	err := util.ExecSQL(state.GetDB(), "INSERT INTO state(cluster, service, db, tableName, input, output, outputFormat, gtid, schemaGTID, rawSchema) VALUES (?, ?, ?, ?, '', '', '', '', '', '')", cluster, service, db, table)
 	test.CheckFail(err, t)
 }
 

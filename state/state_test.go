@@ -72,7 +72,7 @@ func insertStateRows(s Type, t1 *testing.T) {
 			log.Errorf("service and dbs need to be sorted in reference struture")
 			t1.FailNow()
 		}
-		err := util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,format,rawSchema,schemaGTID) VALUES (?,?,?,?,?,'','','','','')", t.Service, t.Cluster, t.Db, t.Table, t.Gtid)
+		err := util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,outputFormat,rawSchema,schemaGTID) VALUES (?,?,?,?,?,'','','','','')", t.Service, t.Cluster, t.Db, t.Table, t.Gtid)
 		test.CheckFail(err, t1)
 	}
 }
@@ -174,9 +174,9 @@ func testGTIDs(t *testing.T) {
 	}
 
 	log.Debugf("Check that StateGetGTID return non-empty GTID")
-	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,format,rawSchema,schemaGTID) VALUES ('svc1', 'clst1', 'db1_state', 'table5', '', '','','','','')")
+	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,outputFormat,rawSchema,schemaGTID) VALUES ('svc1', 'clst1', 'db1_state', 'table5', '', '','','','','')")
 	test.CheckFail(err, t)
-	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,format,rawSchema,schemaGTID) VALUES ('svc1', 'clst1', 'db1_state', 'table0', '', '', '','','','')")
+	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,outputFormat,rawSchema,schemaGTID) VALUES ('svc1', 'clst1', 'db1_state', 'table0', '', '', '','','','')")
 	test.CheckFail(err, t)
 
 	gts, err = GetGTID(dbloc1)
@@ -568,7 +568,7 @@ func TestClusterInfo(t *testing.T) {
 
 	log.Debugf("Test that we can resolve cluster name from service and db")
 
-	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,format,rawSchema,schemaGTID) VALUES (?,?,?,?,'','','','','','')", "state_test_service1", "state_test_cluster1", "state_test_db1", "state_test_table1")
+	err = util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,outputFormat,rawSchema,schemaGTID) VALUES (?,?,?,?,'','','','','','')", "state_test_service1", "state_test_cluster1", "state_test_db1", "state_test_table1")
 	test.CheckFail(err, t)
 
 	a = ConnectInfoGet(&db.Loc{Service: "state_test_service1", Name: "state_test_db1"}, db.Master)

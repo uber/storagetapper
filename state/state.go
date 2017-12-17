@@ -46,7 +46,7 @@ type row struct {
 	Input         string
 	Output        string
 	Version       int
-	Format        string
+	OutputFormat  string
 	Gtid          string
 	SeqNo         uint64
 	SchemaGtid    string
@@ -252,7 +252,7 @@ func parseRows(rows *sql.Rows) (Type, error) {
 	res := make(Type, 0)
 	var r row
 	for rows.Next() {
-		if err := rows.Scan(&r.ID, &r.Cluster, &r.Service, &r.Db, &r.Table, &r.Input, &r.Output, &r.Version, &r.Format, &r.Gtid, &r.SeqNo, &r.SchemaGtid, &r.RawSchema, &r.needBootstrap); err != nil {
+		if err := rows.Scan(&r.ID, &r.Cluster, &r.Service, &r.Db, &r.Table, &r.Input, &r.Output, &r.Version, &r.OutputFormat, &r.Gtid, &r.SeqNo, &r.SchemaGtid, &r.RawSchema, &r.needBootstrap); err != nil {
 			return nil, err
 		}
 		res = append(res, r)

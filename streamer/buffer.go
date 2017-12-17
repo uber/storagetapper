@@ -43,7 +43,6 @@ func (s *Streamer) getTag() map[string]string {
 
 func (s *Streamer) encodeCommonFormat(data []byte) (key string, outMsg []byte, err error) {
 	cfEvent := &types.CommonFormatEvent{}
-	//FIXME: it must be table's encoder in order to have schema
 	payload, err := s.envEncoder.UnwrapEvent(data, cfEvent)
 	if log.EL(s.log, err) {
 		log.Errorf("broken event: %v %v", data, len(data))

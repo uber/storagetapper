@@ -8,7 +8,7 @@ TIMEOUT=300s
 export GOTRACEBACK="crash" #produce core file on panic
 
 #FIXME: Because of the shared state in database tests can't be run in parallel
-CMD="go test -race -coverprofile=profile.out -covermode=atomic -test.timeout $TIMEOUT"
+CMD="go test -race -test.timeout $TIMEOUT"
 
 for i in $@; do
 	$CMD $TEST_PARAM $i || exit 1

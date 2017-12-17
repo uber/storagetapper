@@ -39,16 +39,16 @@ import (
 )
 
 type tableCmdReq struct {
-	Cmd     string
-	Cluster string
-	Service string
-	Db      string
-	Table   string
-	Input   string
-	Output  string
-	Version int
-	Format  string
-	Apply   string
+	Cmd          string
+	Cluster      string
+	Service      string
+	Db           string
+	Table        string
+	Input        string
+	Output       string
+	Version      int
+	OutputFormat string
+	Apply        string
 }
 
 func updateTableRegCnt() {
@@ -70,13 +70,14 @@ func addSQLCond(cond string, args []interface{}, name string, op string, val str
 }
 
 type tableListResponse struct {
-	Cluster string
-	Service string
-	Db      string
-	Table   string
-	Input   string
-	Output  string
-	Version int
+	Cluster      string
+	Service      string
+	Db           string
+	Table        string
+	Input        string
+	Output       string
+	Version      int
+	OutputFormat string
 }
 
 func iterateRows(rows *sql.Rows, t *tableCmdReq) error {
@@ -85,7 +86,7 @@ func iterateRows(rows *sql.Rows, t *tableCmdReq) error {
 		if err := rows.Scan(&d, &n); err != nil {
 			return err
 		}
-		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: d}, n, t.Input, t.Output, t.Version, t.Format) {
+		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: d}, n, t.Input, t.Output, t.Version, t.OutputFormat) {
 			return fmt.Errorf("Error registering table: %v.%v", d, n)
 		}
 	}
@@ -97,13 +98,10 @@ func handleAddCmd(w http.ResponseWriter, t *tableCmdReq) error {
 	if t.Input == "" {
 		t.Input = cfg.DefaultInputType
 	}
-	if t.Output == "" {
-		t.Output = cfg.OutputPipeType
-	}
 
 	//no wildcards case
 	if len(t.Db) != 0 && len(t.Table) != 0 && t.Db != "*" && t.Table != "*" && !strings.ContainsAny(t.Db, "%") && !strings.ContainsAny(t.Table, "%") {
-		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: t.Db}, t.Table, t.Input, t.Output, t.Version, t.Format) {
+		if !state.RegisterTable(&db.Loc{Cluster: t.Cluster, Service: t.Service, Name: t.Db}, t.Table, t.Input, t.Output, t.Version, t.OutputFormat) {
 			return errors.New("Error registering table")
 		}
 		updateTableRegCnt()
@@ -163,7 +161,7 @@ func handleDelListCmd(w http.ResponseWriter, t *tableCmdReq, del bool) error {
 				err = fmt.Errorf("Error deregistering table: service=%v db=%v table=%v", v.Service, v.Db, v.Table)
 				break
 			}
-			if b, err = json.Marshal(&tableListResponse{Cluster: v.Cluster, Service: v.Service, Db: v.Db, Table: v.Table, Input: v.Input, Output: v.Output, Version: v.Version}); err != nil {
+			if b, err = json.Marshal(&tableListResponse{Cluster: v.Cluster, Service: v.Service, Db: v.Db, Table: v.Table, Input: v.Input, Output: v.Output, Version: v.Version, OutputFormat: v.OutputFormat}); err != nil {
 				break
 			}
 			resp = append(resp, b...)
@@ -189,8 +187,8 @@ func tableCmd(w http.ResponseWriter, r *http.Request) {
 
 	if t.Cmd == "list" {
 		err = handleDelListCmd(w, &t, false)
-	} else if len(t.Service) == 0 || len(t.Cluster) == 0 || len(t.Db) == 0 || len(t.Table) == 0 {
-		err = errors.New("Invalid command. All fields(service,cluster,db,table) must not be empty")
+	} else if len(t.Service) == 0 || len(t.Cluster) == 0 || len(t.Db) == 0 || len(t.Table) == 0 || len(t.Output) == 0 || (t.Cmd == "add" && len(t.OutputFormat) == 0) {
+		err = errors.New("Invalid command. All fields(service,cluster,db,table,output,outputFormat) must not be empty")
 		//	} else if t.Service == "*" && t.Cluster == "*" && t.Db == "*" && t.Table == "*" {
 		//		err = errors.New("Invalid command. At least one of the fields(service,cluster,db,table) must not be a wildcard")
 	} else if t.Cmd == "del" {

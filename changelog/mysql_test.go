@@ -50,6 +50,7 @@ var globalTPoolProcs int32
 var fakePool pool.Thread
 var alterCh = make(chan bool)
 var testReader *mysqlReader
+var outputFormat string
 
 //TODO: 1.8 export the t.Name() so no hack is needed
 var testName string
@@ -328,16 +329,16 @@ func ExecSQL(db *sql.DB, t *testing.T, query string) {
 func regTableForMultiTableTest(pipeType string, secondPipe string, t *testing.T) {
 	if testName == "TestMultiTable" {
 		cfg.ChangelogBuffer = false
-		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", pipeType, 0, "") {
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", pipeType, 0, outputFormat) {
 			t.FailNow()
 		}
-		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", pipeType, 1, "") {
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", pipeType, 1, outputFormat) {
 			t.FailNow()
 		}
-		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", secondPipe, 1, "") {
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "mysql", secondPipe, 1, outputFormat) {
 			t.FailNow()
 		}
-		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "not_mysql", pipeType, 1, "") {
+		if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db9"}, "t1", "not_mysql", pipeType, 1, outputFormat) {
 			t.FailNow()
 		}
 	}
@@ -347,11 +348,10 @@ func Prepare(pipeType string, create []string, encoding string, t *testing.T) (*
 	shutdown.Setup()
 
 	if testName == "TestMultiTable" {
-		cfg.OutputFormat = encoding
+		outputFormat = encoding
 	}
 
 	cfg.InternalEncoding = encoding
-	cfg.ChangelogOutputFormat = encoding
 	var err error
 	encoder.Internal, err = encoder.InitEncoder(cfg.InternalEncoding, "", "", "")
 	test.CheckFail(err, t)
@@ -389,7 +389,7 @@ func Prepare(pipeType string, create []string, encoding string, t *testing.T) (*
 
 	log.Debugf("Starting binlog reader. PipeType=%v", pipeType)
 
-	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1", "mysql", pipeType, 0, "") {
+	if !state.RegisterTable(&db.Loc{Cluster: "test_cluster1", Service: "test_svc1", Name: "db1"}, "t1", "mysql", pipeType, 0, encoding) {
 		t.FailNow()
 	}
 
@@ -489,7 +489,7 @@ func initConsumeTableEvents(p pipe.Pipe, db string, table string, version int, t
 
 func consumeTableEvents(pc pipe.Consumer, db string, table string, result []types.CommonFormatEvent, seqnoShift uint64, t *testing.T) {
 	log.Debugf("consuming events %+v %+v", db, table)
-	enc, err := encoder.Create(cfg.ChangelogOutputFormat, "test_svc1", db, table)
+	enc, err := encoder.Create(cfg.InternalEncoding, "test_svc1", db, table)
 	test.CheckFail(err, t)
 
 	for i, v := range result {
@@ -762,7 +762,7 @@ func TestMultiTable(t *testing.T) {
 
 func TestDirectOutput(t *testing.T) {
 	cfg.ChangelogBuffer = false
-	cfg.OutputFormat = "msgpack" //set to different from "json" to check that reader output in final format and not in buffer format
+	outputFormat = "msgpack" //set to different from "json" to check that reader output in final format and not in buffer format
 	CheckQueries("kafka", testBasicPrepare, testBasic, testBasicResult, "json", t)
 }
 
@@ -799,7 +799,6 @@ func TestReaderShutdown(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
-	cfg.ChangelogOutputFormat = encoder.Internal.Type()
 	cfg.MaxNumProcs = 1
 	saveCfg = *cfg
 

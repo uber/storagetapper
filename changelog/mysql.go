@@ -52,16 +52,16 @@ import (
 const seqnoSaveInterval = 1000000
 
 type table struct {
-	id         int64
-	dead       bool
-	producer   pipe.Producer
-	rawSchema  string
-	schemaGtid string
-	service    string
-	encoder    encoder.Encoder
-	output     string
-	version    int
-	format     string
+	id           int64
+	dead         bool
+	producer     pipe.Producer
+	rawSchema    string
+	schemaGtid   string
+	service      string
+	encoder      encoder.Encoder
+	output       string
+	version      int
+	outputFormat string
 }
 
 type mysqlReader struct {
@@ -78,7 +78,6 @@ type mysqlReader struct {
 	alterRE       *regexp.Regexp
 	alterQuotedRE *regexp.Regexp
 	tpool         pool.Thread
-	outputFormat  string
 	metrics       *metrics.BinlogReader
 	batchSize     int
 	lock          lock.Lock
@@ -128,12 +127,12 @@ func (b *mysqlReader) pushSchema(tver []*table) bool {
 		return false
 	}
 
-	if b.outputFormat != "json" && b.outputFormat != "msgpack" {
-		return true
-	}
-
 	for i := 0; i < len(tver); i++ {
 		t := tver[i]
+		log.Debugf("format vvvvv %v %v %v", t.outputFormat, t.encoder.Type(), encoder.Internal.Type())
+		if t.outputFormat != "json" && t.outputFormat != "msgpack" {
+			continue
+		}
 
 		bd, err := t.encoder.EncodeSchema(seqno)
 		if log.EL(b.log, err) {
@@ -157,11 +156,8 @@ func (b *mysqlReader) pushSchema(tver []*table) bool {
 func (b *mysqlReader) addNewTable(st state.Type, i int) bool {
 	t := st[i]
 
-	format := b.outputFormat
-	if t.Format != "" {
-		format = t.Format
-	}
-	enc, err := encoder.Create(format, t.Service, t.Db, t.Table)
+	b.log.Infof("Adding table to MySQL binlog reader (%v,%v,%v,%v,%v), will produce to: %v", t.Service, t.Db, t.Table, t.Output, t.Version, t.OutputFormat)
+	enc, err := encoder.Create(t.OutputFormat, t.Service, t.Db, t.Table)
 	if log.EL(b.log, err) {
 		return false
 	}
@@ -177,6 +173,7 @@ func (b *mysqlReader) addNewTable(st state.Type, i int) bool {
 	}
 	pipe := b.bufPipe
 
+	format := encoder.Internal.Type()
 	if !config.Get().ChangelogBuffer {
 		var ok bool
 		pipe, ok = (*b.outPipes)[t.Output]
@@ -184,6 +181,7 @@ func (b *mysqlReader) addNewTable(st state.Type, i int) bool {
 			b.log.Errorf("Service: %v Db: %v Table: %v. Unknown pipe: %v", t.Service, t.Db, t.Table, t.Output)
 			return false
 		}
+		format = t.OutputFormat
 	}
 
 	p, err := pipe.NewProducer(pn)
@@ -193,9 +191,9 @@ func (b *mysqlReader) addNewTable(st state.Type, i int) bool {
 
 	p.SetFormat(format)
 
-	b.log.Infof("New table added to MySQL binlog reader (%v,%v,%v,%v,%v,%v), will produce to: %v", t.Service, t.Db, t.Table, t.Output, t.Version, format, pn)
+	b.log.Infof("New table added to MySQL binlog reader (%v,%v,%v,%v,%v,%v), will produce to: %v", t.Service, t.Db, t.Table, t.Output, t.Version, t.OutputFormat, pn)
 
-	nt := &table{t.ID, false, p, t.RawSchema, t.SchemaGtid, t.Service, enc, t.Output, t.Version, format}
+	nt := &table{t.ID, false, p, t.RawSchema, t.SchemaGtid, t.Service, enc, t.Output, t.Version, t.OutputFormat}
 
 	if b.tables[t.Db][t.Table] == nil {
 		b.tables[t.Db][t.Table] = make([]*table, 0)
@@ -366,12 +364,12 @@ func (b *mysqlReader) updateState(inc bool) bool {
 	return true
 }
 
-func (b *mysqlReader) wrapEvent(format string, key string, bd []byte, seqno uint64) ([]byte, error) {
+func (b *mysqlReader) wrapEvent(outputFormat string, key string, bd []byte, seqno uint64) ([]byte, error) {
 	akey := make([]interface{}, 1)
 	akey[0] = key
 
 	cfw := types.CommonFormatEvent{
-		Type:      format,
+		Type:      outputFormat,
 		Key:       akey,
 		SeqNo:     seqno,
 		Timestamp: time.Now().UnixNano(),
@@ -406,7 +404,7 @@ func (b *mysqlReader) produceRow(tp int, t *table, row *[]interface{}) error {
 			return err
 		}
 		if buffered && t.encoder.Type() != encoder.Internal.Type() {
-			bd, err = b.wrapEvent(t.format, key, bd, seqno)
+			bd, err = b.wrapEvent(t.outputFormat, key, bd, seqno)
 			if log.EL(b.log, err) {
 				return err
 			}
@@ -519,7 +517,7 @@ func (b *mysqlReader) handleQueryEvent(ev *replication.BinlogEvent) bool {
 			for i := 0; i < len(tver); i++ {
 				t := tver[i]
 				if !schema.MutateTable(state.GetNoDB(), t.service, dbname, table, m[0][3], t.encoder.Schema(), &t.rawSchema) ||
-					!state.ReplaceSchema(t.service, b.dbl.Cluster, t.encoder.Schema(), t.rawSchema, t.schemaGtid, b.gtidSet.String(), "mysql", t.output, t.version, t.format) {
+					!state.ReplaceSchema(t.service, b.dbl.Cluster, t.encoder.Schema(), t.rawSchema, t.schemaGtid, b.gtidSet.String(), "mysql", t.output, t.version, t.outputFormat) {
 					return false
 				}
 
@@ -787,7 +785,6 @@ func (b *mysqlReader) start(cfg *config.AppConfig) bool {
 	defer b.metrics.NumWorkers.Dec()
 
 	thisInstanceCluster = b.dbl.Cluster
-	b.outputFormat = cfg.ChangelogOutputFormat
 	b.batchSize = cfg.PipeBatchSize
 
 	b.log = log.WithFields(log.Fields{"cluster": b.dbl.Cluster})

@@ -45,13 +45,10 @@ type AppConfigODS struct {
 	Hadoop             HadoopConfig `yaml:"hadoop"`
 
 	ChangelogPipeType                 string                       `yaml:"changelog_pipe_type"`
-	ChangelogOutputFormat             string                       `yaml:"changelog_output_format"`
 	ChangelogTopicNameTemplateDefault string                       `yaml:"changelog_topic_name_template_default"`
 	ChangelogTopicNameTemplate        map[string]map[string]string `yaml:"changelog_topic_name_template"`
 	ChangelogBuffer                   bool                         `yaml:"changelog_buffer"`
 
-	OutputPipeType                 string                       `yaml:"output_pipe_type"`
-	OutputFormat                   string                       `yaml:"output_format"`
 	OutputTopicNameTemplateDefault string                       `yaml:"output_topic_name_template_default"`
 	OutputTopicNameTemplate        map[string]map[string]string `yaml:"output_topic_name_template"`
 	ClusterConcurrency             int                          `yaml:"cluster_concurrency"`
@@ -104,12 +101,9 @@ func getDefaultConfig() *AppConfigODS {
 		StateUpdateTimeout: 300,
 
 		ChangelogPipeType:                 "kafka",
-		ChangelogOutputFormat:             "json",
 		ChangelogTopicNameTemplateDefault: types.MySvcName + ".service.{{.Service}}.db.{{.Db}}.table.{{.Table}}",
 		ChangelogBuffer:                   true,
 
-		OutputPipeType:                 "kafka",
-		OutputFormat:                   "avro",
 		OutputTopicNameTemplateDefault: "hp-tap-{{.Service}}-{{.Db}}-{{.Table}}",
 
 		PipeBatchSize:         256,

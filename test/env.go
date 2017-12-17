@@ -107,8 +107,7 @@ func Assert(t *testing.T, cond bool, msg string, param ...interface{}) {
 		details := runtime.FuncForPC(pc)
 		args := []interface{}{path.Base(file), no, path.Base(details.Name())}
 		args = append(args, param...)
-		log.Fatalf("%v:%v %v: "+msg, args...)
-		t.FailNow()
+		t.Fatalf("%v:%v %v: "+msg, args...)
 	}
 }
 

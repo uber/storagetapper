@@ -167,7 +167,7 @@ func (s *Streamer) lockTable(st state.Type, outPipes *map[string]pipe.Pipe) {
 			s.input = row.Input
 			s.output = row.Output
 			s.version = row.Version
-			s.outputFormat = row.Format
+			s.outputFormat = row.OutputFormat
 			break
 		}
 	}
@@ -243,7 +243,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 	}
 	defer func() { log.EL(s.log, s.outProducer.Close()) }()
 
-	s.outProducer.SetFormat(cfg.OutputFormat)
+	s.outProducer.SetFormat(s.outputFormat)
 
 	// Ensures that some binlog reader worker has started reading log events for the cluster on
 	// which the table resides.
@@ -255,9 +255,6 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 	s.waitForGtid(s.svc, s.db, gtid)
 
 	s.stateUpdateTimeout = cfg.StateUpdateTimeout
-	if s.outputFormat == "" {
-		s.outputFormat = cfg.OutputFormat
-	}
 
 	s.outEncoder, err = encoder.Create(s.outputFormat, s.svc, s.db, s.table)
 	if log.EL(s.log, err) {

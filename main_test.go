@@ -212,9 +212,10 @@ func initTestDB(init bool, t *testing.T) {
 	}
 }
 
-func addTable(init bool, format string, tableNum string, typ string, t *testing.T) {
+func addTable(init bool, format string, tableNum string, output string, t *testing.T) {
 	table := "e2e_test_table" + tableNum
 
+	log.Debugf("aaaaa %v %v", output, format)
 	if init {
 		/*Insert some test cluster connection info */
 		if tableNum == "1" {
@@ -222,12 +223,12 @@ func addTable(init bool, format string, tableNum string, typ string, t *testing.
 			test.CheckFail(err, t)
 		}
 		/*Register test table for ingestion */
-		err := util.HTTPPostJSON("http://localhost:7836/table", `{"cmd" : "add", "cluster" : "e2e_test_cluster1", "service" : "e2e_test_svc1", "db":"e2e_test_db1", "table":"`+table+`"}`)
+		err := util.HTTPPostJSON("http://localhost:7836/table", `{"cmd" : "add", "cluster" : "e2e_test_cluster1", "service" : "e2e_test_svc1", "db":"e2e_test_db1", "table":"`+table+`","output":"`+output+`","OutputFormat":"`+format+`"}`)
 		test.CheckFail(err, t)
 
 		/*Insert output Avro schema */
 		dst := `, "dst" : "local"`
-		err = util.HTTPPostJSON("http://localhost:7836/schema", `{"cmd" : "register", "service" : "e2e_test_svc1", "db" : "e2e_test_db1", "type" : "`+typ+`", "table" : "`+table+`"`+dst+` }`)
+		err = util.HTTPPostJSON("http://localhost:7836/schema", `{"cmd" : "register", "service" : "e2e_test_svc1", "db" : "e2e_test_db1", "type" : "`+format+`", "table" : "`+table+`"`+dst+` }`)
 		test.CheckFail(err, t)
 
 		if tableNum == "1" {
@@ -275,17 +276,18 @@ func createSecondTable(init bool, conn *sql.DB, t *testing.T) {
 	}
 }
 
-func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPipeFormat string, init bool, keyShift int, t *testing.T) {
+func testStep(inPipeType string, bufferFormat string, outPipeType string, outPipeFormat string, init bool, keyShift int, t *testing.T) {
 	cfg := config.Get()
 
 	cfg.DataDir = "/tmp/storagetapper/main_test"
 	cfg.MaxFileSize = 1 // file per message
-	cfg.OutputFormat = outPipeFormat
-	cfg.OutputPipeType = outPipeType
 	cfg.ChangelogPipeType = inPipeType
-	cfg.ChangelogOutputFormat = inPipeFormat
-	if inPipeFormat == "json" || inPipeFormat == "msgpack" {
-		cfg.InternalEncoding = inPipeFormat
+	cfg.InternalEncoding = bufferFormat
+	//json and msgpack pushes schema not wrapped into transport format, so
+	//streamer won't be able to decode it unless outPipeFormat =
+	//InternalEncoding = bufferFormat
+	if outPipeFormat == "json" || outPipeFormat == "msgpack" {
+		cfg.InternalEncoding = outPipeFormat
 		var err error
 		encoder.Internal, err = encoder.InitEncoder(cfg.InternalEncoding, "", "", "")
 		test.CheckFail(err, t)
@@ -298,7 +300,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	log.Configure(cfg.LogType, cfg.LogLevel, false)
 
-	log.Debugf("STARTED STEP: %v, %v, %v, %v, %v, %v, seqno=%v", inPipeType, inPipeFormat, outPipeType, outPipeFormat, init, keyShift, seqno)
+	log.Debugf("STARTED STEP: %v, %v, %v, %v, %v, %v, seqno=%v", inPipeType, bufferFormat, outPipeType, outPipeFormat, init, keyShift, seqno)
 
 	var jsonResult, avroResult []string = make([]string, 0), make([]string, 0)
 	var jsonResult2, avroResult2 []string = make([]string, 0), make([]string, 0)
@@ -313,7 +315,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	seqno += 1000000
 	sseqno := seqno
 
-	if init && cfg.OutputFormat != "avro" {
+	if init && outPipeFormat != "avro" {
 		jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}]}`, 0))
 	}
 
@@ -335,7 +337,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		shutdown.Initiate()
 		shutdown.Wait() //There is no guarantee that this wait return after main's Wait that's why below wait for local wg
 		wg.Wait()
-		log.Debugf("FINISHED STEP: %v, %v, %v, %v", inPipeType, inPipeFormat, outPipeType, outPipeFormat)
+		log.Debugf("FINISHED STEP: %v, %v, %v, %v", inPipeType, bufferFormat, outPipeType, outPipeFormat)
 	}()
 
 	/*New consumer sees only new events, so register it before any events
@@ -347,9 +349,9 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	c2, err := p.NewConsumer("hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
 	test.CheckFail(err, t)
 
-	addTable(init, outPipeFormat, "1", outPipeFormat, t)
+	addTable(init, outPipeFormat, "1", outPipeType, t)
 
-	outEncoder, err := encoder.Create(cfg.OutputFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1")
+	outEncoder, err := encoder.Create(outPipeFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1")
 	test.CheckFail(err, t)
 
 	/*Wait snapshot to finish before sending more data otherwise everything
@@ -370,11 +372,11 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	//This makes sure that both changelog reader and streamer has read old
 	//schema
-	sseqno = waitAllEventsStreamed(cfg.OutputFormat, trackingConsumer, sseqno, seqno)
+	sseqno = waitAllEventsStreamed(outPipeFormat, trackingConsumer, sseqno, seqno)
 
 	test.ExecSQL(conn, t, "ALTER TABLE e2e_test_table1 ADD f2 varchar(32)")
 	seqno++
-	if cfg.OutputFormat != "avro" {
+	if outPipeFormat != "avro" {
 		jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"},{"Name":"f2","Value":"varchar(32)"}]}`, seqno))
 	}
 
@@ -388,11 +390,11 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		avroResult = append(avroResult, s)
 	}
 
-	waitAllEventsStreamed(cfg.OutputFormat, trackingConsumer, sseqno, seqno)
+	waitAllEventsStreamed(outPipeFormat, trackingConsumer, sseqno, seqno)
 
 	test.ExecSQL(conn, t, "ALTER TABLE e2e_test_table1 DROP f2")
 	seqno++
-	if cfg.OutputFormat != "avro" {
+	if outPipeFormat != "avro" {
 		jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}]}`, seqno))
 	}
 
@@ -415,7 +417,7 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 
 	createSecondTable(init, conn, t)
 
-	if init && cfg.OutputFormat != "avro" {
+	if init && outPipeFormat != "avro" {
 		jsonResult2 = append(jsonResult2, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}]}`, 0))
 	}
 
@@ -438,9 +440,9 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 		time.Sleep(time.Millisecond * 50)
 	}
 
-	addTable(init, outPipeFormat, "2", outPipeFormat, t)
+	addTable(init, outPipeFormat, "2", outPipeType, t)
 
-	outEncoder2, err := encoder.Create(cfg.OutputFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2")
+	outEncoder2, err := encoder.Create(outPipeFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2")
 	test.CheckFail(err, t)
 
 	log.Debugf("Inserted second table")
@@ -483,14 +485,14 @@ func testStep(inPipeType string, inPipeFormat string, outPipeType string, outPip
 	time.Sleep(time.Millisecond * 1500) //Let binlog to see table deletion
 
 	log.Debugf("Start consuming events from %v", "hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
-	consumeEvents(c, cfg.OutputFormat, avroResult, jsonResult, outEncoder, t)
+	consumeEvents(c, outPipeFormat, avroResult, jsonResult, outEncoder, t)
 	log.Debugf("Start consuming events from %v", "hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
-	consumeEvents(c2, cfg.OutputFormat, avroResult2, jsonResult2, outEncoder2, t)
+	consumeEvents(c2, outPipeFormat, avroResult2, jsonResult2, outEncoder2, t)
 
 	test.CheckFail(c.Close(), t)
 	test.CheckFail(c2.Close(), t)
 
-	log.Debugf("FINISHING STEP: %v, %v, %v, %v", inPipeType, inPipeFormat, outPipeType, outPipeFormat)
+	log.Debugf("FINISHING STEP: %v, %v, %v, %v", inPipeType, bufferFormat, outPipeType, outPipeFormat)
 }
 
 func TestBasic(t *testing.T) {
@@ -514,11 +516,11 @@ func TestBasic(t *testing.T) {
 			continue
 		}
 		for _, b := range []string{"local", "kafka"} {
-			for _, enc := range encoder.Encoders() {
-				testStep(b, "json", o, enc, true, 0, t)
-				testStep(b, "json", o, enc, false, 100000, t)
-				testStep(b, enc, o, enc, true, 0, t)
-				testStep(b, enc, o, enc, false, 100000, t)
+			for _, i := range []string{"json", "msgpack"} { //possible buffer formats
+				for _, enc := range encoder.Encoders() {
+					testStep(b, i, o, enc, true, 0, t)
+					testStep(b, i, o, enc, false, 100000, t)
+				}
 			}
 		}
 	}

@@ -86,7 +86,7 @@ func tableRequest(cmd tableCmdReq, code int, t *testing.T) *httptest.ResponseRec
 }
 
 func addTable(cluster string, service string, db string, table string, t *testing.T) {
-	err := util.ExecSQL(state.GetDB(), "INSERT INTO state(cluster, service, db, tableName, input, output, outputFormat, gtid, schemaGTID, rawSchema) VALUES (?, ?, ?, ?, '', '', '', '', '', '')", cluster, service, db, table)
+	err := util.ExecSQL(state.GetDB(), "INSERT INTO state(cluster, service, db, tableName, input, output, outputFormat, gtid, schemaGTID, rawSchema) VALUES (?, ?, ?, ?, '', 'kafka', 'json', '', '', '')", cluster, service, db, table)
 	test.CheckFail(err, t)
 }
 
@@ -102,11 +102,13 @@ func testServerTableListDelCommands(cmd string, t *testing.T) {
 	addTable("clst2", "svc2", "db2", "table5", t)
 
 	req := tableCmdReq{
-		Cmd:     cmd,
-		Cluster: "clst2",
-		Service: "svc1",
-		Db:      "db1",
-		Table:   "*",
+		Cmd:          cmd,
+		Cluster:      "clst2",
+		Service:      "svc1",
+		Db:           "db1",
+		Table:        "*",
+		Output:       "kafka",
+		OutputFormat: "json",
 	}
 
 	resp := tableRequest(req, http.StatusOK, t)
@@ -116,8 +118,8 @@ func testServerTableListDelCommands(cmd string, t *testing.T) {
 
 	req.Cluster = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"","Version":0}
-{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"","Version":0}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
 ` {
 		t.Fatalf("wrong response 2: '%v'", string(resp.Body.Bytes()))
 	}
@@ -125,9 +127,9 @@ func testServerTableListDelCommands(cmd string, t *testing.T) {
 	req.Service = "*"
 	log.Debugf("ref %+v", req)
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"","Version":0}
-{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"","Version":0}
-{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"","Version":0}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
 ` {
 		t.Fatalf("wrong response 3: '%v'", string(resp.Body.Bytes()))
 	}
@@ -135,11 +137,11 @@ func testServerTableListDelCommands(cmd string, t *testing.T) {
 	req.Cluster = "clst2"
 	req.Db = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":"","Version":0}
-{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":"","Version":0}
-{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":"","Version":0}
-{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"","Version":0}
-{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":"","Version":0}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
 ` {
 		t.Fatalf("wrong response 4: '%v'", string(resp.Body.Bytes()))
 	}
@@ -148,13 +150,13 @@ func testServerTableListDelCommands(cmd string, t *testing.T) {
 	req.Cluster = "*"
 	req.Db = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"","Version":0}
-{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"","Version":0}
-{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":"","Version":0}
-{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":"","Version":0}
-{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":"","Version":0}
-{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"","Version":0}
-{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":"","Version":0}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
 ` {
 		t.Fatalf("wrong response 5: '%v'", string(resp.Body.Bytes()))
 	}
@@ -187,6 +189,7 @@ func TestServerTableDelApplyCommands(t *testing.T) {
 		Service: "svc1",
 		Db:      "db1",
 		Table:   "*",
+		Output:  "kafka",
 		Apply:   "yes",
 	}
 
@@ -197,15 +200,15 @@ func TestServerTableDelApplyCommands(t *testing.T) {
 
 	req.Cluster = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"","Version":0}
-{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"","Version":0}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
 ` {
 		t.Fatalf("wrong response 2: '%v'", string(resp.Body.Bytes()))
 	}
 
 	req.Service = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"","Version":0}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
 ` {
 		t.Fatalf("wrong response 3: '%v'", string(resp.Body.Bytes()))
 	}
@@ -213,10 +216,10 @@ func TestServerTableDelApplyCommands(t *testing.T) {
 	req.Cluster = "clst2"
 	req.Db = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":"","Version":0}
-{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":"","Version":0}
-{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":"","Version":0}
-{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":"","Version":0}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
+{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
 ` {
 		t.Fatalf("wrong response 4: '%v'", string(resp.Body.Bytes()))
 	}
@@ -225,7 +228,7 @@ func TestServerTableDelApplyCommands(t *testing.T) {
 	req.Cluster = "*"
 	req.Db = "*"
 	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst3","Service":"svc3","Db":"db3","Table":"table6","Input":"","Output":"","Version":0}
+	if string(resp.Body.Bytes()) != `{"Cluster":"clst3","Service":"svc3","Db":"db3","Table":"table6","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
 ` {
 		t.Fatalf("wrong response 5: '%v'", string(resp.Body.Bytes()))
 	}
@@ -247,18 +250,20 @@ func TestServerAddCommand(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		for j := 0; j < 3; j++ {
 			addReq := tableCmdReq{
-				Cmd:     "add",
-				Cluster: "clst1",
-				Service: "svc1",
-				Db:      "st_table_http_test" + strconv.Itoa(i),
-				Table:   "table_http_test" + strconv.Itoa(j),
+				Cmd:          "add",
+				Cluster:      "clst1",
+				Service:      "svc1",
+				Db:           "st_table_http_test" + strconv.Itoa(i),
+				Table:        "table_http_test" + strconv.Itoa(j),
+				Output:       "kafka",
+				OutputFormat: "json",
 			}
 
 			tableRequest(addReq, http.StatusOK, t)
 
 			resp := tableRequest(listReq, http.StatusOK, t)
 
-			ref += `{"Cluster":"clst1","Service":"svc1","Db":"st_table_http_test` + strconv.Itoa(i) + `","Table":"table_http_test` + strconv.Itoa(j) + `","Input":"mysql","Output":"kafka","Version":0}
+			ref += `{"Cluster":"clst1","Service":"svc1","Db":"st_table_http_test` + strconv.Itoa(i) + `","Table":"table_http_test` + strconv.Itoa(j) + `","Input":"mysql","Output":"kafka","Version":0,"OutputFormat":"json"}
 `
 			log.Debugf("ref %+v", ref)
 
@@ -274,6 +279,7 @@ func TestServerAddCommand(t *testing.T) {
 		Service: "*",
 		Db:      "*",
 		Table:   "*",
+		Output:  "kafka",
 		Apply:   "yes",
 	}
 	tableRequest(delAllReq, http.StatusOK, t)
@@ -283,11 +289,13 @@ func TestServerAddCommand(t *testing.T) {
 	}
 
 	addReq := tableCmdReq{
-		Cmd:     "add",
-		Service: "svc1",
-		Cluster: "clst1",
-		Db:      "st_table_http_test%",
-		Table:   "table_http_test%",
+		Cmd:          "add",
+		Service:      "svc1",
+		Cluster:      "clst1",
+		Db:           "st_table_http_test%",
+		Table:        "table_http_test%",
+		Output:       "kafka",
+		OutputFormat: "json",
 	}
 	tableRequest(addReq, http.StatusOK, t)
 
@@ -307,11 +315,13 @@ func TestServerTableAddDelCommandsBasic(t *testing.T) {
 	serverTableInit(t)
 
 	add := tableCmdReq{
-		Cmd:     "add",
-		Cluster: "test_cluster_1",
-		Service: "test_service_1",
-		Db:      "st_table_http_test0",
-		Table:   "table_http_test0",
+		Cmd:          "add",
+		Cluster:      "test_cluster_1",
+		Service:      "test_service_1",
+		Db:           "st_table_http_test0",
+		Table:        "table_http_test0",
+		Output:       "kafka",
+		OutputFormat: "json",
 	}
 
 	tableRequest(add, http.StatusOK, t)
@@ -321,12 +331,14 @@ func TestServerTableAddDelCommandsBasic(t *testing.T) {
 	test.Assert(t, reg, "Table should be registered")
 
 	del := tableCmdReq{
-		Cmd:     "del",
-		Cluster: "test_cluster_1",
-		Service: "test_service_1",
-		Db:      "st_table_http_test0",
-		Table:   "table_http_test0",
-		Apply:   "yes",
+		Cmd:          "del",
+		Cluster:      "test_cluster_1",
+		Service:      "test_service_1",
+		Db:           "st_table_http_test0",
+		Table:        "table_http_test0",
+		Output:       "kafka",
+		OutputFormat: "json",
+		Apply:        "yes",
 	}
 
 	tableRequest(del, http.StatusOK, t)

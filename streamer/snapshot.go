@@ -33,6 +33,7 @@ import (
 )
 
 var numRetries = 5
+var cancelCheckInterval = 60 * time.Second
 
 func (s *Streamer) streamBatch(snReader snapshot.Reader, outProducer pipe.Producer, batchSize int, snapshotMetrics *metrics.Snapshot) (bool, int64, int64, error) {
 	var i, b int
@@ -132,7 +133,7 @@ func (s *Streamer) streamFromConsistentSnapshot(input string, throttleMB int64, 
 		s.log.Debugf("Snapshot throttle enabled: %v IOPS, %v MBs", throttleIOPS, throttleMB)
 	}
 
-	var t int64
+	tickChan := time.NewTicker(cancelCheckInterval).C
 	for !shutdown.Initiated() {
 		next, nBytes, nEvents, err1 := s.streamBatch(snReader, outProducer, s.batchSize, snapshotMetrics)
 
@@ -154,12 +155,19 @@ func (s *Streamer) streamFromConsistentSnapshot(input string, throttleMB int64, 
 		}
 
 		if c != 0 {
-			t += c
 			time.Sleep(time.Microsecond * time.Duration(c))
 		}
-	}
 
-	log.Debugf("Total throttled %v us", t)
+		select {
+		case <-tickChan:
+			reg, _ := state.TableRegistered(s.id)
+			if !reg {
+				s.log.Warnf("Table removed from ingestion. Snapshot cancelled.")
+				return false
+			}
+		default:
+		}
+	}
 
 	if shutdown.Initiated() {
 		return false

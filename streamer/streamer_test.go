@@ -390,6 +390,7 @@ func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
 
 	encoder.GetLatestSchema = getSchemaTest
+	cancelCheckInterval = 1 * time.Second
 
 	pipe.KafkaConfig = sarama.NewConfig()
 	pipe.KafkaConfig.Producer.Partitioner = sarama.NewManualPartitioner

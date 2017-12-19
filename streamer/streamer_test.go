@@ -158,7 +158,6 @@ func setupBufferData(producer pipe.Producer, bufFormat string, outFormat string,
 	test.CheckFail(err, t)
 	for i := shiftKey; i < 100+shiftKey; i++ {
 		var bd []byte
-		var err error
 		if wrap == 2 {
 			bd, err = enc.Row(types.Insert, &[]interface{}{int64(i), strconv.Itoa(i)}, uint64(i))
 		} else {

@@ -102,9 +102,9 @@ func ConnectLow(cfg *config.AppConfig, nodb bool) *sql.DB {
 	if nodb {
 		dbAddr.Db = ""
 	}
-	conn, err := db.Open(dbAddr)
+	cn, err := db.Open(dbAddr)
 	if err == nil {
-		return conn
+		return cn
 	}
 	return nil
 }
@@ -401,7 +401,7 @@ func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema s
 		}
 	} else {
 		log.Debugf("Inserting schema for table %+v input=%v output=%v v%v", s.TableName, input, output, version)
-		if _, err := tx.Exec("INSERT INTO state (service, cluster, db, tableName, gtid, schemaGTID, rawSchema, input, output, version, outputFormat) VALUES (?,?,?,?,'',?,?,?,?,?,?)", svc, cluster, s.DBName, s.TableName, gtid, rawSchema, input, output, version, outputFormat); err != nil {
+		if _, err = tx.Exec("INSERT INTO state (service, cluster, db, tableName, gtid, schemaGTID, rawSchema, input, output, version, outputFormat) VALUES (?,?,?,?,'',?,?,?,?,?,?)", svc, cluster, s.DBName, s.TableName, gtid, rawSchema, input, output, version, outputFormat); err != nil {
 			if err.(*mysql.MySQLError).Number == 1062 { //Duplicate key
 				log.Warnf("Newer schema version found in the state, my: (current: %v, new: %v), state: ?. service=%v, db=%v, table=%v", "", gtid, svc, s.DBName, s.TableName)
 				log.E(tx.Rollback())
@@ -417,7 +417,7 @@ func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema s
 	}
 
 	for _, c := range s.Columns {
-		if _, err := tx.Exec("INSERT INTO columns VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", svc, s.DBName, s.TableName, c.Name, c.OrdinalPosition, c.IsNullable, c.DataType, c.CharacterMaximumLength, c.NumericPrecision, c.NumericScale, c.Type, c.Key); log.E(err) {
+		if _, err = tx.Exec("INSERT INTO columns VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", svc, s.DBName, s.TableName, c.Name, c.OrdinalPosition, c.IsNullable, c.DataType, c.CharacterMaximumLength, c.NumericPrecision, c.NumericScale, c.Type, c.Key); log.E(err) {
 			return false
 		}
 	}

@@ -94,9 +94,8 @@ func iterateRows(rows *sql.Rows, t *tableCmdReq) error {
 }
 
 func handleAddCmd(w http.ResponseWriter, t *tableCmdReq) error {
-	cfg := config.Get()
 	if t.Input == "" {
-		t.Input = cfg.DefaultInputType
+		t.Input = config.Get().DefaultInputType
 	}
 
 	//no wildcards case

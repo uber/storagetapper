@@ -318,12 +318,12 @@ func (e *avroEncoder) DecodeEvent(b []byte) (*types.CommonFormatEvent, error) {
 	if v, ok := del.(bool); ok && v {
 		c.Type = "delete"
 		// row key is needed by delete only
-		rowKey, err := r.Get("row_key")
-		if err != nil {
-			return nil, err
+		rowKey, err1 := r.Get("row_key")
+		if err1 != nil {
+			return nil, err1
 		}
-		if v, ok := rowKey.([]uint8); ok {
-			c.Key = append(c.Key, string(v))
+		if rk, ok1 := rowKey.([]uint8); ok1 {
+			c.Key = append(c.Key, string(rk))
 		} else {
 			return nil, fmt.Errorf("type of row_key field should be []uint8")
 		}

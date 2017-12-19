@@ -317,8 +317,8 @@ func TestKafkaBigMessage(t *testing.T) {
 			t.Fatalf("There should be message")
 		}
 
-		res, err := consumer.Pop()
-		test.CheckFail(err, t)
+		res, err1 := consumer.Pop()
+		test.CheckFail(err1, t)
 
 		buf = res.([]byte)
 

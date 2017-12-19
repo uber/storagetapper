@@ -376,16 +376,17 @@ func TestSchema(t *testing.T) {
 		test.CheckFail(err, t)
 
 		schema, err := enc.EncodeSchema(1)
+		test.CheckFail(err, t)
+
 		if enc.Type() == "avro" {
 			test.Assert(t, schema == nil && err == nil, "Avro doesn't support schema encoding")
 			continue
 		} else if enc.Type() == "msgpack" {
-			d, err := enc.DecodeEvent(schema)
-			test.CheckFail(err, t)
-			schema, err = json.Marshal(d)
-			test.CheckFail(err, t)
+			d, err1 := enc.DecodeEvent(schema)
+			test.CheckFail(err1, t)
+			schema, err1 = json.Marshal(d)
+			test.CheckFail(err1, t)
 		}
-		test.CheckFail(err, t)
 
 		test.Assert(t, string(schema) == outJSONSchema, "got %v", schema)
 	}
@@ -419,8 +420,8 @@ func TestOutputFilters(t *testing.T) {
 
 	encs := make([]Encoder, 0)
 	for encType := range encoders {
-		e, err := Create(encType, "enc_test_svc1", "db1", "t2")
-		test.CheckFail(err, t)
+		e, err1 := Create(encType, "enc_test_svc1", "db1", "t2")
+		test.CheckFail(err1, t)
 
 		encs = append(encs, e)
 	}
@@ -431,11 +432,11 @@ func TestOutputFilters(t *testing.T) {
 		log.Debugf("Encoder: %v", enc.Type())
 		log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
 
-		encoded, err := enc.CommonFormat(&ref)
-		test.CheckFail(err, t)
+		encoded, err1 := enc.CommonFormat(&ref)
+		test.CheckFail(err1, t)
 
-		decoded, err := enc.DecodeEvent(encoded)
-		test.CheckFail(err, t)
+		decoded, err2 := enc.DecodeEvent(encoded)
+		test.CheckFail(err2, t)
 
 		decoded.Timestamp = 0
 
@@ -513,8 +514,8 @@ func TestOutputFiltersRow(t *testing.T) {
 
 	encs := make([]Encoder, 0)
 	for encType := range encoders {
-		e, err := Create(encType, "enc_test_svc1", "db1", "t2")
-		test.CheckFail(err, t)
+		e, err1 := Create(encType, "enc_test_svc1", "db1", "t2")
+		test.CheckFail(err1, t)
 
 		encs = append(encs, e)
 	}
@@ -526,11 +527,11 @@ func TestOutputFiltersRow(t *testing.T) {
 		log.Debugf("Encoder: %v", enc.Type())
 		log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
 
-		encoded, err := enc.Row(refRow.tp, &refRow.fields, 1)
-		test.CheckFail(err, t)
+		encoded, err1 := enc.Row(refRow.tp, &refRow.fields, 1)
+		test.CheckFail(err1, t)
 
-		decoded, err := enc.DecodeEvent(encoded)
-		test.CheckFail(err, t)
+		decoded, err2 := enc.DecodeEvent(encoded)
+		test.CheckFail(err2, t)
 
 		decoded.Timestamp = 0
 
@@ -609,8 +610,8 @@ func TestOutputFiltersBound(t *testing.T) {
 
 	encs := make([]Encoder, 0)
 	for encType := range encoders {
-		e, err := Create(encType, "enc_test_svc1", "db1", "t2")
-		test.CheckFail(err, t)
+		e, err1 := Create(encType, "enc_test_svc1", "db1", "t2")
+		test.CheckFail(err1, t)
 
 		encs = append(encs, e)
 	}
@@ -621,11 +622,11 @@ func TestOutputFiltersBound(t *testing.T) {
 		log.Debugf("Encoder: %v", enc.Type())
 		log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
 
-		encoded, err := enc.CommonFormat(&ref)
-		test.CheckFail(err, t)
+		encoded, err1 := enc.CommonFormat(&ref)
+		test.CheckFail(err1, t)
 
-		decoded, err := enc.DecodeEvent(encoded)
-		test.CheckFail(err, t)
+		decoded, err2 := enc.DecodeEvent(encoded)
+		test.CheckFail(err2, t)
 
 		decoded.Timestamp = 0
 
@@ -689,8 +690,8 @@ func TestOutputFiltersRowBound(t *testing.T) {
 
 	encs := make([]Encoder, 0)
 	for encType := range encoders {
-		e, err := Create(encType, "enc_test_svc1", "db1", "t2")
-		test.CheckFail(err, t)
+		e, err1 := Create(encType, "enc_test_svc1", "db1", "t2")
+		test.CheckFail(err1, t)
 
 		encs = append(encs, e)
 	}
@@ -702,11 +703,11 @@ func TestOutputFiltersRowBound(t *testing.T) {
 		log.Debugf("Encoder: %v", enc.Type())
 		log.Debugf("Initial CF: %v %v\n", ref, ref.Fields)
 
-		encoded, err := enc.Row(refRow.tp, &refRow.fields, 1)
-		test.CheckFail(err, t)
+		encoded, err1 := enc.Row(refRow.tp, &refRow.fields, 1)
+		test.CheckFail(err1, t)
 
-		decoded, err := enc.DecodeEvent(encoded)
-		test.CheckFail(err, t)
+		decoded, err2 := enc.DecodeEvent(encoded)
+		test.CheckFail(err2, t)
 
 		decoded.Timestamp = 0
 

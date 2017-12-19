@@ -88,13 +88,13 @@ func readStateCond(cond string) (Type, error) {
 func initState(t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 
-	conn := ConnectLow(cfg, true)
-	if conn == nil {
+	cn := ConnectLow(cfg, true)
+	if cn == nil {
 		t.Fatal("Failed to connect to db")
 	}
-	_, err := conn.Exec("DROP DATABASE IF EXISTS " + types.MyDbName)
+	_, err := cn.Exec("DROP DATABASE IF EXISTS " + types.MyDbName)
 	test.CheckFail(err, t)
-	log.E(conn.Close())
+	log.E(cn.Close())
 
 	if !Init(cfg) {
 		t.Fatal("Failed to initialize")

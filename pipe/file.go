@@ -320,7 +320,7 @@ func (p *fileProducer) newFile(key string) error {
 
 	iv := make([]byte, aes.BlockSize)
 	if p.AESKey != "" {
-		if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		if _, err = io.ReadFull(rand.Reader, iv); err != nil {
 			return err
 		}
 		p.header.IV = fmt.Sprintf("%0x", iv)
@@ -339,7 +339,7 @@ func (p *fileProducer) newFile(key string) error {
 		if seeker != nil {
 			hash = make([]byte, sha256.Size)
 		}
-		if err := writeHeader(&p.header, hash, writer); err != nil {
+		if err = writeHeader(&p.header, hash, writer); err != nil {
 			return err
 		}
 	}
@@ -445,7 +445,7 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 		return err
 	}
 
-	if _, err := f.writer.Write(bytes); err != nil {
+	if _, err = f.writer.Write(bytes); err != nil {
 		return err
 	}
 
@@ -633,7 +633,8 @@ func (p *fileConsumer) checkHMAC(fn string, HMACRef string) error {
 	h := hmac.New(sha256.New, []byte(p.HMACKey))
 
 	for {
-		n, err := file.Read(buf)
+		var n int
+		n, err = file.Read(buf)
 		if err != nil {
 			if err == io.EOF {
 				break

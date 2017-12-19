@@ -134,9 +134,9 @@ func (s *Streamer) streamFromConsistentSnapshot(input string, throttleMB int64, 
 
 	var t int64
 	for !shutdown.Initiated() {
-		next, nBytes, nEvents, err := s.streamBatch(snReader, outProducer, s.batchSize, snapshotMetrics)
+		next, nBytes, nEvents, err1 := s.streamBatch(snReader, outProducer, s.batchSize, snapshotMetrics)
 
-		if log.EL(s.log, err) {
+		if log.EL(s.log, err1) {
 			return false
 		}
 		if !next {

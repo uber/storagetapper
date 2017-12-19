@@ -425,15 +425,15 @@ func testStep(inPipeType string, bufferFormat string, outPipeType string, outPip
 
 	/*Wait while binlog skips above inserts before registering table*/
 	for {
-		gtid, err := state.GetGTID(&db.Loc{Cluster: "e2e_test_cluster1", Service: "e2e_test_svc1", Name: "e2e_test_db1"})
-		test.CheckFail(err, t)
+		gtid, err1 := state.GetGTID(&db.Loc{Cluster: "e2e_test_cluster1", Service: "e2e_test_svc1", Name: "e2e_test_db1"})
+		test.CheckFail(err1, t)
 		log.Debugf("Binlog reader at %v, waiting after :1-75", gtid)
 		i := strings.LastIndex(gtid, "-")
 		if i == -1 {
 			t.FailNow()
 		}
-		j, err := strconv.ParseInt(gtid[i+1:], 10, 32)
-		test.CheckFail(err, t)
+		j, err2 := strconv.ParseInt(gtid[i+1:], 10, 32)
+		test.CheckFail(err2, t)
 		if j > 75 {
 			break
 		}

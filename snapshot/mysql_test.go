@@ -278,10 +278,10 @@ func TestMoreFieldTypes(t *testing.T) {
 	test.CheckFail(err, t)
 
 	for s.HasNext() {
-		_, msg, err := s.GetNext()
-		test.CheckFail(err, t)
-		d, err := enc.DecodeEvent(msg)
-		test.CheckFail(err, t)
+		_, msg, err1 := s.GetNext()
+		test.CheckFail(err1, t)
+		d, err2 := enc.DecodeEvent(msg)
+		test.CheckFail(err2, t)
 		sch := enc.Schema()
 		for i, v := range *d.Fields {
 			if v.Value != nil && reflect.TypeOf(v.Value).String() != expectedType[i] {

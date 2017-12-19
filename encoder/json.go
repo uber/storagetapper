@@ -122,9 +122,9 @@ func (e *jsonEncoder) UpdateCodec() error {
 
 	s := state.GetOutputSchema(GetOutputSchemaName(e.Service, e.Db, e.Table), "json")
 	if s != "" {
-		c, err := e.schemaDecode([]byte(s))
-		if err != nil {
-			return err
+		c, err1 := e.schemaDecode([]byte(s))
+		if err1 != nil {
+			return err1
 		}
 		if c.Type != "schema" {
 			return nil

@@ -90,7 +90,6 @@ func (s *Streamer) ensureBinlogReaderStart() (string, error) {
 			}
 		case <-shutdown.InitiatedCh():
 			return "", fmt.Errorf("Shutdown in progress")
-		default:
 		}
 	}
 }

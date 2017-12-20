@@ -165,11 +165,11 @@ func (p *KafkaPipe) NewProducer(topic string) (Producer, error) {
 	if p.Config != nil {
 		config = p.Config
 	}
-	if config == nil {
-		//p.config = sarama.NewConfig()
-		//p.config.Producer.Partitioner = sarama.NewManualPartitioner
-		//p.config.Producer.Return.Successes = true
-	}
+	//if config == nil {
+	//p.config = sarama.NewConfig()
+	//p.config.Producer.Partitioner = sarama.NewManualPartitioner
+	//p.config.Producer.Return.Successes = true
+	//}
 	producer, err := sarama.NewSyncProducer(p.kafkaAddrs, config)
 	if log.E(err) {
 		return nil, err
@@ -468,9 +468,9 @@ func (p *kafkaProducer) Push(in interface{}) error {
 	msg := &sarama.ProducerMessage{Topic: p.topic, Value: sarama.ByteEncoder(bytes)}
 	_, _, err := p.producer.SendMessage(msg)
 	//partition, offset, err := p.producer.SendMessage(msg)
-	if !log.E(err) {
-		//log.Debugf("Message has been sent. Partition=%v. Offset=%v\n", partition, offset)
-	}
+	//if !log.E(err) {
+	//log.Debugf("Message has been sent. Partition=%v. Offset=%v\n", partition, offset)
+	//}
 
 	return err
 }
@@ -487,9 +487,9 @@ func (p *kafkaProducer) PushK(key string, in interface{}) error {
 	msg := &sarama.ProducerMessage{Topic: p.topic, Key: sarama.StringEncoder(key), Value: sarama.ByteEncoder(bytes)}
 	_, _, err := p.producer.SendMessage(msg)
 	//partition, offset, err := p.producer.SendMessage(msg)
-	if !log.E(err) {
-		//log.Debugf("Message has been sent. Partition=%v. Offset=%v\n", partition, offset)
-	}
+	//if !log.E(err) {
+	//log.Debugf("Message has been sent. Partition=%v. Offset=%v\n", partition, offset)
+	//}
 
 	return err
 }

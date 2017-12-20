@@ -47,9 +47,9 @@ func GetSchemaWebster(namespace string, schemaName string, typ string) (*types.A
 	if err != nil {
 		return nil, err
 	}
-	a := types.AvroSchema{}
+	a := &types.AvroSchema{}
 	err = json.Unmarshal(resp, a)
-	return &a, err
+	return a, err
 }
 
 //SchemaCodecHelper gets Avro codec and Avro record setter from schema structure

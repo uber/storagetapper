@@ -168,7 +168,7 @@ func TestSchemaHandler_SchemaChange_Incompatible(t *testing.T) {
 		"Schema register in schema change test did not return 200 HTTP code")
 
 	alterStmt := fmt.Sprintf(`ALTER TABLE %s.%s DROP COLUMN bl`, TestDb, TestTbl)
-	res = performSchemaChange(t, alterStmt)
+	_ = performSchemaChange(t, alterStmt)
 	//TODO: This will return a failure because of incompatible change. Currently, does not call
 	//TODO: the heatpipe validation endpoint. So it will get a 200
 	//test.Assert(t, res.Code == http.StatusInternalServerError,

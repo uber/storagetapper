@@ -99,6 +99,18 @@ func (s *Streamer) pushSchema() bool {
 	return !log.EL(s.log, err)
 }
 
+func yield(iops *throttle.Throttle, mb *throttle.Throttle, nEvents int64, nBytes int64) {
+	c := iops.Advice(nEvents)
+	m := mb.Advice(nBytes)
+	if m > c {
+		c = m
+	}
+
+	if c != 0 {
+		time.Sleep(time.Microsecond * time.Duration(c))
+	}
+}
+
 // StreamFromConsistentSnapshot initializes and pulls event from the Snapshot reader, serializes
 // them in Avro format and publishes to output Kafka topic.
 func (s *Streamer) streamFromConsistentSnapshot(input string, throttleMB int64, throttleIOPS int64) bool {
@@ -148,15 +160,7 @@ func (s *Streamer) streamFromConsistentSnapshot(input string, throttleMB int64, 
 			return false
 		}
 
-		c := iopsThrottler.Advice(nEvents)
-		m := mbThrottler.Advice(nBytes)
-		if m > c {
-			c = m
-		}
-
-		if c != 0 {
-			time.Sleep(time.Microsecond * time.Duration(c))
-		}
+		yield(iopsThrottler, mbThrottler, nEvents, nBytes)
 
 		select {
 		case <-tickChan:

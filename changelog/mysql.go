@@ -762,7 +762,7 @@ func (b *mysqlReader) lockCluster(lock lock.Lock, st *state.Type) bool {
 }
 
 func (b *mysqlReader) start(cfg *config.AppConfig) bool {
-	st, err := state.Get()
+	st, err := state.GetCond("input='mysql'")
 	if log.E(err) {
 		return true
 	}

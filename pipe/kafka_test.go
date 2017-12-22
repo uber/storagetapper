@@ -589,3 +589,13 @@ func TestKafkaMultiPartition(t *testing.T) {
 	err = pc[0].Close()
 	test.CheckFail(err, t)
 }
+
+func TestKafkaPartitionKey(t *testing.T) {
+	kp := createPipe(1)
+	p, err := kp.NewProducer("partition-key-test-topic")
+	test.CheckFail(err, t)
+	key := "some key"
+	test.Assert(t, p.PartitionKey("log", key) == key, "kafka pipe should reteurn unmodified key")
+	key = "other key"
+	test.Assert(t, p.PartitionKey("snapshot", key) == key, "kafka pipe should return unmodified key")
+}

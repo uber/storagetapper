@@ -104,6 +104,16 @@ func TestLocalType(t *testing.T) {
 	test.Assert(t, p.Type() == pt, "type should be "+pt)
 }
 
+func TestLocalPartitionKey(t *testing.T) {
+	lp, _ := initLocalPipe(nil, 0, cfg, nil)
+	p, err := lp.NewProducer("partition-key-test-topic")
+	test.CheckFail(err, t)
+	key := "some key"
+	test.Assert(t, p.PartitionKey("log", key) == key, "local pipe should reteurn unmodified key")
+	key = "other key"
+	test.Assert(t, p.PartitionKey("snapshot", key) == key, "local pipe should return unmodified key")
+}
+
 func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
 

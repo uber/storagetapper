@@ -600,6 +600,11 @@ func (p *kafkaConsumer) SaveOffset() error {
 func (p *kafkaProducer) SetFormat(format string) {
 }
 
+//PartitionKey transform input row key into partition key
+func (p *kafkaProducer) PartitionKey(_ string, key string) string {
+	return key
+}
+
 func (p *kafkaConsumer) SetFormat(format string) {
 }
 

@@ -62,9 +62,7 @@ func (s *Streamer) encodeCommonFormat(data []byte) (key string, outMsg []byte, e
 		key = encoder.GetCommonFormatKey(cfEvent)
 
 		if cfEvent.Type == "schema" && outMsg != nil {
-			if s.outPipe.Type() == "file" {
-				key = "log"
-			}
+			key = s.outProducer.PartitionKey("log", key)
 
 			err = s.outProducer.PushSchema(key, outMsg)
 			log.EL(s.log, err)
@@ -121,9 +119,7 @@ func (s *Streamer) produceEvent(data interface{}) error {
 		return nil
 	}
 
-	if s.outPipe.Type() == "file" {
-		key = "log"
-	}
+	key = s.outProducer.PartitionKey("log", key)
 
 	err = s.outProducer.PushBatch(key, outMsg)
 

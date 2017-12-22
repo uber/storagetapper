@@ -403,7 +403,9 @@ func (b *mysqlReader) produceRow(tp int, t *table, row *[]interface{}) error {
 		if log.EL(b.log, err) {
 			return err
 		}
-		if buffered && t.encoder.Type() != encoder.Internal.Type() {
+		if !buffered {
+			key = t.producer.PartitionKey("log", key)
+		} else if t.encoder.Type() != encoder.Internal.Type() {
 			bd, err = b.wrapEvent(t.outputFormat, key, bd, seqno)
 			if log.EL(b.log, err) {
 				return err

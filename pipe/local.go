@@ -157,3 +157,7 @@ func (p *localProducerConsumer) SaveOffset() error {
 //SetFormat specifies format, which pipe can pass down the stack
 func (p *localProducerConsumer) SetFormat(format string) {
 }
+
+func (p *localProducerConsumer) PartitionKey(_ string, key string) string {
+	return key
+}

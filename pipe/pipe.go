@@ -59,6 +59,8 @@ type Producer interface {
 	Close() error
 
 	SetFormat(format string)
+
+	PartitionKey(source string, key string) string
 }
 
 //Pipe connects named producers and consumers

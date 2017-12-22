@@ -539,6 +539,14 @@ func (p *fileProducer) Close() error {
 	return err
 }
 
+//PartitionKey transforms input row key into partition key
+func (p *fileProducer) PartitionKey(source string, key string) string {
+	if source == "snapshot" {
+		return "snapshot"
+	}
+	return "log"
+}
+
 func (p *fileConsumer) waitForNextFilePrepare() (*fsnotify.Watcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {

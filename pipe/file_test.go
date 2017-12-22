@@ -324,3 +324,13 @@ func TestFileNoHeader(t *testing.T) {
 	defer func() { cfg.PipeFileNoHeader = false }()
 	testFileBasic(1, "", "", t)
 }
+
+func TestFilePartitionKey(t *testing.T) {
+	fp := &filePipe{}
+	p, err := fp.NewProducer("partition-key-test-topic")
+	test.CheckFail(err, t)
+	key := "some key"
+	test.Assert(t, p.PartitionKey("log", key) == "log", "file pipe should return log for any key")
+	key = "other key"
+	test.Assert(t, p.PartitionKey("snapshot", key) == "snapshot", "file pipe should return snapshot for any key")
+}

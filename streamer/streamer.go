@@ -172,7 +172,7 @@ func readState(cfg *config.AppConfig) (state.Type, error) {
 	if cfg.ChangelogPipeType == "local" {
 		return state.GetForCluster(changelog.ThisInstanceCluster())
 	}
-	return state.Get()
+	return state.GetCond("needBootstrap=1 OR input = 'mysql'")
 }
 
 func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) bool {

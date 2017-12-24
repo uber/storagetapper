@@ -64,11 +64,10 @@ func worker(ctx context.Context, cfg *config.AppConfig, inP pipe.Pipe, outP *map
 	for !shutdown.Initiated() && !tpool.Terminate() {
 		v := state.GetVersion()
 
-		if !changelog.Worker(ctx, cfg, inP, outP, tpool) {
-			streamer.Worker(cfg, inP, outP)
+		if !changelog.Worker(ctx, cfg, inP, outP, tpool) && !streamer.Worker(cfg, inP, outP) {
+			idle(v, cfg.StateUpdateTimeout, tpool)
 		}
 
-		idle(v, cfg.StateUpdateTimeout, tpool)
 	}
 	log.Debugf("Finished worker thread. Threads remaining %v", shutdown.NumProcs()+1)
 }

@@ -44,20 +44,20 @@ func checkStateEqual(m1 Type, m2 Type) bool {
 }
 
 var refST1 = Type{
-	{1, "clst1", "svc1", "db1_state", "table1", "", "", 0, "", "", 0, "", "", true},
-	{2, "clst1", "svc1", "db1_state", "table2", "", "", 0, "", "", 0, "", "", true},
-	{3, "clst1", "svc1", "db2_state", "table1", "", "", 0, "", "", 0, "", "", true},
-	{4, "clst1", "svc2", "db3_state", "table1", "", "", 0, "", "", 0, "", "", true},
-	{5, "clst2", "svc2", "db2_state", "table1", "", "", 0, "", "", 0, "", "", true},
+	{1, "clst1", "svc1", "db1_state", "table1", "mysql", "", 0, "", "", 0, "", "", true},
+	{2, "clst1", "svc1", "db1_state", "table2", "mysql", "", 0, "", "", 0, "", "", true},
+	{3, "clst1", "svc1", "db2_state", "table1", "mysql", "", 0, "", "", 0, "", "", true},
+	{4, "clst1", "svc2", "db3_state", "table1", "mysql", "", 0, "", "", 0, "", "", true},
+	{5, "clst2", "svc2", "db2_state", "table1", "mysql", "", 0, "", "", 0, "", "", true},
 }
 
 var refST2 = Type{
-	{6, "clst1", "svc1", "db1_state", "table3", "", "", 0, "", "", 0, "", "", true},
-	{7, "clst1", "svc2", "db2_state", "table2", "", "", 0, "", "", 0, "", "", true},
+	{6, "clst1", "svc1", "db1_state", "table3", "mysql", "", 0, "", "", 0, "", "", true},
+	{7, "clst1", "svc2", "db2_state", "table2", "mysql", "", 0, "", "", 0, "", "", true},
 }
 
 var refST3 = Type{
-	{5, "clst2", "svc2", "db2_state", "table1", "", "", 0, "", "", 0, "", "", true},
+	{5, "clst2", "svc2", "db2_state", "table1", "mysql", "", 0, "", "", 0, "", "", true},
 }
 
 func insertStateRows(s Type, t1 *testing.T) {
@@ -72,7 +72,7 @@ func insertStateRows(s Type, t1 *testing.T) {
 			log.Errorf("service and dbs need to be sorted in reference struture")
 			t1.FailNow()
 		}
-		err := util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,outputFormat,rawSchema,schemaGTID) VALUES (?,?,?,?,?,'','','','','')", t.Service, t.Cluster, t.Db, t.Table, t.Gtid)
+		err := util.ExecSQL(conn, "INSERT INTO state(service,cluster,db,tableName,gtid,input,output,outputFormat,rawSchema,schemaGTID) VALUES (?,?,?,?,?,?,'','','','')", t.Service, t.Cluster, t.Db, t.Table, t.Gtid, t.Input)
 		test.CheckFail(err, t1)
 	}
 }
@@ -626,16 +626,16 @@ func TestNewFlag(t *testing.T) {
 	initState(t)
 	insertStateRows(refST1, t)
 
-	n, err := GetTableNewFlag("svc1", "db1_state", "table1")
+	n, err := GetTableNewFlag("svc1", "clst1", "db1_state", "table1", "mysql", "", 0)
 	test.CheckFail(err, t)
 	if !n {
 		t.FailNow()
 	}
 
-	err = SetTableNewFlag("svc1", "db1_state", "table1", false)
+	err = SetTableNewFlag("svc1", "clst1", "db1_state", "table1", "mysql", "", 0, false)
 	test.CheckFail(err, t)
 
-	n, err = GetTableNewFlag("svc1", "db1_state", "table1")
+	n, err = GetTableNewFlag("svc1", "clst1", "db1_state", "table1", "mysql", "", 0)
 	test.CheckFail(err, t)
 	if n {
 		t.FailNow()

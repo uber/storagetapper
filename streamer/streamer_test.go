@@ -226,9 +226,8 @@ func verifyFromOutputKafka(shiftKey int, outPConsumer pipe.Consumer, outFormat s
 		data, err := enc.DecodeEvent(encodedMsg)
 		test.Assert(t, err == nil, "Error decoding message: err=%v msg=%v", err, string(encodedMsg))
 		if (shiftKey != 0 && data.SeqNo != lastRKey) || (shiftKey == 0 && data.SeqNo != 0) {
-			t.Fatalf("Events out of order when consuming from output Kafka! "+
-				"Current event ref key(%v) != expected (%v) shiftKey=%v",
-				data.SeqNo, lastRKey, shiftKey)
+			t.Fatalf("Events out of order when consuming %v.%v from output Kafka! "+
+				"Current event ref key(%v) != expected (%v) shiftKey=%v", testDb, table, data.SeqNo, lastRKey, shiftKey)
 		}
 		if data.Type == "schema" {
 			lastRKey++

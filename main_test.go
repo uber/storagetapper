@@ -102,7 +102,7 @@ func waitSnapshotToFinish(init bool, table string, t *testing.T) {
 		return
 	}
 	for !shutdown.Initiated() {
-		n, err := state.GetTableNewFlag("e2e_test_svc1", "e2e_test_db1", table)
+		n, err := state.GetTableNewFlag("e2e_test_svc1", "e2e_test_cluster1", "e2e_test_db1", table, "mysql", "kafka", 0)
 		test.CheckFail(err, t)
 		if !n {
 			break

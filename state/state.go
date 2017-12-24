@@ -343,18 +343,17 @@ func SetGTID(d *db.Loc, gtid string) error {
 	return util.ExecSQL(conn, "UPDATE state SET gtid=? WHERE cluster=?", gtid, d.Cluster)
 }
 
-//GetTableNewFlag returns the flag indicating that table hasn't been snapshotted
-//by streamer yet
-//FIXME: May be replace service,db,table with db.Loc
-func GetTableNewFlag(service string, db string, table string) (n bool, err error) {
-	err = util.QueryRowSQL(conn, "SELECT needBootstrap FROM state WHERE service=? AND db=? AND tableName=?", service, db, table).Scan(&n)
+//GetTableNewFlag returns the flag indicating whether the table has a snapshot
+func GetTableNewFlag(service, cluster, db, table, input, output string, version int) (n bool, err error) {
+	err = util.QueryRowSQL(conn, "SELECT needBootstrap FROM state WHERE service=? AND cluster=? AND db=? "+
+		"AND tableName=? AND input=? AND output=? AND version=?", service, cluster, db, table, input, output, version).Scan(&n)
 	return
 }
 
-//SetTableNewFlag sets flag indicating that tables has been snapshotted by
-//streamer
-func SetTableNewFlag(service string, db string, table string, flag bool) error {
-	return util.ExecSQL(conn, "UPDATE state SET needBootstrap=? WHERE service=? AND db=? AND tableName=?", flag, service, db, table)
+//SetTableNewFlag sets flag indicating that streamer has taken a snapshot of table
+func SetTableNewFlag(service, cluster, db, table, input, output string, version int, flag bool) error {
+	return util.ExecSQL(conn, "UPDATE state SET needBootstrap=? WHERE service=? AND cluster=? AND db=? "+
+		"AND tableName=? AND input=? AND output=? AND version=?", flag, service, cluster, db, table, input, output, version)
 }
 
 //SaveBinlogState saves current state of the  binlog reader to the state DB
@@ -372,27 +371,26 @@ func GetSchema(svc string, sdb string, table string) (*types.TableSchema, error)
 //state with new versions provided as parameters
 //If oldGtid is empty adds it as new table to the state
 //FIXME: To big function. Split it.
-func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema string, oldGtid string, gtid string, input string, output string, version int, outputFormat string) bool {
+func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema string, oldGTID string, gtid string, input string, output string, version int, outputFormat string) bool {
 	tx, err := conn.Begin()
 	if log.E(err) {
 		return false
 	}
 
-	if oldGtid != "" {
+	if oldGTID != "" {
 		log.Debugf("Replacing schema for table %+v", s.TableName)
-		var sgtid string
-		err = tx.QueryRow("SELECT schemaGtid FROM state WHERE service=? AND db=? AND tableName=? AND input=? AND output=? AND version=? FOR UPDATE", svc, s.DBName, s.TableName, input, output, version).Scan(&sgtid)
+		var sGTID string
+		err = tx.QueryRow("SELECT schemaGtid FROM state WHERE service=? AND db=? AND tableName=? AND input=? AND output=? AND version=? FOR UPDATE", svc, s.DBName, s.TableName, input, output, version).Scan(&sGTID)
 		if log.E(err) {
 			return false
 		}
 
-		if sgtid != oldGtid {
-			/* This can happened because of the race condition between concurrent binlog
-			* readers from the same master DB. This is just means that we are behind of him
-			* and that's ok to skip persisting the schema, so as this version has been
-			* persisted already by concurrent binlog reader earlier */
-			log.Warnf("Newer schema version found in the state, my: (current: %v, new: %v), state: %v. service=%v, db=%v, table=%v", oldGtid, gtid, sgtid, svc, s.DBName, s.TableName)
-			log.E(tx.Rollback())
+		if sGTID != oldGTID {
+			// This can happen because of the race condition between concurrent binlog
+			//readers from the same master DB. This is just means that we are behind of him
+			// and that's ok to skip persisting the schema, so as this version has been
+			// persisted already by concurrent binlog reader earlier
+			log.WithFields(log.Fields{"service": svc, "db": s.DBName, "table": s.TableName, "current_gtid": oldGTID, "new_gtid": gtid, "state_gtid": sGTID}).Warnf("Newer schema version found in the state")
 			return true
 		}
 
@@ -426,7 +424,7 @@ func ReplaceSchema(svc string, cluster string, s *types.TableSchema, rawSchema s
 		return false
 	}
 
-	log.Debugf("Updated schema version from=%v, to=%v for service=%v, db=%v, table=%v input=%v output=%v v%v", oldGtid, gtid, svc, s.DBName, s.TableName, input, output, version)
+	log.Debugf("Updated schema version from=%v, to=%v for service=%v, db=%v, table=%v input=%v output=%v v%v", oldGTID, gtid, svc, s.DBName, s.TableName, input, output, version)
 
 	return true
 }

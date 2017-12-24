@@ -139,13 +139,12 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 func (s *Streamer) startBootstrap(cfg *config.AppConfig) bool {
 	// Checks whether table is new and needs bootstrapping.
 	// Stream events by invoking Consistent Snapshot Reader and allowing it to complete
-	needsBootstrap, err := state.GetTableNewFlag(s.svc, s.db, s.table)
+	needsBootstrap, err := state.GetTableNewFlag(s.svc, s.cluster, s.db, s.table, s.input, s.output, s.version)
 	if log.EL(s.log, err) {
 		return false
 	}
 
-	return !needsBootstrap || s.streamFromConsistentSnapshot(s.input,
-		cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS)
+	return !needsBootstrap || s.streamFromConsistentSnapshot(cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS)
 }
 
 func (s *Streamer) lockTable(st state.Type, outPipes *map[string]pipe.Pipe) {

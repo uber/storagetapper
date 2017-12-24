@@ -113,8 +113,8 @@ func yield(iops *throttle.Throttle, mb *throttle.Throttle, nEvents int64, nBytes
 
 // StreamFromConsistentSnapshot initializes and pulls event from the Snapshot reader, serializes
 // them in Avro format and publishes to output Kafka topic.
-func (s *Streamer) streamFromConsistentSnapshot(input string, throttleMB int64, throttleIOPS int64) bool {
-	snReader, err := snapshot.InitReader(input)
+func (s *Streamer) streamFromConsistentSnapshot(throttleMB int64, throttleIOPS int64) bool {
+	snReader, err := snapshot.InitReader(s.input)
 	if log.EL(s.log, err) {
 		return false
 	}
@@ -177,6 +177,6 @@ func (s *Streamer) streamFromConsistentSnapshot(input string, throttleMB int64, 
 		return false
 	}
 
-	err = state.SetTableNewFlag(s.svc, s.db, s.table, false)
+	err = state.SetTableNewFlag(s.svc, s.cluster, s.db, s.table, s.input, s.output, s.version, false)
 	return !log.EL(s.log, err)
 }

@@ -136,20 +136,18 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 	return true
 }
 
-func (s *Streamer) startBootstrap(cfg *config.AppConfig) bool {
-	// Checks whether table is new and needs bootstrapping.
-	// Stream events by invoking Consistent Snapshot Reader and allowing it to complete
-	needsBootstrap, err := state.GetTableNewFlag(s.svc, s.cluster, s.db, s.table, s.input, s.output, s.version)
-	if log.EL(s.log, err) {
-		return false
-	}
-
-	return !needsBootstrap || s.streamFromConsistentSnapshot(cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS)
-}
-
-func (s *Streamer) lockTable(st state.Type, outPipes *map[string]pipe.Pipe) {
+func (s *Streamer) lockTable(st state.Type, outPipes *map[string]pipe.Pipe, clusterConcurrency int) {
 	for _, row := range st {
 		if s.tableLock.TryLock(fmt.Sprintf("table_id.%d", row.ID)) {
+			//If cluster concurrency is limited, try to get our ticket
+			if clusterConcurrency != 0 && row.NeedBootstrap {
+				if !s.clusterLock.TryLock(fmt.Sprintf("%v.%v", row.Service, row.Cluster)) {
+					s.tableLock.Unlock()
+					log.Debugf("All cluster concurrency tickets are taken: %v-%v", row.Service, row.Cluster)
+					continue
+				}
+			}
+
 			s.cluster = row.Cluster
 			s.svc = row.Service
 			s.db = row.Db
@@ -158,7 +156,6 @@ func (s *Streamer) lockTable(st state.Type, outPipes *map[string]pipe.Pipe) {
 			s.outPipe = (*outPipes)[row.Output]
 			if s.outPipe == nil {
 				s.table = ""
-				s.tableLock.Unlock()
 				log.Errorf("Unknown output pipe type: %v", row.Output)
 				return
 			}
@@ -191,29 +188,20 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 		log.Errorf("Error reading state: %v", err.Error())
 	}
 
-	//If cluster concurrency is limited, try to get our ticket
+	s.tableLock = lock.Create(state.GetDbAddr(), cfg.OutputPipeConcurrency)
+	defer s.tableLock.Close()
 	if cfg.ClusterConcurrency != 0 {
 		s.clusterLock = lock.Create(state.GetDbAddr(), cfg.ClusterConcurrency)
-
-		if !s.clusterLock.TryLock(fmt.Sprintf("%v.%v", s.svc, s.cluster)) {
-			log.Debugf("All cluster concurrency tickets are taken")
-			return false
-		}
-
 		defer s.clusterLock.Close()
 	}
 
-	s.tableLock = lock.Create(state.GetDbAddr(), cfg.OutputPipeConcurrency)
-
-	s.lockTable(st, outPipes)
+	s.lockTable(st, outPipes, cfg.ClusterConcurrency)
 
 	//If unable to take a lock, return back
 	if s.table == "" {
 		log.Debugf("Finished streamer: No free tables to work on")
 		return false
 	}
-
-	defer s.tableLock.Close()
 
 	sTag := s.getTag()
 	s.metrics = metrics.GetStreamerMetrics(sTag)
@@ -277,7 +265,14 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 		return false
 	}
 
-	if !s.startBootstrap(cfg) {
+	// Checks whether table is new and needs bootstrapping.
+	// Stream events by invoking Consistent Snapshot Reader and allowing it to complete
+	needsBootstrap, err := state.GetTableNewFlag(s.svc, s.cluster, s.db, s.table, s.input, s.output, s.version)
+	if log.EL(s.log, err) {
+		return false
+	}
+
+	if needsBootstrap && !s.streamFromConsistentSnapshot(cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS) {
 		log.E(consumer.CloseOnFailure())
 		return false
 	}

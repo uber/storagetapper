@@ -51,7 +51,7 @@ type row struct {
 	SeqNo         uint64
 	SchemaGtid    string
 	RawSchema     string
-	needBootstrap bool
+	NeedBootstrap bool
 }
 
 //Type is in-memory representation of state
@@ -252,7 +252,7 @@ func parseRows(rows *sql.Rows) (Type, error) {
 	res := make(Type, 0)
 	var r row
 	for rows.Next() {
-		if err := rows.Scan(&r.ID, &r.Cluster, &r.Service, &r.Db, &r.Table, &r.Input, &r.Output, &r.Version, &r.OutputFormat, &r.Gtid, &r.SeqNo, &r.SchemaGtid, &r.RawSchema, &r.needBootstrap); err != nil {
+		if err := rows.Scan(&r.ID, &r.Cluster, &r.Service, &r.Db, &r.Table, &r.Input, &r.Output, &r.Version, &r.OutputFormat, &r.Gtid, &r.SeqNo, &r.SchemaGtid, &r.RawSchema, &r.NeedBootstrap); err != nil {
 			return nil, err
 		}
 		res = append(res, r)

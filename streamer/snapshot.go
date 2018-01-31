@@ -93,7 +93,8 @@ func (s *Streamer) pushSchema() bool {
 	if outMsg == nil {
 		return true
 	}
-	err = s.outProducer.PushSchema("", outMsg)
+	key := s.outProducer.PartitionKey("snapshot", "schema")
+	err = s.outProducer.PushSchema(key, outMsg)
 	return !log.EL(s.log, err)
 }
 

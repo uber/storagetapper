@@ -34,28 +34,25 @@ type GetInfoFunc func(*Loc, int) *Addr
 //GetInfo is database address resolving function
 var GetInfo GetInfoFunc // No default resolver
 
+func (a *Addr) Log() log.Logger {
+	return log.WithFields(log.Fields{"user": a.User, "host": a.Host, "port": a.Port, "db": a.Db})
+}
+
 //Open opens database connection by given address
 func Open(ci *Addr) (*sql.DB, error) {
-	log.Debugf("Connect string: %v:x@tcp(%v:%v)/%v", ci.User, ci.Host, ci.Port, ci.Db)
+	ci.Log().Debugf("Connect string")
 	dbc, err := sql.Open("mysql", fmt.Sprintf("%v:%v@tcp(%v:%v)/%v", ci.User, ci.Pwd, ci.Host, ci.Port, ci.Db))
-	if err != nil {
-		log.Errorf("Error connecting to MySQL: %v", err)
-		log.Errorf("Connect string: %v:x@tcp(%v:%v)/%v", ci.User, ci.Host, ci.Port, ci.Db)
+	if log.EL(ci.Log(), err) {
 		return nil, err
 	}
-
 	// Open doesn't open a connection. Validate DSN data:
 	//FIXME: in go1.8 change to: err = dbc.PingContext(shutdown.Context)
 	err = dbc.Ping()
-	if err != nil {
-		log.Errorf("Error opening connection to MySQL: %v", err)
-		log.Errorf("Connect string: %v:x@tcp(%v:%v)/%v", ci.User, ci.Host, ci.Port, ci.Db)
+	if log.EL(ci.Log(), err) {
 		return nil, err
 	}
-
-	log.Infof("Connected to db: %s, username: %s, host: %v", ci.Db, ci.User, ci.Host)
-
-	return dbc, err
+	ci.Log().Infof("Connected")
+	return dbc, nil
 }
 
 /*OpenService resolves db information for database
@@ -68,7 +65,6 @@ func OpenService(dbl *Loc, substDB string) (*sql.DB, error) {
 		}
 		return Open(ci)
 	}
-
 	err := errors.New("Failed to get db info")
 	dbl.LogFields().Errorf("error: %v", err.Error())
 	return nil, err

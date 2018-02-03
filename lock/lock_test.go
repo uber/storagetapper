@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/test"
@@ -44,13 +45,13 @@ func TestLockTickets(t *testing.T) {
 	}
 
 	for i := 0; i < n; i++ {
-		if !lock[i].Lock("test_lock") {
+		if !lock[i].TryLock("test_lock") {
 			t.Fatalf("Should allow %v concurrent lock", n)
 		}
 	}
 
 	locknp1 := Create(dbAddr, n)
-	if locknp1.Lock("test_lock") {
+	if locknp1.TryLock("test_lock") {
 		t.Fatalf("Should allow only %v concurrent locks", n)
 	}
 
@@ -61,7 +62,7 @@ func TestLockTickets(t *testing.T) {
 	}
 
 	for i := 0; i < n; i++ {
-		if !lock[i].Lock("test_lock") {
+		if !lock[i].TryLock("test_lock") {
 			t.Fatalf("Should allow %v concurrent lock", n)
 		}
 	}
@@ -79,22 +80,22 @@ func TestLockBasic(t *testing.T) {
 	lock1 := Create(dbAddr, 1)
 	lock2 := Create(dbAddr, 1)
 
-	if res := lock1.Lock("test_lock_1"); !res {
+	if res := lock1.TryLock("test_lock_1"); !res {
 		t.Fail()
 	}
 
-	if res := lock2.Lock("test_lock_1"); res {
+	if res := lock2.TryLock("test_lock_1"); res {
 		t.Fail()
 	}
 
-	if res := lock2.Lock("test_lock_2"); !res {
+	if res := lock2.TryLock("test_lock_2"); !res {
 		t.Fail()
 	}
 
 	lock1.Unlock()
 	lock2.Unlock()
 
-	if res := lock2.Lock("test_lock_1"); !res {
+	if res := lock2.TryLock("test_lock_1"); !res {
 		t.Fail()
 	}
 
@@ -141,7 +142,7 @@ func TestFailRefresh(t *testing.T) {
 	lock1 := Create(dbAddr, 1)
 	lock2 := Create(dbAddr, 1)
 
-	if res := lock1.Lock("test_lock_1"); !res {
+	if res := lock1.TryLock("test_lock_1"); !res {
 		t.Fail()
 	}
 
@@ -166,7 +167,7 @@ func TestFailRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if res := lock2.Lock("test_lock_1"); !res {
+	if res := lock2.TryLock("test_lock_1"); !res {
 		t.Fail()
 	}
 
@@ -177,6 +178,117 @@ func TestFailRefresh(t *testing.T) {
 	lock2.Unlock()
 }
 
+func TestLockWait(t *testing.T) {
+	test.SkipIfNoMySQLAvailable(t)
+
+	lock1 := Create(dbAddr, 1)
+	lock2 := Create(dbAddr, 1)
+
+	if res := lock1.Lock("test_lock_1", time.Second); !res {
+		t.Fail()
+	}
+
+	if res := lock2.Lock("test_lock_1", time.Second); res {
+		t.Fail()
+	}
+
+	if lock2.Unlock() {
+		t.Fatalf("shouldn't fail to unlock")
+	}
+
+	if !lock1.Unlock() {
+		t.Fatalf("shouldn't fail to unlock")
+	}
+}
+
+func TestFailLock(t *testing.T) {
+	test.SkipIfNoMySQLAvailable(t)
+
+	lock1 := Create(dbAddr, 1)
+
+	if res := lock1.TryLock("test_lock_1"); !res {
+		t.Fail()
+	}
+
+	var mylock1 = lock1.(*myLock)
+	if mylock1 == nil {
+		t.Fatal("unexpected nil pointer")
+	}
+
+	test.CheckFail(mylock1.conn.Close(), t)
+
+	if res := lock1.TryLock("test_lock_1"); res {
+		t.Fail()
+	}
+
+	if lock1.Unlock() {
+		t.Fatalf("shouldn't fail to unlock")
+	}
+}
+
+func TestFailUnlock(t *testing.T) {
+	test.SkipIfNoMySQLAvailable(t)
+
+	lock1 := Create(dbAddr, 1)
+	lock2 := Create(dbAddr, 1)
+
+	if res := lock1.TryLock("test_lock_1"); !res {
+		t.Fail()
+	}
+
+	var mylock1 = lock1.(*myLock)
+	if mylock1 == nil {
+		t.Fatal("unexpected nil pointer")
+	}
+	if !mylock1.IsLockedByMe() {
+		t.Fail()
+	}
+	if err := mylock1.killConn(); err != nil {
+		t.Fatal(err)
+	}
+
+	if res := lock2.TryLock("test_lock_1"); !res {
+		t.Fail()
+	}
+
+	if lock1.Unlock() {
+		t.Fatalf("should fail to unlock")
+	}
+
+	var mylock2 = lock2.(*myLock)
+	if mylock2 == nil {
+		t.Fatal("unexpected nil pointer")
+	}
+
+	test.CheckFail(mylock1.conn.Close(), t)
+
+	if lock1.Unlock() {
+		t.Fatalf("should fail to unlock")
+	}
+
+	if !lock2.Unlock() {
+		t.Fatalf("shouldn't fail to unlock")
+	}
+
+	if !lock1.Close() {
+		t.Fatalf("shouldn't fail to close")
+	}
+
+	if !lock2.Close() {
+		t.Fatalf("shouldn't fail to close")
+	}
+
+	//Test double close
+	if !lock2.Close() {
+		t.Fatalf("shouldn't fail to close")
+	}
+
+	//Test IsLockedByMe after close
+	if mylock1.IsLockedByMe() {
+		t.Fail()
+	}
+}
+
 func TestLockNegative(t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 
@@ -185,7 +297,7 @@ func TestLockNegative(t *testing.T) {
 
 	lock1 := Create(&addr, 1)
 
-	if res := lock1.Lock("test_lock_1"); res {
+	if res := lock1.TryLock("test_lock_1"); res {
 		t.Fail()
 	}
 }

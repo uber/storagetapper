@@ -27,6 +27,7 @@ package lock
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/log"
@@ -35,17 +36,19 @@ import (
 
 /*Lock is general distributed lock interface*/
 type Lock interface {
-	/*Try to acquire a lock. Returns false if failed*/
-	Lock(s string) bool
+	/*TryLock tries to acquire a lock. Returns false if failed*/
+	TryLock(s string) bool
+	//Lock waits for the specified timeout for the lock to be available. Timeout
+	//has seconds granularity
+	Lock(s string, timeout time.Duration) bool
 	/*Check if we still have the lock. Try to reacquire if necessary.
 	  Returns false in the case of failure*/
 	Refresh() bool
 	/*Unlock the lock. Returns false if there was failure*/
 	Unlock() bool
+	//Close releases resources associated with the lock
+	Close() bool
 }
-
-//TODO: Implement sharded lock, which will allow N clients to get a
-//lock at the same time instead of 1 currently.
 
 type myLock struct {
 	conn     *sql.DB
@@ -55,50 +58,66 @@ type myLock struct {
 	ntickets int
 }
 
-/*type ZooLock struct {
-}*/
-
 /*Create an instance of Lock*/
 //ntickets - is concurrency allowed for the lock, meaing n processes can hold the lock
 //at the same time
 func Create(ci *db.Addr, ntickets int) Lock {
-	/*	if cfg.LockType == "zoo" {
-		return &ZooLock{}; */
 	return &myLock{nil, "", *ci, 0, ntickets}
+}
+
+func (m *myLock) log() log.Logger {
+	return log.WithFields(log.Fields{"lock": m.name, "ticket": m.n})
 }
 
 func (m *myLock) closeConn() bool {
 	if m.conn == nil {
 		return true
 	}
+	m.log().Debugf("Closing connection")
 	res := log.E(m.conn.Close())
 	m.conn = nil
 	return !res
 }
 
-func (m *myLock) Lock(s string) bool {
+func (m *myLock) openConn() bool {
+	if m.conn != nil {
+		return true
+	}
 	var err error
-	var res sql.NullBool
-	log.Debugf("Acquiring lock: " + s)
 	m.conn, err = db.Open(&m.ci)
-	if err != nil {
+	if log.EL(m.ci.Log(), err) {
 		return false
 	}
 	m.conn.SetConnMaxLifetime(-1)
 	m.conn.SetMaxIdleConns(1)
 	m.conn.SetMaxOpenConns(1)
+	return true
+}
+
+func (m *myLock) Lock(s string, timeout time.Duration) bool {
+	var err error
+	var res sql.NullBool
 	m.name = s
+	m.log().Debugf("Acquiring lock")
 	for m.n = 0; m.n < m.ntickets; m.n++ {
-		err = m.conn.QueryRow(fmt.Sprintf("SELECT GET_LOCK('%s.%s.%d',0)", types.MySvcName, s, m.n)).Scan(&res)
+		if !m.openConn() {
+			return false
+		}
+		err = m.conn.QueryRow(fmt.Sprintf("SELECT GET_LOCK('%s.%s.%d',%d)", types.MySvcName, s, m.n, timeout/time.Second)).Scan(&res)
 		if err == nil && res.Valid && res.Bool {
-			log.Debugf("Acquired lock: %v, ticket: %v", s, m.n)
+			m.log().Debugf("Acquired lock")
 			return true
 		}
-		log.Debugf("Failed to acquire lock: %v, ticket: %v. Error %v", s, m.n, err)
+		if log.EL(m.log(), err) {
+			m.closeConn()
+		}
 	}
-	log.Debugf("Failed to acquire lock: " + s)
-	m.closeConn()
+	m.log().Debugf("Failed to acquire lock")
 	return false
+}
+
+func (m *myLock) TryLock(s string) bool {
+	return m.Lock(s, 0)
 }
 
 func (m *myLock) IsLockedByMe() bool {
@@ -108,12 +127,13 @@ func (m *myLock) IsLockedByMe() bool {
 	}
 	//Here we assume that connection_id() cannot be 0
 	err := m.conn.QueryRow(fmt.Sprintf("SELECT IFNULL(IS_USED_LOCK('%s.%s.%d'), 0), connection_id()", types.MySvcName, m.name, m.n)).Scan(&lockedBy, &myConnID)
-	log.Debugf("lock: lockedBy: %v myConnID: %v", lockedBy, myConnID)
+	log.Debugf("lockedBy: %v myConnID: %v", lockedBy, myConnID)
 	if err != nil || myConnID == 0 || lockedBy != myConnID {
 		if err != nil {
-			log.Errorf("IsLockedByMe: error: " + err.Error())
+			m.log().Errorf("IsLockedByMe: error: " + err.Error())
+			m.closeConn()
 		} else {
-			log.Debugf("IsLockedByMe: lockedBy: %v, != myConnID: %v", lockedBy, myConnID)
+			m.log().Debugf("IsLockedByMe: lockedBy: %v, != myConnID: %v", lockedBy, myConnID)
 		}
 		return false
 	}
@@ -124,13 +144,30 @@ func (m *myLock) Refresh() bool {
 	if m.IsLockedByMe() {
 		return true
 	}
-
-	m.closeConn()
-
-	return m.Lock(m.name)
+	return m.Lock(m.name, 0)
 }
 
 func (m *myLock) Unlock() bool {
-	log.Debugf("lock: Releasing: %s, ticket %d", m.name, m.n)
+	m.log().Debugf("Releasing")
+	if m.conn == nil {
+		return false
+	}
+	var res sql.NullBool
+	err := m.conn.QueryRow(fmt.Sprintf("SELECT RELEASE_LOCK('%s.%s.%d')", types.MySvcName, m.name, m.n)).Scan(&res)
+	if log.EL(m.log(), err) {
+		return false
+	}
+	if !res.Valid {
+		m.log().Errorf("Lock did not exists on release")
+		return false
+	}
+	if !res.Bool {
+		m.log().Errorf("Lock was not hold by me")
+		return false
+	}
+	return true
+}
+
+func (m *myLock) Close() bool {
 	return m.closeConn()
 }

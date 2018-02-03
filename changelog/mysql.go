@@ -750,7 +750,7 @@ func (b *mysqlReader) lockCluster(lock lock.Lock, st *state.Type) bool {
 	for _, r := range *st {
 		ln := "cluster." + r.Cluster
 		log.Debugf("Trying to lock: " + ln)
-		if lock.Lock(ln) {
+		if lock.TryLock(ln) {
 			b.dbl.Cluster = r.Cluster
 			b.dbl.Service = r.Service
 			b.dbl.Name = r.Db
@@ -768,6 +768,7 @@ func (b *mysqlReader) start(cfg *config.AppConfig) bool {
 	}
 
 	b.lock = lock.Create(state.GetDbAddr(), 1)
+	defer b.lock.Close()
 
 	if !b.lockCluster(b.lock, &st) {
 		if len(st) != 0 {
@@ -775,7 +776,6 @@ func (b *mysqlReader) start(cfg *config.AppConfig) bool {
 		}
 		return false /* Couldn't lock any cluster, no binlog-readers needed */
 	}
-	defer b.lock.Unlock()
 
 	bTags := getClusterTag(b.dbl.Cluster)
 	b.metrics = metrics.GetBinlogReaderMetrics(bTags)

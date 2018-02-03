@@ -149,7 +149,7 @@ func (s *Streamer) startBootstrap(cfg *config.AppConfig) bool {
 
 func (s *Streamer) lockTable(st state.Type, outPipes *map[string]pipe.Pipe) {
 	for _, row := range st {
-		if s.tableLock.Lock(fmt.Sprintf("table_id.%d", row.ID)) {
+		if s.tableLock.TryLock(fmt.Sprintf("table_id.%d", row.ID)) {
 			s.cluster = row.Cluster
 			s.svc = row.Service
 			s.db = row.Db
@@ -195,12 +195,12 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 	if cfg.ClusterConcurrency != 0 {
 		s.clusterLock = lock.Create(state.GetDbAddr(), cfg.ClusterConcurrency)
 
-		if !s.clusterLock.Lock(fmt.Sprintf("%v.%v", s.svc, s.cluster)) {
+		if !s.clusterLock.TryLock(fmt.Sprintf("%v.%v", s.svc, s.cluster)) {
 			log.Debugf("All cluster concurrency tickets are taken")
 			return false
 		}
 
-		defer s.clusterLock.Unlock()
+		defer s.clusterLock.Close()
 	}
 
 	s.tableLock = lock.Create(state.GetDbAddr(), cfg.OutputPipeConcurrency)
@@ -213,7 +213,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 		return false
 	}
 
-	defer s.tableLock.Unlock()
+	defer s.tableLock.Close()
 
 	sTag := s.getTag()
 	s.metrics = metrics.GetStreamerMetrics(sTag)

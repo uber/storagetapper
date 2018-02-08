@@ -63,6 +63,7 @@ type fs interface {
 	ReadDir(dirname string) ([]os.FileInfo, error)
 	OpenRead(name string, offset int64) (io.ReadCloser, error)
 	OpenWrite(name string) (io.WriteCloser, io.Seeker, error)
+	Remove(name string) error
 }
 
 type filePipe struct {
@@ -378,27 +379,34 @@ func (p *fileProducer) getFile(key string) (*file, error) {
 }
 
 func (p *fileProducer) closeFile(f *file) error {
-	var rerr error
-	if f != nil {
-		if err := f.writer.Flush(); log.E(err) {
-			rerr = err
-		}
-		if f.seek != nil && !p.noHeader {
-			if _, err := f.seek.Seek(0, os.SEEK_SET); log.E(err) {
-				rerr = err
-			}
-			if err := writeHeader(&p.header, f.hash.hash.Sum(nil), f.file); log.E(err) {
-				rerr = err
-			}
-		}
-		if err := f.file.Close(); log.E(err) {
-			rerr = err
-		}
-		if err := p.fs.Rename(f.name, strings.TrimSuffix(f.name, ".open")); log.E(err) {
-			rerr = err
-		}
-		log.Debugf("Closed: %v", f.name)
+	if f == nil {
+		return nil
 	}
+	var rerr error
+	defer func() {
+		if rerr != nil {
+			log.E(p.fs.Remove(strings.TrimSuffix(f.name, ".open")))
+			log.E(p.fs.Remove(f.name))
+		}
+	}()
+	if err := f.writer.Flush(); log.E(err) {
+		rerr = err
+	}
+	if f.seek != nil && !p.noHeader {
+		if _, err := f.seek.Seek(0, os.SEEK_SET); log.E(err) {
+			rerr = err
+		}
+		if err := writeHeader(&p.header, f.hash.hash.Sum(nil), f.file); log.E(err) {
+			rerr = err
+		}
+	}
+	if err := f.file.Close(); log.E(err) {
+		rerr = err
+	}
+	if err := p.fs.Rename(f.name, strings.TrimSuffix(f.name, ".open")); log.E(err) {
+		rerr = err
+	}
+	log.Debugf("Closed: %v", f.name)
 	return rerr
 }
 
@@ -440,6 +448,13 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 		return err
 	}
 
+	defer func() {
+		if err != nil {
+			log.E(p.fs.Remove(strings.TrimSuffix(f.name, ".open")))
+			log.E(p.fs.Remove(f.name))
+		}
+	}()
+
 	//Prepend message with size in the case of binary delimited format
 	if err = p.writeBinaryMsgLength(f, len(bytes)); err != nil {
 		return err
@@ -457,13 +472,15 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 	log.Debugf("Push: %v, len=%v", key, len(bytes))
 
 	if !batch {
-		log.E(f.writer.Flush())
+		if err = f.writer.Flush(); err != nil {
+			return err
+		}
 	}
 
 	f.offset += int64(len(bytes)) + 1
 	if f.offset >= p.maxFileSize {
 		if batch {
-			if err := f.writer.Flush(); err != nil {
+			if err = f.writer.Flush(); err != nil {
 				return err
 			}
 		}
@@ -493,7 +510,11 @@ func (p *fileProducer) PushBatch(key string, in interface{}) error {
 //PushBatchCommit commits currently queued messages in the producer
 func (p *fileProducer) PushBatchCommit() error {
 	for _, v := range p.files {
-		log.E(v.writer.Flush())
+		if err := v.writer.Flush(); err != nil {
+			log.E(p.fs.Remove(strings.TrimSuffix(v.name, ".open")))
+			log.E(p.fs.Remove(v.name))
+			return err
+		}
 	}
 	return nil
 }
@@ -899,4 +920,8 @@ func (p *filePipe) OpenRead(name string, offset int64) (io.ReadCloser, error) {
 func (p *filePipe) OpenWrite(name string) (io.WriteCloser, io.Seeker, error) {
 	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE, 0640)
 	return f, f, err
+}
+
+func (p *filePipe) Remove(path string) error {
+	return os.Remove(path)
 }

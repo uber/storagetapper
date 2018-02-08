@@ -22,7 +22,7 @@ package pipe
 
 import (
 	"bufio"
-	"compress/zlib"
+	"compress/gzip"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -280,7 +280,11 @@ func (p *fileConsumer) seek(topic string, offset int64) (string, int64, error) {
 
 func (p *fileProducer) newFileName(key string) string {
 	p.seqno++ //Precaution to not generate file with the same name if timestamps are equal
-	return fmt.Sprintf("%s%010d.%03d.%s.open", p.topicPath(p.topic), time.Now().Unix(), p.seqno, key)
+	format := "%s%010d.%03d.%s"
+	if p.compression {
+		format += ".gz"
+	}
+	return fmt.Sprintf(format+".open", p.topicPath(p.topic), time.Now().Unix(), p.seqno, key)
 }
 
 func (p *fileProducer) initCrypterWriter(writer io.Writer, iv []byte) (io.Writer, error) {
@@ -334,7 +338,7 @@ func (p *fileProducer) newFile(key string) error {
 			p.header.Filters = append(p.header.Filters, "aes256-cfb")
 		}
 		if p.compression {
-			p.header.Filters = append(p.header.Filters, "zlib")
+			p.header.Filters = append(p.header.Filters, "gzip")
 		}
 		var hash []byte
 		if seeker != nil {
@@ -355,7 +359,7 @@ func (p *fileProducer) newFile(key string) error {
 
 	var bufWriter writerFlusher = bufio.NewWriter(writer)
 	if p.compression {
-		bufWriter = zlib.NewWriter(writer)
+		bufWriter = gzip.NewWriter(writer)
 	}
 
 	_ = p.closeFile(p.files[key])
@@ -389,7 +393,14 @@ func (p *fileProducer) closeFile(f *file) error {
 			log.E(p.fs.Remove(f.name))
 		}
 	}()
-	if err := f.writer.Flush(); log.E(err) {
+	if p.compression {
+		gzipWriter, ok := f.writer.(*gzip.Writer)
+		if ok {
+			if err := gzipWriter.Close(); log.E(err) {
+				rerr = err
+			}
+		}
+	} else if err := f.writer.Flush(); log.E(err) {
 		rerr = err
 	}
 	if f.seek != nil && !p.noHeader {
@@ -722,7 +733,7 @@ func (p *fileConsumer) openFileInitFilter() (err error) {
 		}
 
 		if p.compression {
-			reader, err = zlib.NewReader(reader)
+			reader, err = gzip.NewReader(reader)
 			if log.E(err) {
 				return
 			}

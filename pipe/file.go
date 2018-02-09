@@ -37,6 +37,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -196,7 +197,7 @@ func topicPath(datadir string, topic string) string {
 	}
 
 	if topic != "" {
-		r += topic + "/"
+		r += topic
 	}
 
 	return r
@@ -229,7 +230,9 @@ func (p *fileConsumer) parseFileName(name string) (string, int64, error) {
 */
 
 func (p *fileConsumer) nextFile(topic string, curFile string) (string, error) {
-	files, err := p.fs.ReadDir(p.topicPath(topic))
+	tp := p.topicPath(topic)
+	dir := filepath.Dir(tp)
+	files, err := p.fs.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
@@ -242,19 +245,30 @@ func (p *fileConsumer) nextFile(topic string, curFile string) (string, error) {
 		return "", nil
 	}
 
-	tp := p.topicPath(topic)
-	i := sort.Search(len(files), func(i int) bool { return tp+files[i].Name() > curFile })
+	if curFile == "" {
+		curFile = tp
+	}
+
+	i := sort.Search(len(files), func(i int) bool {
+		fn := dir + "/" + files[i].Name()
+		return fn > curFile
+	})
 
 	if i < len(files) {
 		log.Debugf("NextFile: %v,  CurFile: %v", files[i].Name(), curFile)
-		return files[i].Name(), nil
+		fn := dir + "/" + files[i].Name()
+		if strings.HasPrefix(fn, tp) && !files[i].IsDir() {
+			return files[i].Name(), nil
+		}
 	}
 
 	return "", nil
 }
 
 func (p *fileConsumer) seek(topic string, offset int64) (string, int64, error) {
-	files, err := p.fs.ReadDir(p.topicPath(topic))
+	tp := p.topicPath(topic)
+	dir := filepath.Dir(tp)
+	files, err := p.fs.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", 0, nil
@@ -268,11 +282,21 @@ func (p *fileConsumer) seek(topic string, offset int64) (string, int64, error) {
 	}
 
 	if offset == OffsetOldest {
-		return files[0].Name(), 0, nil
+		for _, f := range files {
+			if strings.HasPrefix(dir+"/"+f.Name(), tp) && !f.IsDir() {
+				return f.Name(), 0, nil
+			}
+		}
+		return "", 0, nil
 	}
 
 	if offset == OffsetNewest {
-		return files[len(files)-1].Name(), files[len(files)-1].Size(), nil
+		for i := len(files) - 1; i >= 0; i-- {
+			if strings.HasPrefix(dir+"/"+files[i].Name(), tp) && !files[i].IsDir() {
+				return files[i].Name(), files[i].Size(), nil
+			}
+		}
+		return "", 0, nil
 	}
 
 	return "", 0, fmt.Errorf("Arbitrary offsets not supported, only OffsetOldest and OffsetNewest offsets supported")
@@ -303,7 +327,7 @@ func (p *fileProducer) initCrypterWriter(writer io.Writer, iv []byte) (io.Writer
 }
 
 func (p *fileProducer) newFile(key string) error {
-	if err := p.fs.MkdirAll(p.topicPath(p.topic), 0770); err != nil {
+	if err := p.fs.MkdirAll(filepath.Dir(p.topicPath(p.topic)), 0770); err != nil {
 		return err
 	}
 
@@ -585,7 +609,7 @@ func (p *fileConsumer) waitForNextFilePrepare() (*fsnotify.Watcher, error) {
 		return nil, err
 	}
 
-	err = watcher.Add(p.topicPath(p.topic))
+	err = watcher.Add(filepath.Dir(p.topicPath(p.topic)))
 	if err != nil {
 		switch v := err.(type) {
 		case syscall.Errno:
@@ -746,7 +770,8 @@ func (p *fileConsumer) openFileInitFilter() (err error) {
 }
 
 func (p *fileConsumer) openFile(nextFn string, offset int64) {
-	p.file, p.err = p.fs.OpenRead(p.topicPath(p.topic)+nextFn, 0)
+	dir := filepath.Dir(p.topicPath(p.topic)) + "/"
+	p.file, p.err = p.fs.OpenRead(dir+nextFn, 0)
 	if log.E(p.err) {
 		return
 	}
@@ -779,7 +804,7 @@ func (p *fileConsumer) openFile(nextFn string, offset int64) {
 	p.text = p.header.Format == "json" || p.header.Format == "text"
 
 	if p.verifyHMAC {
-		p.err = p.checkHMAC(p.topicPath(p.topic)+nextFn, p.header.HMAC)
+		p.err = p.checkHMAC(dir+nextFn, p.header.HMAC)
 		if p.err != nil {
 			return
 		}
@@ -787,14 +812,14 @@ func (p *fileConsumer) openFile(nextFn string, offset int64) {
 
 	if offset != 0 {
 		log.E(p.file.Close())
-		p.file, p.err = p.fs.OpenRead(p.topicPath(p.topic)+nextFn, offset)
+		p.file, p.err = p.fs.OpenRead(dir+nextFn, offset)
 		if log.E(p.err) {
 			return
 		}
 		p.reader = bufio.NewReader(p.file)
 	}
 
-	p.name = p.topicPath(p.topic) + nextFn
+	p.name = dir + nextFn
 
 	p.err = p.openFileInitFilter()
 	if log.E(p.err) {

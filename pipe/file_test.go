@@ -170,11 +170,11 @@ func TestFileNoDelimiter(t *testing.T) {
 	err = c.Close()
 	test.CheckFail(err, t)
 
-	dc, err := ioutil.ReadDir(baseDir + "/" + topic)
+	dc, err := ioutil.ReadDir(baseDir)
 	test.CheckFail(err, t)
 	test.Assert(t, len(dc) == 1, "expect exactly one file in the directory")
 
-	r, err := ioutil.ReadFile(baseDir + "/" + topic + "/" + dc[0].Name())
+	r, err := ioutil.ReadFile(baseDir + "/" + dc[0].Name())
 	test.CheckFail(err, t)
 	test.Assert(t, string(r) == `{"Format":"json","HMAC-SHA256":"e8bf2c23a49dda570ac39e0a90683fe305620263f9d50ade99f835d3bc0bb05e"}
 firstsecond`, "file content mismatch")

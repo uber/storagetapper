@@ -59,6 +59,38 @@ func (p *hdfsClient) OpenWrite(name string) (io.WriteCloser, io.Seeker, error) {
 	return f, nil, err
 }
 
+var retryTimeout = 10 //seconds
+
+func retriable(err error) bool {
+	return strings.Contains(err.Error(), "org.apache.hadoop.ipc.StandbyException") ||
+		strings.Contains(err.Error(), "org.apache.hadoop.ipc.RetriableException")
+}
+
+func withRetry(fn func() error) error {
+	err := fn()
+	for i := 0; err != nil && retriable(err) && i < retryTimeout*10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		err = fn()
+	}
+	return err
+}
+
+func (p *hdfsClient) MkdirAll(path string, perm os.FileMode) error {
+	return withRetry(func() error { return p.Client.MkdirAll(path, perm) })
+}
+
+func (p *hdfsClient) Rename(oldpath, newpath string) error {
+	return withRetry(func() error { return p.Client.Rename(oldpath, newpath) })
+}
+
+func (p *hdfsClient) Remove(path string) error {
+	return withRetry(func() error { return p.Client.Remove(path) })
+}
+
+func (p *hdfsClient) Close(f io.WriteCloser) error {
+	return withRetry(func() error { return f.Close() })
+}
+
 type hdfsPipe struct {
 	filePipe
 	hdfs *hdfs.Client

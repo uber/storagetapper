@@ -64,6 +64,7 @@ type fs interface {
 	ReadDir(dirname string) ([]os.FileInfo, error)
 	OpenRead(name string, offset int64) (io.ReadCloser, error)
 	OpenWrite(name string) (io.WriteCloser, io.Seeker, error)
+	Close(io.WriteCloser) error
 	Remove(name string) error
 }
 
@@ -435,7 +436,7 @@ func (p *fileProducer) closeFile(f *file) error {
 			rerr = err
 		}
 	}
-	if err := f.file.Close(); log.E(err) {
+	if err := p.fs.Close(f.file); log.E(err) {
 		rerr = err
 	}
 	if err := p.fs.Rename(f.name, strings.TrimSuffix(f.name, ".open")); log.E(err) {
@@ -960,4 +961,8 @@ func (p *filePipe) OpenWrite(name string) (io.WriteCloser, io.Seeker, error) {
 
 func (p *filePipe) Remove(path string) error {
 	return os.Remove(path)
+}
+
+func (p *filePipe) Close(f io.WriteCloser) error {
+	return f.Close()
 }

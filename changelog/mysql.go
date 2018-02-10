@@ -748,8 +748,12 @@ M:
 	}
 }
 
-func (b *mysqlReader) lockCluster(lock lock.Lock, st *state.Type) bool {
-	for _, r := range *st {
+func (b *mysqlReader) lockCluster(lock lock.Lock, st state.Type) bool {
+	if len(st) == 0 {
+		return false
+	}
+	for pos, j := rand.Int()%len(st), 0; j < len(st); j++ {
+		r := st[pos]
 		ln := "cluster." + r.Cluster
 		log.Debugf("Trying to lock: " + ln)
 		if lock.TryLock(ln) {
@@ -758,6 +762,7 @@ func (b *mysqlReader) lockCluster(lock lock.Lock, st *state.Type) bool {
 			b.dbl.Name = r.Db
 			return true
 		}
+		pos = (pos + 1) % len(st)
 	}
 
 	return false
@@ -772,7 +777,7 @@ func (b *mysqlReader) start(cfg *config.AppConfig) bool {
 	b.lock = lock.Create(state.GetDbAddr(), 1)
 	defer b.lock.Close()
 
-	if !b.lockCluster(b.lock, &st) {
+	if !b.lockCluster(b.lock, st) {
 		if len(st) != 0 {
 			log.Debugf("Couldn't lock any cluster")
 		}

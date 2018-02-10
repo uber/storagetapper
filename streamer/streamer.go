@@ -22,6 +22,7 @@ package streamer
 
 import (
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/siddontang/go-mysql/mysql"
@@ -137,7 +138,11 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 }
 
 func (s *Streamer) lockTable(st state.Type, outPipes *map[string]pipe.Pipe, clusterConcurrency int) {
-	for _, row := range st {
+	if len(st) == 0 {
+		return
+	}
+	for pos, j := rand.Int()%len(st), 0; j < len(st); j++ {
+		row := st[pos]
 		if s.tableLock.TryLock(fmt.Sprintf("table_id.%d", row.ID)) {
 			//If cluster concurrency is limited, try to get our ticket
 			if clusterConcurrency != 0 && row.NeedBootstrap {
@@ -165,6 +170,7 @@ func (s *Streamer) lockTable(st state.Type, outPipes *map[string]pipe.Pipe, clus
 			s.outputFormat = row.OutputFormat
 			break
 		}
+		pos = (pos + 1) % len(st)
 	}
 }
 

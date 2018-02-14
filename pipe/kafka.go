@@ -458,40 +458,35 @@ func (p *KafkaPipe) closeConsumer(kc *kafkaConsumer, graceful bool) error {
 
 //Push produces message to Kafka topic
 func (p *kafkaProducer) Push(in interface{}) error {
-	var bytes []byte
-	switch in.(type) {
-	case []byte:
-		bytes = in.([]byte)
-	default:
-		return fmt.Errorf("Kafka pipe can handle binary arrays only")
-	}
-	msg := &sarama.ProducerMessage{Topic: p.topic, Value: sarama.ByteEncoder(bytes)}
-	_, _, err := p.producer.SendMessage(msg)
-	//partition, offset, err := p.producer.SendMessage(msg)
-	//if !log.E(err) {
-	//log.Debugf("Message has been sent. Partition=%v. Offset=%v\n", partition, offset)
-	//}
-
+	_, _, err := p.pushLow("", in)
 	return err
 }
 
 //PushK sends a keyed message to Kafka
 func (p *kafkaProducer) PushK(key string, in interface{}) error {
+	_, _, err := p.pushLow(key, in)
+	return err
+}
+
+func (p *kafkaProducer) pushLow(key string, in interface{}) (int32, int64, error) {
 	var bytes []byte
 	switch in.(type) {
 	case []byte:
 		bytes = in.([]byte)
 	default:
-		return fmt.Errorf("Kafka pipe can handle binary arrays only")
+		return 0, 0, fmt.Errorf("kafka pipe can handle binary arrays only")
 	}
-	msg := &sarama.ProducerMessage{Topic: p.topic, Key: sarama.StringEncoder(key), Value: sarama.ByteEncoder(bytes)}
-	_, _, err := p.producer.SendMessage(msg)
+	msg := &sarama.ProducerMessage{Topic: p.topic, Value: sarama.ByteEncoder(bytes)}
+	if key != "" {
+		msg.Key = sarama.StringEncoder(key)
+	}
+	partition, offset, err := p.producer.SendMessage(msg)
 	//partition, offset, err := p.producer.SendMessage(msg)
 	//if !log.E(err) {
 	//log.Debugf("Message has been sent. Partition=%v. Offset=%v\n", partition, offset)
 	//}
 
-	return err
+	return partition, offset, err
 }
 
 //PushBatch stashes a keyed message into batch which will be send to Kafka by

@@ -491,6 +491,28 @@ func DeleteClusterInfo(name string) error {
 	return nil
 }
 
+//GetClusterInfo lists cluster connection info from state database
+func GetClusterInfo(cond string, args ...interface{}) ([]db.Addr, error) {
+	log.Debugf("List clusters %v", cond)
+	rows, err := util.QuerySQL(conn, "SELECT name,host,port,user,password FROM clusters "+cond, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { log.E(rows.Close()) }()
+	res := make([]db.Addr, 0)
+	var r db.Addr
+	for rows.Next() {
+		if err := rows.Scan(&r.Name, &r.Host, &r.Port, &r.User, &r.Pwd); err != nil {
+			return nil, err
+		}
+		res = append(res, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 //ConnectInfoGet resolves database address using state clusters table
 func ConnectInfoGet(l *db.Loc, tp int) *db.Addr {
 	var c string

@@ -545,9 +545,10 @@ func TestTableVersions(t *testing.T) {
 func TestClusterInfo(t *testing.T) {
 	initState(t)
 	refa := db.Addr{Host: "state_test_host1", Port: 1234, User: "state_test_user1", Pwd: "state_test_pw1", Db: "state_test_db1"}
+	refb := db.Addr{Host: "state_test_host2", Port: 4567, User: "state_test_user2", Pwd: "state_test_pw2", Db: "state_test_db2"}
 	err := InsertClusterInfo("state_test_cluster1", &refa)
 	test.CheckFail(err, t)
-	err = InsertClusterInfo("state_test_cluster2", &db.Addr{Host: "state_test_host1", Port: 1234, User: "state_test_user1", Pwd: "state_test_pw1", Db: "state_test_db1"})
+	err = InsertClusterInfo("state_test_cluster2", &refb)
 	test.CheckFail(err, t)
 	err = InsertClusterInfo("state_test_cluster1", &db.Addr{Host: "state_test_host1", Port: 1234, User: "state_test_user1", Pwd: "state_test_pw1", Db: "state_test_db1"})
 	if err == nil {
@@ -561,8 +562,34 @@ func TestClusterInfo(t *testing.T) {
 	}
 	a = ConnectInfoGet(&db.Loc{Cluster: "state_test_cluster5"}, db.Master)
 	if a != nil {
+		t.Fatalf("Cluster state_test_cluster5 should not exist")
+	}
+
+	addrs, err := GetClusterInfo("")
+	test.CheckFail(err, t)
+	test.Assert(t, len(addrs) == 2, "Should be two records. got %+v", addrs)
+	refa.Name = "state_test_cluster1"
+	refa.Db = ""
+	refb.Name = "state_test_cluster2"
+	refb.Db = ""
+	if !reflect.DeepEqual(addrs[0], refa) || !reflect.DeepEqual(addrs[1], refb) {
+		log.Errorf("Expected: %+v %+v", refa, refb)
+		log.Errorf("Received: %+v %+v", addrs[0], addrs[1])
 		t.FailNow()
 	}
+	addrs, err = GetClusterInfo("WHERE name='state_test_cluster1'")
+	test.CheckFail(err, t)
+	test.Assert(t, len(addrs) == 1, "Should be two records. got %+v", addrs)
+	if !reflect.DeepEqual(addrs[0], refa) {
+		log.Errorf("Expected: %+v", refa)
+		log.Errorf("Received: %+v", addrs[0])
+		t.FailNow()
+	}
+	refa.Name = ""
+	refa.Db = "state_test_db1"
+	refb.Name = ""
+	refb.Db = "state_test_db2"
+
 	err = DeleteClusterInfo("state_test_cluster2")
 	test.CheckFail(err, t)
 

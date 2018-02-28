@@ -27,5 +27,5 @@ func GetInfoForTest(dbl *Loc, tp int) *Addr {
 	if dbl.Cluster == "please_return_nil_db_addr" {
 		return nil
 	}
-	return &Addr{"localhost", 3306, types.TestMySQLUser, types.TestMySQLPassword, dbl.Name}
+	return &Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: dbl.Name}
 }

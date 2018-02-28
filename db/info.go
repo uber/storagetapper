@@ -26,6 +26,7 @@ import (
 
 /*Addr contains information required to db to DB */
 type Addr struct {
+	Name string
 	Host string
 	Port uint16
 	User string

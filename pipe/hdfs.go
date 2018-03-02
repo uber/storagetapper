@@ -64,11 +64,6 @@ type hdfsPipe struct {
 	hdfs *hdfs.Client
 }
 
-// hdfsProducer synchronously pushes messages to Hdfs using topic specified during producer creation
-type hdfsProducer struct {
-	fileProducer
-}
-
 // hdfsConsumer consumes messages from Hdfs using topic and partition specified during consumer creation
 type hdfsConsumer struct {
 	fileConsumer
@@ -97,7 +92,7 @@ func (p *hdfsPipe) Type() string {
 
 //NewProducer registers a new sync producer
 func (p *hdfsPipe) NewProducer(topic string) (Producer, error) {
-	return &hdfsProducer{fileProducer{filePipe: &p.filePipe, topic: topic, files: make(map[string]*file), fs: &hdfsClient{p.hdfs}}}, nil
+	return &fileProducer{filePipe: &p.filePipe, topic: topic, files: make(map[string]*file), fs: &hdfsClient{p.hdfs}}, nil
 }
 
 //NewConsumer registers a new hdfs consumer with context

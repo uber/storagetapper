@@ -583,7 +583,7 @@ func (p *fileProducer) Close() error {
 		keys = append(keys, k)
 	}
 
-	sort.Strings(keys)
+	sort.Slice(keys, func(i, j int) bool { return p.files[keys[i]].name < p.files[keys[j]].name })
 
 	for i := 0; i < len(keys); i++ {
 		v := p.files[keys[i]]

@@ -283,6 +283,7 @@ func testStep(inPipeType string, bufferFormat string, outPipeType string, outPip
 	cfg.MaxFileSize = 1 // file per message
 	cfg.ChangelogPipeType = inPipeType
 	cfg.InternalEncoding = bufferFormat
+	cfg.PipeFileDelimited = true
 	//json and msgpack pushes schema not wrapped into transport format, so
 	//streamer won't be able to decode it unless outPipeFormat =
 	//InternalEncoding = bufferFormat
@@ -508,7 +509,6 @@ func TestBasic(t *testing.T) {
 	pipe.KafkaConfig.Producer.Partitioner = sarama.NewManualPartitioner
 	pipe.KafkaConfig.Producer.Return.Successes = true
 	pipe.KafkaConfig.Consumer.MaxWaitTime = 10 * time.Millisecond
-	pipe.Delimited = true
 
 	for _, o := range []string{"kafka"} {
 		//for o := range pipe.Pipes { //FIXME: file and hdfs fail some time

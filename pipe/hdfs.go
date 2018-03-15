@@ -114,7 +114,7 @@ func initHdfsPipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db
 
 	log.Infof("Connected to HDFS cluster at: %v", cfg.Hadoop.Addresses)
 
-	return &hdfsPipe{filePipe{cfg.Hadoop.BaseDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC, cfg.PipeCompression, cfg.PipeFileNoHeader, Delimited}, client}, nil
+	return &hdfsPipe{filePipe{cfg.Hadoop.BaseDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC, cfg.PipeCompression, cfg.PipeFileNoHeader, cfg.PipeFileDelimited}, client}, nil
 }
 
 // Type returns Pipe type as Hdfs

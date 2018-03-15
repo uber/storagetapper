@@ -74,6 +74,9 @@ type AppConfigODS struct {
 
 	PipeCompression  bool `yaml:"pipe_compression"`
 	PipeFileNoHeader bool `yaml:"pipe_file_no_header"`
+	//Delimited enables producing delimited message to text files and length
+	//prepended messages to binary files
+	PipeFileDelimited bool `yaml:"pipe_file_delimited"`
 }
 
 // AppConfig is the config struct which the config gets loaded into

@@ -53,10 +53,6 @@ import (
 
 var delimiter byte = '\n'
 
-//Delimited enables producing delimited message to text files and length
-//prepended messages to binary files
-var Delimited = false
-
 //fs calls abstraction to reuse most of the code in HDFS pipe
 type fs interface {
 	MkdirAll(path string, perm os.FileMode) error
@@ -140,7 +136,7 @@ func init() {
 }
 
 func initFilePipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
-	return &filePipe{cfg.DataDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC, cfg.PipeCompression, cfg.PipeFileNoHeader, Delimited}, nil
+	return &filePipe{cfg.DataDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC, cfg.PipeCompression, cfg.PipeFileNoHeader, cfg.PipeFileDelimited}, nil
 }
 
 // Type returns Pipe type as File

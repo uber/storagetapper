@@ -38,6 +38,8 @@ import (
 	"github.com/uber/storagetapper/state"
 )
 
+const waitForGtidTimeout = 3600 * time.Second
+
 //Streamer struct defines common properties of Event streamer worker
 type Streamer struct {
 	//TODO: Convert to db.Loc
@@ -111,7 +113,8 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 	}
 	defer func() { log.EL(s.log, conn.Close()) }()
 
-	tickChan := time.NewTicker(time.Millisecond * 1000).C
+	tickCheck := time.NewTicker(3 * time.Second).C
+	tickLock := time.NewTicker(s.stateUpdateTimeout).C
 	for {
 		err = conn.QueryRow("SELECT @@global.gtid_executed").Scan(&gtid)
 		if log.EL(s.log, err) {
@@ -125,7 +128,15 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 			break
 		}
 		select {
-		case <-tickChan:
+		case <-time.After(waitForGtidTimeout):
+			s.log.WithFields(log.Fields{"server has": current, "we need": gtid}).Errorf("Timeout waiting snapshot server to catch up")
+			return false
+		case <-tickCheck:
+		case <-tickLock:
+			if !s.tableLock.Refresh() || (s.clusterLock != nil && !s.clusterLock.Refresh()) {
+				s.log.Debugf("Lost the lock while waiting for gtid")
+				return false
+			}
 		case <-shutdown.InitiatedCh():
 			return false
 		default:
@@ -226,6 +237,7 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 		return false
 	}
 	s.batchSize = cfg.PipeBatchSize
+	s.stateUpdateTimeout = cfg.StateUpdateTimeout
 
 	log.Debugf("Will be streaming to topic: %v", s.topic)
 
@@ -244,9 +256,9 @@ func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) 
 		return false
 	}
 
-	s.waitForGtid(s.svc, s.db, gtid)
-
-	s.stateUpdateTimeout = cfg.StateUpdateTimeout
+	if !s.waitForGtid(s.svc, s.db, gtid) {
+		return false
+	}
 
 	s.outEncoder, err = encoder.Create(s.outputFormat, s.svc, s.db, s.table)
 	if log.EL(s.log, err) {

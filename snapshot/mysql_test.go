@@ -417,3 +417,58 @@ func TestSnapshotNilConnection(t *testing.T) {
 	_, err = s.Start("please_return_nil_db_addr", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
 	test.Assert(t, err != nil, "get connection should return nil")
 }
+
+func prepareBench(t *testing.T) Reader {
+	resetState(t)
+
+	input := "mysql"
+	conn := createDBLow(t, input)
+
+	defer func() { test.CheckFail(conn.Close(), t) }()
+
+	for i := 0; i < 100; i++ {
+		execSQL(conn, t, "insert into snap_test_t1(f1,f2,f3) values(?,?,?)", i, strconv.Itoa(i), float64(i)/3)
+	}
+
+	enc, err := encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1", input, "kafka", 0)
+	test.CheckFail(err, t)
+
+	s, err := InitReader(input, enc, metrics.NewSnapshotMetrics(nil))
+	test.CheckFail(err, t)
+
+	return s
+}
+
+func runBenchmarks() {
+	t := new(testing.T)
+	s := prepareBench(t)
+	_, err := s.Start("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	test.CheckFail(err, t)
+	defer s.End()
+
+	benchmarks := []testing.InternalBenchmark{}
+	bm := testing.InternalBenchmark{
+		Name: "[name=mysql-msgpack]",
+		F: func(b *testing.B) {
+			for i := b.N; i > 0; {
+				for ; i > 0 && s.HasNext(); i-- {
+					_, _, err := s.GetNext()
+					test.CheckFail(err, t)
+				}
+				if i > 0 {
+					b.StopTimer()
+					s.End()
+					_, err = s.Start("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+					test.CheckFail(err, t)
+					b.StartTimer()
+				}
+			}
+		},
+	}
+	benchmarks = append(benchmarks, bm)
+
+	log.Configure(cfg.LogType, "error", config.EnvProduction())
+
+	anything := func(pat, str string) (bool, error) { return true, nil }
+	testing.Main(anything, nil, benchmarks, nil)
+}

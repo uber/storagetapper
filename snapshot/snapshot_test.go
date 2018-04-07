@@ -14,5 +14,9 @@ func TestCreateNonExistent(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
-	os.Exit(m.Run())
+	if m.Run() != 0 {
+		os.Exit(1)
+	}
+
+	runBenchmarks()
 }

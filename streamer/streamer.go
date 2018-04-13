@@ -77,10 +77,11 @@ type Streamer struct {
 func (s *Streamer) ensureBinlogReaderStart() (string, error) {
 	tblStr := fmt.Sprintf("svc: %s, db: %s, tbl: %s", s.svc, s.db, s.table)
 	log.Debugf("Waiting for Binlog reader to start publishing for %s", tblStr)
-	tickChan := time.NewTicker(time.Millisecond * 1000).C
+	tickChan := time.NewTicker(time.Millisecond * 1000)
+	defer tickChan.Stop()
 	for {
 		select {
-		case <-tickChan:
+		case <-tickChan.C:
 			sRows, err := state.GetTableByID(s.id)
 			if len(sRows) == 0 {
 				return "", fmt.Errorf("State DB has no rows for %s", tblStr)
@@ -113,8 +114,11 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 	}
 	defer func() { log.EL(s.log, conn.Close()) }()
 
-	tickCheck := time.NewTicker(3 * time.Second).C
-	tickLock := time.NewTicker(s.stateUpdateTimeout).C
+	tickCheck := time.NewTicker(5 * time.Second)
+	defer tickCheck.Stop()
+	tickLock := time.NewTicker(time.Duration(s.stateUpdateTimeout))
+	defer tickLock.Stop()
+	toCh := time.After(waitForGtidTimeout)
 	for {
 		err = conn.QueryRow("SELECT @@global.gtid_executed").Scan(&gtid)
 		if log.EL(s.log, err) {
@@ -128,11 +132,11 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 			break
 		}
 		select {
-		case <-time.After(waitForGtidTimeout):
+		case <-toCh:
 			s.log.WithFields(log.Fields{"server has": current, "we need": gtid}).Errorf("Timeout waiting snapshot server to catch up")
 			return false
-		case <-tickCheck:
-		case <-tickLock:
+		case <-tickCheck.C:
+		case <-tickLock.C:
 			if !s.tableLock.Refresh() || (s.clusterLock != nil && !s.clusterLock.Refresh()) {
 				s.log.Debugf("Lost the lock while waiting for gtid")
 				return false

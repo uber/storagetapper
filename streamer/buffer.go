@@ -222,11 +222,12 @@ func (s *Streamer) StreamTable(consumer pipe.Consumer) bool {
 	/*This goroutine is to multiplex blocking FetchNext and tickChan*/
 	go s.eventFetcher(consumer, &wg, msgCh, exitCh)
 
-	tickCh := time.NewTicker(time.Second * time.Duration(s.stateUpdateTimeout)).C
+	ticker := time.NewTicker(time.Second * time.Duration(s.stateUpdateTimeout))
+	defer ticker.Stop()
 
 	for !shutdown.Initiated() {
 		select {
-		case <-tickCh:
+		case <-ticker.C:
 			s.metrics.NumWorkers.Emit()
 
 			if !s.tableLock.Refresh() {

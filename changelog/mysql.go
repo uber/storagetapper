@@ -708,7 +708,8 @@ func (b *mysqlReader) readEvents(c *db.Addr, stateUpdateTimeout int) {
 	}
 	defer syncer.Close()
 
-	tickCh := time.NewTicker(time.Second * time.Duration(stateUpdateTimeout)).C
+	updateTicker := time.NewTicker(time.Second * time.Duration(stateUpdateTimeout))
+	defer updateTicker.Stop()
 
 	if !b.updateState(true) {
 		return
@@ -729,7 +730,7 @@ func (b *mysqlReader) readEvents(c *db.Addr, stateUpdateTimeout int) {
 M:
 	for !shutdown.Initiated() {
 		select {
-		case <-tickCh:
+		case <-updateTicker.C:
 			if !b.updateState(false) {
 				break M
 			}

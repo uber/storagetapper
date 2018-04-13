@@ -18,6 +18,7 @@ type Throttle struct {
 }
 
 //New creates new Throttler
+//FIXME: Fix timer leak
 func New(target int64, checkInterval int64, numSamples int64) *Throttle {
 	return &Throttle{checkInterval, numSamples, target, 0, make([]int64, numSamples), 0, 0, time.NewTicker(time.Microsecond * time.Duration(checkInterval))}
 }

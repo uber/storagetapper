@@ -243,7 +243,7 @@ func TestMoreFieldTypes(t *testing.T) {
 		"int32",
 		"string",
 		"float64",
-		"[]uint8",
+		"string",
 		"string",
 		"string",
 		"string",

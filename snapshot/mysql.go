@@ -147,9 +147,9 @@ func mySQLToDriverType(p *interface{}, mysql string) {
 		*p = new(sql.NullFloat64)
 	case "char", "varchar":
 		*p = new(sql.NullString)
-	case "text", "tinytext", "mediumtext", "longtext", "blob", "tinyblob", "mediumblob", "longblob":
+	case "blob", "tinyblob", "mediumblob", "longblob":
 		*p = new(sql.RawBytes)
-	case "date", "datetime", "timestamp", "time":
+	case "text", "tinytext", "mediumtext", "longtext", "date", "datetime", "timestamp", "time":
 		*p = new(sql.NullString)
 	default: // "binary", "varbinary" and others
 		*p = new(sql.RawBytes)

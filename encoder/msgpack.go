@@ -93,7 +93,7 @@ func (e *msgPackEncoder) fixFieldTypes(cf *types.CommonFormatEvent) (err error) 
 			if e.inSchema.Columns[i].Key == "PRI" && k < len(cf.Key) {
 				f := &cf.Key[k]
 				switch v := (*f).(type) {
-				case float64:
+				case int64:
 					switch e.inSchema.Columns[i].DataType {
 					case "int", "integer", "tinyint", "smallint", "mediumint", "year":
 						*f = int32(v)

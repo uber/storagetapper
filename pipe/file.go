@@ -776,7 +776,9 @@ func (p *fileConsumer) openFile(nextFn string, offset int64) {
 	defer func() {
 		if p.err != nil {
 			p.reader = nil
-			log.E(p.file.Close())
+			if p.file != nil {
+				log.E(p.file.Close())
+			}
 			p.file = nil
 		}
 	}()

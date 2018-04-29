@@ -62,7 +62,7 @@ func resetState(t *testing.T) {
 	}
 }
 
-func createDB(t *testing.T) *sql.DB {
+func createDBLow(t *testing.T, input string) *sql.DB {
 	a := db.GetInfo(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1", Cluster: "snap_test_cluster1"},
 		db.Slave)
 	test.Assert(t, a != nil, "Error")
@@ -75,9 +75,14 @@ func createDB(t *testing.T) *sql.DB {
 	execSQL(conn, t, "create database snap_test_db1")
 	execSQL(conn, t, "create table snap_test_db1.snap_test_t1 ( f1 int not null primary key, f2 varchar(32), f3 double)")
 
-	state.DeregisterTable("snap_test_svc1", "snap_test_db1", "snap_test_t1", "mysql", "", 0)
+	if input == "schemaless" {
+		execSQL(conn, t, "alter table snap_test_db1.snap_test_t1 add row_key varchar(32), add column_key varchar(32), add ref_key bigint, add body blob")
+		execSQL(conn, t, "ALTER TABLE snap_test_db1.snap_test_t1 ADD KEY uc_key (row_key, column_key, ref_key)")
+	}
 
-	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Name: "snap_test_db1"}, "snap_test_t1", "mysql", "", 0, "") {
+	if !state.RegisterTable(&db.Loc{Service: "snap_test_svc1", Cluster: "test_cluster1", Name: "snap_test_db1"},
+		"snap_test_t1", input, "kafka", 0, "") {
+
 		t.FailNow()
 	}
 
@@ -89,6 +94,10 @@ func createDB(t *testing.T) *sql.DB {
 	test.CheckFail(err, t)
 
 	return conn
+}
+
+func createDB(t *testing.T) *sql.DB {
+	return createDBLow(t, "mysql")
 }
 
 func TestGetGtidError(t *testing.T) {
@@ -430,10 +439,7 @@ func prepareBench(t *testing.T) Reader {
 		execSQL(conn, t, "insert into snap_test_t1(f1,f2,f3) values(?,?,?)", i, strconv.Itoa(i), float64(i)/3)
 	}
 
-	enc, err := encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1", input, "kafka", 0)
-	test.CheckFail(err, t)
-
-	s, err := InitReader(input, enc, metrics.NewSnapshotMetrics(nil))
+	s, err := InitReader(input)
 	test.CheckFail(err, t)
 
 	return s
@@ -442,7 +448,10 @@ func prepareBench(t *testing.T) Reader {
 func runBenchmarks() {
 	t := new(testing.T)
 	s := prepareBench(t)
-	_, err := s.Start("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	enc, err := encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+	test.CheckFail(err, t)
+
+	_, err = s.Start("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
 	test.CheckFail(err, t)
 	defer s.End()
 
@@ -458,7 +467,7 @@ func runBenchmarks() {
 				if i > 0 {
 					b.StopTimer()
 					s.End()
-					_, err = s.Start("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1")
+					_, err = s.Start("snap_test_cluster1", "snap_test_svc1", "snap_test_db1", "snap_test_t1", enc)
 					test.CheckFail(err, t)
 					b.StartTimer()
 				}

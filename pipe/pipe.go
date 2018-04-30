@@ -68,6 +68,7 @@ type Pipe interface {
 	NewConsumer(topic string) (Consumer, error)
 	NewProducer(topic string) (Producer, error)
 	Type() string
+	//FIXME: Add close method for graceful resources deallocation
 }
 
 type constructor func(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error)

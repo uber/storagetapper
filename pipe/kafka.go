@@ -323,7 +323,7 @@ func (p *KafkaPipe) NewConsumer(topic string) (Consumer, error) {
 	defer p.lock.Unlock()
 
 	/*First consumer - initialize map, kafka consumer and state*/
-	if len(p.consumers) == 0 {
+	if p.saramaConsumer == nil {
 		if err := p.Init(); err != nil {
 			return nil, err
 		}

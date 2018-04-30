@@ -263,7 +263,7 @@ func TestKafkaBasic(t *testing.T) {
 	log.Debugf("Check saved offsets by starting producers first")
 	testLoopReversed(p, t, KEY)
 
-	err := util.ExecSQL(state.GetDB(), "DROP TABLE IF EXISTS kafka_offsets")
+	err := util.ExecSQL(state.GetDB(), "TRUNCATE TABLE kafka_offsets")
 	test.CheckFail(err, t)
 
 	log.Debugf("Test non-keyed push")

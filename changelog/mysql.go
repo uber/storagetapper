@@ -711,10 +711,10 @@ func (b *mysqlReader) readEvents(c *db.Addr, stateUpdateTimeout int) {
 	updateTicker := time.NewTicker(time.Second * time.Duration(stateUpdateTimeout))
 	defer updateTicker.Stop()
 
+	defer b.closeTableProducers()
 	if !b.updateState(true) {
 		return
 	}
-	defer b.closeTableProducers()
 
 	b.log.WithFields(log.Fields{"gtid": b.gtidSet.String(), "SeqNo": b.seqNo}).Infof("Binlog start")
 

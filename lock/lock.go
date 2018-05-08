@@ -94,6 +94,10 @@ func (m *myLock) openConn() bool {
 	return true
 }
 
+func (m *myLock) lockName() string {
+	return fmt.Sprintf("%s.%s.%d", types.MySvcName, m.name, m.n)
+}
+
 func (m *myLock) Lock(s string, timeout time.Duration) bool {
 	var err error
 	var res sql.NullBool
@@ -103,7 +107,8 @@ func (m *myLock) Lock(s string, timeout time.Duration) bool {
 		if !m.openConn() {
 			return false
 		}
-		err = m.conn.QueryRow(fmt.Sprintf("SELECT GET_LOCK('%s.%s.%d',%d)", types.MySvcName, s, m.n, timeout/time.Second)).Scan(&res)
+		err = m.conn.QueryRow("SELECT GET_LOCK(?,?)", m.lockName(), timeout/time.Second).Scan(&res)
+		//true - success, false - timeout, NULL - error
 		if err == nil && res.Valid && res.Bool {
 			m.log().Debugf("Acquired lock")
 			return true
@@ -126,7 +131,7 @@ func (m *myLock) IsLockedByMe() bool {
 		return false
 	}
 	//Here we assume that connection_id() cannot be 0
-	err := m.conn.QueryRow(fmt.Sprintf("SELECT IFNULL(IS_USED_LOCK('%s.%s.%d'), 0), connection_id()", types.MySvcName, m.name, m.n)).Scan(&lockedBy, &myConnID)
+	err := m.conn.QueryRow("SELECT IFNULL(IS_USED_LOCK(?),0), connection_id()", m.lockName()).Scan(&lockedBy, &myConnID)
 	log.Debugf("lockedBy: %v myConnID: %v", lockedBy, myConnID)
 	if err != nil || myConnID == 0 || lockedBy != myConnID {
 		if err != nil {
@@ -153,7 +158,7 @@ func (m *myLock) Unlock() bool {
 		return false
 	}
 	var res sql.NullBool
-	err := m.conn.QueryRow(fmt.Sprintf("SELECT RELEASE_LOCK('%s.%s.%d')", types.MySvcName, m.name, m.n)).Scan(&res)
+	err := m.conn.QueryRow("SELECT RELEASE_LOCK(?)", m.lockName()).Scan(&res)
 	if log.EL(m.log(), err) {
 		return false
 	}

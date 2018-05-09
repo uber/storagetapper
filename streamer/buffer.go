@@ -23,7 +23,6 @@ package streamer
 import (
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -171,28 +170,6 @@ func (s *Streamer) commitBatch(outProducer pipe.Producer, numEvents int64) bool 
 	return true
 }
 
-//eventFetcher is blocking call to buffered channel converter
-func (s *Streamer) eventFetcher(c pipe.Consumer, wg *sync.WaitGroup, msgCh chan *result, exitCh chan bool) {
-	defer wg.Done()
-L:
-	for {
-		msg := &result{}
-		if msg.hasNext = c.FetchNext(); msg.hasNext {
-			msg.data, msg.err = c.Pop()
-		}
-
-		select {
-		case msgCh <- msg:
-			if !msg.hasNext || msg.err != nil {
-				break L
-			}
-		case <-exitCh:
-			break L
-		}
-	}
-	log.Debugf("Finished streamer eventFetcher goroutine")
-}
-
 //returns false if worker should exit
 func (s *Streamer) bufferTickHandler(consumer pipe.Consumer) bool {
 	s.metrics.NumWorkers.Emit()
@@ -239,9 +216,6 @@ func closeConsumer(consumer pipe.Consumer, saveOffsets bool, l log.Logger) {
 // that table partition while periodically updating its state of the last kafka offset consumed
 func (s *Streamer) streamTable(consumer pipe.Consumer) bool {
 	var saveOffsets = true
-	var wg sync.WaitGroup
-
-	msgCh, exitCh := make(chan *result, s.outPipe.Config().MaxBatchSize), make(chan bool)
 
 	outProducer, err := s.outPipe.NewProducer(s.topic)
 	if log.E(err) {
@@ -252,13 +226,7 @@ func (s *Streamer) streamTable(consumer pipe.Consumer) bool {
 	defer func() {
 		closeConsumer(consumer, saveOffsets, s.log)
 		log.EL(s.log, outProducer.Close())
-		close(exitCh)
-		wg.Wait()
 	}()
-
-	// This goroutine is to multiplex blocking FetchNext and tickChan
-	wg.Add(1)
-	go s.eventFetcher(consumer, &wg, msgCh, exitCh)
 
 	stateUpdateTick := time.NewTicker(s.stateUpdateInterval)
 	defer stateUpdateTick.Stop()
@@ -276,18 +244,13 @@ func (s *Streamer) streamTable(consumer pipe.Consumer) bool {
 			if !s.bufferTickHandler(consumer) {
 				return true
 			}
-		case next := <-msgCh:
-			if !next.hasNext {
+		case msg := <-consumer.Message():
+			if msg == nil {
 				s.log.Debugf("End of message stream")
 				return true
 			}
 
-			if next.err != nil {
-				s.log.Errorf(errors.Wrap(next.err, "Failed to fetch next message").Error())
-				return false
-			}
-
-			if err := s.produceEvent(outProducer, next.data); err != nil {
+			if err := s.produceEvent(outProducer, msg); err != nil {
 				s.log.Errorf(errors.Wrap(err, "Failed to produce message").Error())
 				saveOffsets = false
 				return false
@@ -305,6 +268,9 @@ func (s *Streamer) streamTable(consumer pipe.Consumer) bool {
 				numEvents = 0
 				prevBytesWritten = s.BytesWritten
 			}
+		case err := <-consumer.Error():
+			s.log.Errorf(errors.Wrap(err, "Failed to fetch next message").Error())
+			return false
 		case <-batchCommitTick.C:
 			// Its time to commit the batch, let's emit metrics as well
 			if !s.commitBatch(outProducer, numEvents) {

@@ -44,11 +44,14 @@ func localConsumer(p Pipe, key string, cerr *int64) {
 		return
 	}
 	var i int
-	for c.FetchNext() {
-		in, err := c.Pop()
+	for {
+		in, err := c.FetchNext()
 		if log.E(err) {
 			atomic.AddInt64(cerr, 1)
 			return
+		}
+		if in == nil {
+			break
 		}
 		b := in.([]byte)
 		if len(b) == 0 {
@@ -70,13 +73,14 @@ func localConsumer(p Pipe, key string, cerr *int64) {
 }
 
 func localProducer(p Pipe, key string, cerr *int64) {
+	n := 1000
 	defer wg.Done()
 	c, err := p.NewProducer(key)
 	if log.E(err) {
 		atomic.AddInt64(cerr, 1)
 		return
 	}
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < n; i++ {
 		msg := key + "." + strconv.Itoa(i)
 		b := []byte(msg)
 		err = c.Push(b)
@@ -93,18 +97,19 @@ func localProducer(p Pipe, key string, cerr *int64) {
 }
 
 func TestLocalBasic(t *testing.T) {
+	n := 16
 	p, err := Create("local", &cfg.Pipe, nil)
 	test.CheckFail(err, t)
 
 	var cerr int64
 
-	wg.Add(16)
-	for i := 0; i < 16; i++ {
+	wg.Add(n)
+	for i := 0; i < n; i++ {
 		go localConsumer(p, "key"+strconv.Itoa(i), &cerr)
 	}
 
-	wg.Add(16)
-	for i := 0; i < 16; i++ {
+	wg.Add(n)
+	for i := 0; i < n; i++ {
 		go localProducer(p, "key"+strconv.Itoa(i), &cerr)
 	}
 

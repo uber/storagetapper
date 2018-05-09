@@ -54,6 +54,7 @@ type sqlProducer struct {
 }
 
 type sqlConsumer struct {
+	baseConsumer
 	*sqlPipe
 	conn   *sql.DB
 	rows   *sql.Rows
@@ -141,7 +142,11 @@ func (p *sqlPipe) NewConsumer(topic string) (Consumer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &sqlConsumer{sqlPipe: p, conn: conn, topic: topic}, nil
+	c := &sqlConsumer{sqlPipe: p, conn: conn, topic: topic}
+
+	c.initBaseConsumer(c.fetchNext)
+
+	return c, nil
 }
 
 func (p *sqlProducer) push(in interface{}) error {
@@ -335,21 +340,21 @@ func encodeSQLValue(tp string, d interface{}) string {
 	return "NULL"
 }
 
-func (p *sqlConsumer) FetchNext() bool {
+func (p *sqlConsumer) fetchNext() (interface{}, error) {
+	var err error
 	if !p.inited {
-		if p.err = p.initTable(); p.err != nil {
-			return true
+		if err = p.initTable(); err != nil {
+			return nil, err
 		}
 	}
 	if !p.rows.Next() {
-		if p.err = p.rows.Err(); p.err != nil {
-			return true
+		if err = p.rows.Err(); err != nil {
+			return nil, err
 		}
-		return false
+		return nil, nil
 	}
 	if err := p.rows.Scan(p.row...); err != nil {
-		p.err = err
-		p.msg = nil
+		return nil, err
 	}
 	msg := p.insert
 	for k, v := range p.row {
@@ -359,8 +364,7 @@ func (p *sqlConsumer) FetchNext() bool {
 		msg += encodeSQLValue(p.cfg.SQL.Type, v)
 	}
 	msg += ")"
-	p.msg = []byte(msg)
-	return true
+	return []byte(msg), nil
 }
 
 func (p *sqlConsumer) SaveOffset() error {

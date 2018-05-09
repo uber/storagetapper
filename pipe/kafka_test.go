@@ -154,13 +154,11 @@ func TestKafkaBigMessage(t *testing.T) {
 	test.CheckFail(err, t)
 
 	for i := 0; i < 64; i++ {
-		if !consumer.FetchNext() {
+		res, err := consumer.FetchNext()
+		test.CheckFail(err, t)
+		if res == nil {
 			t.Fatalf("There should be message")
 		}
-
-		res, err := consumer.Pop()
-		test.CheckFail(err, t)
-
 		buf = res.([]byte)
 
 		for i := 0; i < 8192; i++ {

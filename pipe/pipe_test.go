@@ -49,12 +49,12 @@ var msgGenFn = msgGenDef
 var schemaGenFn = schemaGenDef
 
 func consumeMessage(c Consumer, t *testing.T) string {
-	if !c.FetchNext() {
+	in, err := c.FetchNext()
+	test.CheckFail(err, t)
+	if in == nil {
 		return ""
 	}
-	in, err := c.Pop()
 	b := in.([]byte)
-	test.CheckFail(err, t)
 	return util.BytesToString(b)
 }
 

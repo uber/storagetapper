@@ -273,9 +273,12 @@ func verifyFromOutputKafka(shiftKey int, outPConsumer pipe.Consumer, outFormat s
 	lastVal := make([]int64, 10+shiftKey)
 
 	i := shiftKey
-	for i < numTestEvents+shiftKey && outPConsumer.FetchNext() {
-		b, err := outPConsumer.Pop()
+	for i < numTestEvents+shiftKey {
+		b, err := outPConsumer.FetchNext()
 		require.NoError(t, err)
+		if b == nil {
+			break
+		}
 
 		encodedMsg := b.([]byte)
 		require.NotNil(t, encodedMsg)
@@ -419,21 +422,15 @@ func TestStreamerShutdown(t *testing.T) {
 
 	consumer, consumer1 := setupWorker(bufPipe, testPipeType, t)
 
-	if consumer.FetchNext() {
-		_, err := consumer.Pop()
-		test.CheckFail(err, t)
-		ch <- true
-	} else {
-		t.Fatalf("FetchNext failed")
-	}
+	b, err := consumer.FetchNext()
+	test.CheckFail(err, t)
+	require.NotNil(t, b)
+	ch <- true
 
-	if consumer1.FetchNext() {
-		_, err := consumer1.Pop()
-		test.CheckFail(err, t)
-		ch <- true
-	} else {
-		t.Fatalf("FetchNext failed")
-	}
+	b1, err := consumer1.FetchNext()
+	test.CheckFail(err, t)
+	require.NotNil(t, b1)
+	ch <- true
 
 	if !test.WaitForNumProc(3, 16*time.Second) {
 		t.Fatalf("Streamer worker didn't finish. Num procs %v", shutdown.NumProcs())

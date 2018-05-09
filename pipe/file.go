@@ -37,12 +37,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/openpgp"
 	"golang.org/x/crypto/openpgp/armor"
-	"golang.org/x/crypto/openpgp/packet"
-	"golang.org/x/net/context" //"context"
+	"golang.org/x/crypto/openpgp/packet" //"context"
 	"golang.org/x/sys/unix"
 
 	"github.com/fsnotify/fsnotify"
@@ -119,7 +119,7 @@ type fileProducer struct {
 	seqno  int
 
 	fs   fs
-	text bool //Can be changed by SetFormat
+	text int64 //Can be changed by SetFormat
 
 	metrics *metrics.FilePipeMetrics
 
@@ -129,16 +129,14 @@ type fileProducer struct {
 // fileConsumer consumes messages from File using topic and partition specified during consumer creation
 type fileConsumer struct {
 	*filePipe
-
-	ctx    context.Context
-	cancel context.CancelFunc
+	baseConsumer
 	topic  string
 	file   io.ReadCloser
 	name   string
 	reader *bufio.Reader
 	header Header
 	fs     fs
-	text   bool //Determined by the Format field of the file header. See openFile
+	text   int64 //Determined by the Format field of the file header. See openFile
 
 	msg []byte
 	err error
@@ -147,6 +145,8 @@ type fileConsumer struct {
 	pgpMD   *openpgp.MessageDetails
 
 	watcher *fsnotify.Watcher
+
+	offset int64
 }
 
 type noopFlusher struct {
@@ -240,19 +240,21 @@ func (p *filePipe) NewProducer(topic string) (Producer, error) {
 	return &fileProducer{filePipe: p, topic: topic, files: make(map[string]*file), fs: &fileFS{}, metrics: m, stats: make(map[string]*stat)}, nil
 }
 
-func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
-	c.ctx, c.cancel = context.WithCancel(context.Background())
-
-	fn, offset, err := c.seek(c.topic, InitialOffset)
+func (p *filePipe) initConsumer(c *fileConsumer, fn fetchFunc) (Consumer, error) {
+	fname, offset, err := c.seek(c.topic, InitialOffset)
 	if log.E(err) {
 		return nil, err
 	}
 
-	if fn == "" {
-		return c, nil
+	if fname != "" {
+		if strings.HasSuffix(fname, ".open") {
+			c.offset = offset
+		} else {
+			c.openFile(fname, offset)
+		}
 	}
 
-	c.openFile(fn, offset)
+	c.initBaseConsumer(fn)
 
 	return c, nil
 }
@@ -265,7 +267,7 @@ func (p *filePipe) NewConsumer(topic string) (Consumer, error) {
 	}
 	m := metrics.NewFilePipeMetrics("pipe_consumer", map[string]string{"topic": topic, "pipeType": "file"})
 	c := &fileConsumer{filePipe: p, topic: topic, fs: &fileFS{}, metrics: m, watcher: w}
-	return p.initConsumer(c)
+	return p.initConsumer(c, c.fetchNext)
 }
 
 func topicPath(datadir string, topic string) string {
@@ -346,6 +348,9 @@ func (p *fileConsumer) seek(topic string, offset int64) (string, int64, error) {
 	if offset == OffsetOldest {
 		for _, f := range files {
 			if strings.HasPrefix(dir+"/"+f.Name(), tp) && !f.IsDir() {
+				if strings.HasSuffix(f.Name(), ".open") {
+					return "", 0, nil
+				}
 				return f.Name(), 0, nil
 			}
 		}
@@ -530,8 +535,11 @@ func (p *fileProducer) cancel(f *file) {
 }
 
 func syncFsMetadata() error {
-	_, _, err := unix.Syscall(unix.SYS_SYNC, 0, 0, 0)
-	return err
+	_, _, errno := unix.Syscall(unix.SYS_SYNC, 0, 0, 0)
+	if errno != 0 {
+		return errno
+	}
+	return nil
 }
 
 func (p *fileProducer) closeFile(f *file, graceful bool) error {
@@ -564,7 +572,7 @@ func (p *fileProducer) closeFile(f *file, graceful bool) error {
 }
 
 func (p *fileProducer) writeBinaryMsgLength(f *file, len int) error {
-	if p.text || !p.cfg.FileDelimited {
+	if atomic.LoadInt64(&p.text) == 1 || !p.cfg.FileDelimited {
 		return nil
 	}
 
@@ -576,7 +584,7 @@ func (p *fileProducer) writeBinaryMsgLength(f *file, len int) error {
 }
 
 func (p *fileProducer) writeTextMsgDelimiter(f *file) error {
-	if !p.text || !p.cfg.FileDelimited {
+	if atomic.LoadInt64(&p.text) == 0 || !p.cfg.FileDelimited {
 		return nil
 	}
 
@@ -837,7 +845,8 @@ func (p *fileConsumer) waitAndOpenNextFile() bool {
 		}
 
 		if nextFn != "" && !strings.HasSuffix(nextFn, ".open") {
-			p.openFile(nextFn, 0)
+			p.openFile(nextFn, p.offset)
+			p.offset = 0
 			return true
 		}
 
@@ -977,7 +986,9 @@ func (p *fileConsumer) openFile(nextFn string, offset int64) {
 		return
 	}
 
-	p.text = p.header.Format == "json" || p.header.Format == "text"
+	if p.header.Format == "json" || p.header.Format == "text" {
+		atomic.StoreInt64(&p.text, 1)
+	}
 
 	if offset != 0 {
 		log.E(p.file.Close())
@@ -1000,7 +1011,7 @@ func (p *fileConsumer) openFile(nextFn string, offset int64) {
 }
 
 func (p *fileConsumer) writeMessage() {
-	if !p.text {
+	if atomic.LoadInt64(&p.text) == 0 {
 		msg := make([]byte, 4)
 		_, p.err = p.reader.Read(msg)
 		if p.err == nil {
@@ -1008,7 +1019,7 @@ func (p *fileConsumer) writeMessage() {
 			_, p.err = io.ReadFull(p.reader, p.msg)
 			/*
 				if p.err == nil {
-					log.Debugf("Consumed message: %x", p.msg)
+					log.Debugf("Consumed message: %x %p", p.msg, &p.baseConsumer)
 				}
 			*/
 		}
@@ -1016,6 +1027,7 @@ func (p *fileConsumer) writeMessage() {
 		p.msg, p.err = p.reader.ReadBytes(delimiter)
 		if p.err == nil {
 			p.msg = p.msg[:len(p.msg)-1]
+			//log.Debugf("Consumed message: %x %p", p.msg, &p.baseConsumer)
 		}
 	}
 }
@@ -1050,7 +1062,7 @@ func (p *fileConsumer) fetchNextLow() bool {
 
 		log.Debugf("Consumer closed: %v", p.name)
 
-		if p.text && p.cfg.FileDelimited && len(p.msg) != 0 {
+		if atomic.LoadInt64(&p.text) == 1 && p.cfg.FileDelimited && len(p.msg) != 0 {
 			p.err = fmt.Errorf("corrupted file. Not ending with delimiter: %v %v", p.name, string(p.msg))
 			return true
 		}
@@ -1060,34 +1072,45 @@ func (p *fileConsumer) fetchNextLow() bool {
 	return false
 }
 
-//FetchNext fetches next message from File and commits offset read
-func (p *fileConsumer) FetchNext() bool {
+//fetchNext fetches next message from File and commits offset read
+func (p *fileConsumer) fetchNext() (interface{}, error) {
 	for {
 		if p.fetchNextLow() {
-			return true
+			return p.msg, p.err
 		}
 		if !p.waitAndOpenNextFile() {
-			return false //context canceled, no message
+			return nil, p.err
 		}
 		if p.err != nil {
-			return true //has message with error set
+			return p.msg, p.err
 		}
 	}
 }
 
-//Pop pops pipe message
-func (p *fileConsumer) Pop() (interface{}, error) {
-	return p.msg, p.err
+//fetchNext fetches next message from File and commits offset read
+func (p *fileConsumer) fetchNextPoll() (interface{}, error) {
+	for {
+		if p.fetchNextLow() {
+			return p.msg, p.err
+		}
+		if !p.waitAndOpenNextFilePoll() {
+			return nil, p.err
+		}
+		if p.err != nil {
+			return p.msg, p.err
+		}
+	}
 }
 
 //Close closes consumer
 func (p *fileConsumer) close(graceful bool) (err error) {
 	log.Debugf("Close consumer: %v", p.topic)
+	p.cancel()
+	p.wg.Wait()
 	if p.watcher != nil {
 		err = p.watcher.Close()
 		log.E(err)
 	}
-	p.cancel()
 	if p.file != nil {
 		err = p.file.Close()
 		log.E(err)
@@ -1111,12 +1134,16 @@ func (p *fileConsumer) SaveOffset() error {
 
 func (p *fileConsumer) SetFormat(format string) {
 	p.header.Format = format
-	p.text = format == "json" || format == "text"
+	if format == "json" || format == "text" {
+		atomic.StoreInt64(&p.text, 1)
+	}
 }
 
 func (p *fileProducer) SetFormat(format string) {
 	p.header.Format = format
-	p.text = format == "json" || format == "text"
+	if format == "json" || format == "text" {
+		atomic.StoreInt64(&p.text, 1)
+	}
 }
 
 type fileFS struct {

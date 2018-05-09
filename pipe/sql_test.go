@@ -164,10 +164,9 @@ func testSQLEscape(drv string, escStr string, resStr string, t *testing.T) {
 	c, err := pt.NewConsumer("ttt")
 	require.NoError(t, err)
 
-	n := c.FetchNext()
-	require.Equal(t, true, n)
-	i, err := c.Pop()
+	i, err := c.FetchNext()
 	require.NoError(t, err)
+	require.NotNil(t, i)
 
 	r, ok := i.([]byte)
 	require.Equal(t, true, ok)

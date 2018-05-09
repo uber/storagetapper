@@ -173,10 +173,7 @@ func consumeEvents(c pipe.Consumer, format string, result []string, outEncoder e
 			v = string(b)
 			test.CheckFail(err, t)
 		}
-		if !c.FetchNext() {
-			return
-		}
-		msg, err := c.Pop()
+		msg, err := c.FetchNext()
 		test.CheckFail(err, t)
 
 		var b []byte
@@ -212,7 +209,7 @@ func waitAllEventsStreamed(format string, c pipe.Consumer, sseqno int, seqno int
 	}
 
 	for ; sseqno < seqno; sseqno++ {
-		_ = c.FetchNext()
+		_, _ = c.FetchNext()
 	}
 
 	return sseqno

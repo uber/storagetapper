@@ -95,14 +95,11 @@ type kafkaProducer struct {
 
 // kafkaConsumer consumes messages from Kafka using topic and partition specified during consumer creation
 type kafkaConsumer struct {
-	pipe   *KafkaPipe
-	topic  string
-	ctx    context.Context
-	cancel context.CancelFunc
-	ch     chan *sarama.ConsumerMessage
-	msg    *sarama.ConsumerMessage
-	err    error
-	log    log.Logger
+	baseConsumer
+	pipe  *KafkaPipe
+	topic string
+	ch    chan *sarama.ConsumerMessage
+	log   log.Logger
 }
 
 func init() {
@@ -361,10 +358,13 @@ func (p *KafkaPipe) NewConsumer(topic string) (Consumer, error) {
 
 	p.redistributeConsumers(p.consumers[topic])
 
-	ctx, cancel := context.WithCancel(context.Background())
+	kc := &kafkaConsumer{pipe: p, topic: topic, ch: ch, log: l}
 
-	l.Debugf("Registered consumer")
-	return &kafkaConsumer{p, topic, ctx, cancel, ch, nil, nil, l}, nil
+	kc.initBaseConsumer(kc.fetchNext)
+
+	log.Debugf("Registered consumer %v", topic)
+
+	return kc, nil
 }
 
 func (p *KafkaPipe) commitOffset(topic string, partition int32, offset int64, persistInterval int64, l log.Logger) error {
@@ -413,7 +413,7 @@ func (p *kafkaConsumer) commitConsumerPartitionOffsets() error {
 		}
 	}
 
-	return p.err
+	return nil
 }
 
 //DeleteKafkaOffsets deletes Kafka offsets of all partitions of specified topic
@@ -580,31 +580,27 @@ func (p *kafkaProducer) CloseOnFailure() error {
 	return err
 }
 
-//FetchNext fetches next message from Kafka and commits offset read
-func (p *kafkaConsumer) FetchNext() bool {
+//fetchNext fetches next message from Kafka and commits offset read
+func (p *kafkaConsumer) fetchNext() (interface{}, error) {
 	select {
 	case msg, ok := <-p.ch:
 		if !ok {
-			return false
+			return nil, nil
 		}
-		p.msg = msg
 		p.pipe.lock.RLock()
 		defer p.pipe.lock.RUnlock()
-		p.err = p.pipe.commitOffset(p.msg.Topic, p.msg.Partition, p.msg.Offset, offsetPersistInterval, p.log)
-		return true
+		err := p.pipe.commitOffset(msg.Topic, msg.Partition, msg.Offset, offsetPersistInterval, p.log)
+		log.E(err)
+		return msg.Value, err
 	case <-p.ctx.Done():
 	}
-	return false
-}
-
-//Pop pops pipe message
-func (p *kafkaConsumer) Pop() (interface{}, error) {
-	return p.msg.Value, p.err
+	return nil, nil
 }
 
 //Close closes consumer
 func (p *kafkaConsumer) close(graceful bool) error {
 	p.cancel() //Unblock FetchNext
+	p.wg.Wait()
 
 	return p.pipe.closeConsumer(p, graceful)
 }

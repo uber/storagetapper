@@ -670,10 +670,7 @@ func consumeTableEvents(pc pipe.Consumer, svc, db, table, input string, output s
 	}
 
 	for i, v := range result {
-		if !pc.FetchNext() {
-			break
-		}
-		b, err := pc.Pop()
+		b, err := pc.FetchNext()
 		if err != nil {
 			return err
 		}

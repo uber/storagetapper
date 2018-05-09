@@ -21,9 +21,11 @@
 package pipe
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 
 	//"context"
 
@@ -32,14 +34,12 @@ import (
 
 //Consumer consumer interface for the pipe
 type Consumer interface {
-	Pop() (interface{}, error)
 	Close() error
 	//CloseOnFailure doesn't save offsets
 	CloseOnFailure() error
-	/*FetchNext is a blocking call which receives a message.
-	  Message and error can be later retrieved by Pop call.
-	  If it returns false this means EOF and no more Pops allowed */
-	FetchNext() bool
+	Message() chan interface{}
+	Error() chan error
+	FetchNext() (interface{}, error)
 	//Allows to explicitly persists current consumer position
 	SaveOffset() error
 
@@ -104,4 +104,71 @@ func Create(pipeType string, cfg *config.PipeConfig, db *sql.DB) (Pipe, error) {
 	}
 
 	return pipe, nil
+}
+
+type baseConsumer struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	msgCh  chan interface{}
+	errCh  chan error
+}
+
+type fetchFunc func() (interface{}, error)
+
+func (p *baseConsumer) initBaseConsumer(fn fetchFunc) {
+	p.ctx, p.cancel = context.WithCancel(context.Background())
+	p.msgCh = make(chan interface{})
+	p.errCh = make(chan error)
+
+	p.wg.Add(1)
+	go p.fetchLoop(fn)
+}
+
+func (p *baseConsumer) Message() chan interface{} {
+	return p.msgCh
+}
+func (p *baseConsumer) Error() chan error {
+	return p.errCh
+}
+
+func (p *baseConsumer) FetchNext() (interface{}, error) {
+	select {
+	case msg := <-p.msgCh:
+		return msg, nil
+	case err := <-p.errCh:
+		return nil, err
+	case <-p.ctx.Done():
+	}
+	return nil, nil
+}
+
+func (p *baseConsumer) fetchLoop(fn fetchFunc) {
+	defer p.wg.Done()
+	for {
+		msg, err := fn()
+		if err != nil {
+			p.sendErr(err)
+			return
+		}
+		if !p.sendMsg(msg) || msg == nil {
+			return
+		}
+	}
+}
+
+func (p *baseConsumer) sendMsg(msg interface{}) bool {
+	select {
+	case p.msgCh <- msg:
+		return true
+	case <-p.ctx.Done():
+	}
+	return false
+}
+
+func (p *baseConsumer) sendErr(err error) {
+	select {
+	case p.errCh <- err:
+	case <-p.ctx.Done():
+	}
 }

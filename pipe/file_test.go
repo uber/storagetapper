@@ -86,15 +86,15 @@ func TestFileHeader(t *testing.T) {
 
 	require.NoError(t, p.Close())
 
-	require.True(t, c.FetchNext(), "there should be a schema message")
-	m, err := c.Pop()
+	m, err := c.FetchNext()
 	require.NoError(t, err)
+	require.True(t, m != nil, "there should be a schema message")
 
 	require.Equal(t, "schema-to-test-header", string(m.([]byte)), "first message should be schema message")
 
-	require.True(t, c.FetchNext(), "there should be exactly one data message")
-	m, err = c.Pop()
+	m, err = c.FetchNext()
 	require.NoError(t, err)
+	require.True(t, m != nil, "there should be exactly one data message")
 
 	require.Equal(t, msg, string(m.([]byte)))
 
@@ -131,17 +131,15 @@ func TestFileBinary(t *testing.T) {
 	err = p.Close()
 	test.CheckFail(err, t)
 
-	test.Assert(t, c.FetchNext(), "there should be first message")
-
-	m, err := c.Pop()
+	m, err := c.FetchNext()
 	test.CheckFail(err, t)
+	test.Assert(t, m != nil, "there should be first message")
 
 	test.Assert(t, string(m.([]byte)) == msg1, "read back incorrect first message ")
 
-	test.Assert(t, c.FetchNext(), "there should be second message")
-
-	m, err = c.Pop()
+	m, err = c.FetchNext()
 	test.CheckFail(err, t)
+	test.Assert(t, m != nil, "there should be second message")
 
 	test.Assert(t, string(m.([]byte)) == msg2, "read back incorrect first message")
 
@@ -175,10 +173,9 @@ func TestFileNoDelimiter(t *testing.T) {
 	err = p.Close()
 	test.CheckFail(err, t)
 
-	test.Assert(t, c.FetchNext(), "there should be message with error set")
-
-	_, err = c.Pop()
+	m, err := c.FetchNext()
 	test.Assert(t, err != nil && err.Error() == "cannot consume non delimited file", "should produce an error")
+	test.Assert(t, m == nil, "there should be no message with error set")
 
 	err = c.Close()
 	test.CheckFail(err, t)
@@ -194,10 +191,9 @@ func TestFileNoDelimiter(t *testing.T) {
 }
 
 func consumeAndCheck(t *testing.T, c Consumer, msg string) {
-	test.Assert(t, c.FetchNext(), "there should be a message: %v", msg)
-
-	m, err := c.Pop()
+	m, err := c.FetchNext()
 	test.CheckFail(err, t)
+	test.Assert(t, m != nil, "there should be a message: %v", msg)
 
 	got := string(m.([]byte))
 	test.Assert(t, got == msg, "read back incorrect message: %v", got)
@@ -323,17 +319,15 @@ func TestFileEncryptionBinary(t *testing.T) {
 	err = p.Close()
 	test.CheckFail(err, t)
 
-	test.Assert(t, c.FetchNext(), "there should be first message")
-
-	m, err := c.Pop()
+	m, err := c.FetchNext()
 	test.CheckFail(err, t)
+	test.Assert(t, m != nil, "there should be first message")
 
 	test.Assert(t, string(m.([]byte)) == msg1, "read back incorrect first message")
 
-	test.Assert(t, c.FetchNext(), "there should be second message")
-
-	m, err = c.Pop()
+	m, err = c.FetchNext()
 	test.CheckFail(err, t)
+	test.Assert(t, m != nil, "there should be second message")
 
 	test.Assert(t, string(m.([]byte)) == msg2, "read back incorrect first message")
 

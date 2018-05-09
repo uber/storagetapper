@@ -175,21 +175,6 @@ func (p *hdfsPipe) NewProducer(topic string) (Producer, error) {
 func (p *hdfsPipe) NewConsumer(topic string) (Consumer, error) {
 	m := metrics.NewFilePipeMetrics("pipe_consumer", map[string]string{"topic": topic, "pipeType": "hdfs"})
 	c := &hdfsConsumer{fileConsumer{filePipe: &p.filePipe, topic: topic, fs: &hdfsClient{p.hdfs}, metrics: m}}
-	_, err := p.initConsumer(&c.fileConsumer)
+	_, err := p.initConsumer(&c.fileConsumer, c.fetchNextPoll)
 	return c, err
-}
-
-//FetchNext fetches next message from Hdfs and commits offset read
-func (p *hdfsConsumer) FetchNext() bool {
-	for {
-		if p.fetchNextLow() {
-			return true
-		}
-		if !p.waitAndOpenNextFilePoll() {
-			return false //context canceled, no message
-		}
-		if p.err != nil {
-			return true //has message with error set
-		}
-	}
 }

@@ -481,7 +481,7 @@ func (b *mysqlReader) handleQueryEvent(ev *replication.BinlogEvent) bool {
 	qe := ev.Event.(*replication.QueryEvent)
 
 	s := util.BytesToString(qe.Query)
-	if s == "BEGIN" {
+	if s == "BEGIN" || s == "COMMIT" {
 		return true
 	}
 

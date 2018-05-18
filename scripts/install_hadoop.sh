@@ -4,12 +4,15 @@ set -ex
 
 NAME=hadoop
 DIR=/home/$NAME
+VERSION=2.8.4
+SHA256="6B545972FDD73173887CDBC3E1CBD3CC72068271924EDEA82A0E7E653199B115"
 
 sudo apt-get install default-jre wget
 sudo useradd $NAME -m || [ $? -eq 9 ]
 cd $DIR
-[ -f hadoop-2.8.1.tar.gz ] || sudo -H -u $NAME wget "http://download.nextag.com/apache/hadoop/common/hadoop-2.8.1/hadoop-2.8.1.tar.gz" -O hadoop-2.8.1.tar.gz
-sudo -H -u $NAME tar -xzf hadoop-2.8.1.tar.gz --strip 1
+[ -f hadoop-$VERSION.tar.gz ] || sudo -H -u $NAME wget "https://mirrors.ocf.berkeley.edu/apache/hadoop/common/hadoop-$VERSION/hadoop-$VERSION.tar.gz" -O hadoop-$VERSION.tar.gz
+echo "$SHA256 hadoop-$VERSION.tar.gz" | sha256sum -c
+sudo -H -u $NAME tar -xzf hadoop-$VERSION.tar.gz --strip 1
 
 cat << 'EOF' | sudo -H -u $NAME tee $DIR/etc/hadoop/core-site.xml
 <configuration>

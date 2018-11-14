@@ -1,0 +1,61 @@
+version: '3.1'
+
+services:
+
+  db:
+    image: mysql:5
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+      # Use root/storagetapper as user/password credentials
+      MYSQL_ROOT_PASSWORD: storagetapper
+    volumes:
+      - ./config:/etc/mysql/conf.d/
+    security_opt: 
+      - seccomp:unconfined 
+
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - 8080:8080
+
+  zookeeper:
+    image: wurstmeister/zookeeper
+
+  kafka:
+    image: wurstmeister/kafka
+    environment:
+      KAFKA_CREATE_TOPICS: "storagetapper.changelog.ex_svc1.ex_db1.ex_table1:1:1,storagetapper.output.ex_svc1.ex_db1.ex_table1:1:1"
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_HOST_NAME: kafka
+   
+  kafka_client_changelog:
+    build:
+        context: .
+        dockerfile: Dockerfile_kafkaconsumer
+    environment:
+      - WAIT_FOR=kafka:9092
+    command: --bootstrap-server kafka:9092 --topic storagetapper.changelog.ex_svc1.ex_db1.ex_table1 --from-beginning
+    
+  kafka_client_output:
+    build:
+        context: .
+        dockerfile: Dockerfile_kafkaconsumer
+    environment:
+      - WAIT_FOR=kafka:9092
+    command: --bootstrap-server kafka:9092 --topic storagetapper.output.ex_svc1.ex_db1.ex_table1 --from-beginning    
+
+  storagetapper:
+    build: .
+    environment:
+      - WAIT_FOR=db:3306;kafka:9092
+    volumes:
+      - ./config:/etc/storagetapper/
+
+  demo:
+    build:
+        context: .
+        dockerfile: Dockerfile_demo
+    environment:
+      - WAIT_FOR=storagetapper:7836

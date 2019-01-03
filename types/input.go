@@ -18,36 +18,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package db
+package types
 
-import (
-	"github.com/uber/storagetapper/log"
-)
-
-/*Addr contains information required to db to DB */
-type Addr struct {
-	Name string
-	Host string
-	Port uint16
-	User string
-	Pwd  string
-	Db   string
-}
-
-/*Loc - database location */
-type Loc struct {
-	Cluster string
-	Service string
-	Name    string
-}
-
-//Define connection types
 const (
-	Master = iota
-	Slave  = iota
+	// InputMySQL defines input of type to be MySQL
+	InputMySQL = "mysql"
 )
-
-/*LogFields return logger with Loc fields */
-func (d *Loc) LogFields() log.Logger {
-	return log.WithFields(log.Fields{"cluster": d.Cluster, "service": d.Service, "db": d.Name})
-}

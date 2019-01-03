@@ -28,23 +28,16 @@ type Timer struct {
 }
 
 //TimerInit is a constructor for Timer
-func TimerInit(factory metricsFactory, name string, tags map[string]string) *Timer {
+func TimerInit(s scope, name string) *Timer {
 	var t Timer
-	t.backend = factory.InitTimer(name)
-	if tags != nil {
-		t.backend.Tag(tags)
-	}
+	t.backend = s.InitTimer(name)
 	return &t
 }
 
-//Tag adds metric tags
-func (t *Timer) Tag(tags map[string]string) {
-	t.backend.Tag(tags)
-}
-
 //Start starts the timer
-func (t *Timer) Start() {
+func (t *Timer) Start() *Timer {
 	t.backend.Start()
+	return t
 }
 
 //Stop stops the timer

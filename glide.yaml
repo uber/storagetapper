@@ -1,15 +1,41 @@
 package: github.com/uber/storagetapper
 import:
 - package: github.com/go-sql-driver/mysql
-  version: v1.3
 - package: github.com/siddontang/go-mysql
+  version: master
 - package: github.com/Shopify/sarama
-  version: 1.11.0
+  version: ^1.19.0
 - package: github.com/linkedin/goavro
   version: 1.0.3
 - package: github.com/fsnotify/fsnotify
-  version: 1.4.2
+  version: ^1.4.7
 - package: go.uber.org/zap
-  version: 1.4.0
+  version: 1.10.0
 - package: github.com/tinylib/msgp
-  version: 1.0.1
+  version: master
+- package: google.golang.org/grpc
+  version: ^1.17.0
+- package: github.com/ugorji/go
+  version: ^1.1.4
+- package: github.com/opentracing/opentracing-go
+  version: master
+- package: golang.org/x/net
+  version: master
+- package: github.com/juju/errors
+  version: master
+- package: golang.org/x/crypto
+  version: master
+- package: golang.org/x/text
+  version: master
+- package: github.com/prometheus/common
+  version: master
+- package: github.com/prometheus/client_golang
+  version: master
+- package: github.com/getsentry/raven-go
+  version: master
+- package: github.com/mailru/go-clickhouse
+  version: master
+- package: github.com/ngaut/log
+- package: github.com/lib/pq
+- package: golang.org/x/sync
+- package: github.com/google/uuid

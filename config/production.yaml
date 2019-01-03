@@ -1,6 +1,13 @@
-#log_type: zap
-#log_level: debug
-#logging:
-#    outputPaths: /var/log/storagetapper.log
+log_type: zap
+log_level: debug
 
-state_connect_url: storagetapper@localhost
+changelog_topic_name_template_default: "storagetapper-{{.Service}}-{{.Db}}-{{.Table}}{{if .Version}}-v{{.Version}}{{end}}"
+
+output_topic_name_template:
+  mysql:
+    kafka:
+        "hp-dbevents-mysql-{{.Service}}-{{.Db}}-{{.Table}}"
+    hdfs: "{{.Input}}/{{.Service}}/{{.Table}}/{{.Version}}/{{.Db}}_"
+    s3: "{{.Input}}/{{.Service}}/{{.Table}}/{{.Version}}/{{.Db}}_"
+
+max_file_size: 5368709120

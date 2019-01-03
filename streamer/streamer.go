@@ -21,8 +21,10 @@
 package streamer
 
 import (
+	"crypto/md5"
 	"fmt"
-	"math/rand"
+	"io"
+	"os"
 	"time"
 
 	"github.com/siddontang/go-mysql/mysql"
@@ -36,79 +38,81 @@ import (
 	"github.com/uber/storagetapper/pipe"
 	"github.com/uber/storagetapper/shutdown"
 	"github.com/uber/storagetapper/state"
+	"github.com/uber/storagetapper/util"
 )
 
 const waitForGtidTimeout = 3600 * time.Second
 
 //Streamer struct defines common properties of Event streamer worker
 type Streamer struct {
-	//TODO: Convert to db.Loc
-	cluster string
-	svc     string
-	db      string
-	table   string
-	version int
+	row *state.Row
 
-	topic       string
-	id          int64
-	input       string
-	output      string
-	inPipe      pipe.Pipe
-	outPipe     pipe.Pipe
-	outProducer pipe.Producer
-	outEncoder  encoder.Encoder
-	envEncoder  encoder.Encoder
-	log         log.Logger
+	topic      string
+	inPipe     pipe.Pipe
+	outPipe    pipe.Pipe
+	outEncoder encoder.Encoder
+	envEncoder encoder.Encoder
+	log        log.Logger
 
 	metrics      *metrics.Streamer
 	BytesWritten int64
 	BytesRead    int64
 
-	outputFormat       string
-	stateUpdateTimeout int
-	batchSize          int
-	tableLock          lock.Lock
-	clusterLock        lock.Lock
+	stateUpdateInterval time.Duration
+	clusterLock         lock.Lock
+
+	workerID string
 }
 
-// ensureBinlogReaderStart ensures that Binlog reader worker has started publishing to Kafka buffer
-// This is important in the case of bootstrap where we start streaming from the consistent snapshot
-// and need to be sure that binlog reader has started producing events for this table.
-func (s *Streamer) ensureBinlogReaderStart() (string, error) {
-	tblStr := fmt.Sprintf("svc: %s, db: %s, tbl: %s", s.svc, s.db, s.table)
-	log.Debugf("Waiting for Binlog reader to start publishing for %s", tblStr)
-	tickChan := time.NewTicker(time.Millisecond * 1000)
-	defer tickChan.Stop()
+func (s *Streamer) ensureChangelogReaderStartLow(prevGTID string, ts time.Time) (string, time.Time, error) {
+	s.log.WithFields(log.Fields{"prev_gtid": prevGTID}).Debugf("Waiting for Changelog reader to start publishing event")
+	ticker := time.NewTicker(time.Millisecond * 1000)
+	defer ticker.Stop()
 	for {
 		select {
-		case <-tickChan.C:
-			sRows, err := state.GetTableByID(s.id)
-			if len(sRows) == 0 {
-				return "", fmt.Errorf("State DB has no rows for %s", tblStr)
-			} else if err != nil {
-				return "", err
+		case <-ticker.C:
+			tblInfo, err := state.GetTableByID(s.row.ID)
+			if err != nil {
+				return "", time.Time{}, err
 			}
-			if sRows[0].Gtid != "" {
-				log.Debugf("Binlog reader confirmed started for %s from %v", tblStr, sRows[0].Gtid)
-				return sRows[0].Gtid, nil
+			if tblInfo == nil {
+				return "", time.Time{}, fmt.Errorf("table not found. id=%v", s.row.ID)
+			}
+			if tblInfo.Gtid != prevGTID || (prevGTID != "" && ts != tblInfo.GtidUpdatedAt) {
+				s.log.Debugf("Changelog reader confirmed started from %v, updated at %v", tblInfo.Gtid, tblInfo.GtidUpdatedAt)
+				return tblInfo.Gtid, tblInfo.GtidUpdatedAt, nil
 			}
 		case <-shutdown.InitiatedCh():
-			return "", fmt.Errorf("Shutdown in progress")
+			return "", time.Time{}, fmt.Errorf("shutdown in progress")
 		}
 	}
 }
 
-func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
+// ensureChangelogReaderStart ensures that Changelog reader worker has started
+// publishing to Kafka buffer for this cluster in order to avoid a gap in the
+// event stream
+func (s *Streamer) ensureChangelogReaderStart() (string, time.Time, error) {
+	//ensure that changelog started for this cluster
+	gtid, ts, err := s.ensureChangelogReaderStartLow("", time.Time{})
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	//ensure that changelog reader sees our possible change of snapshotted_at in
+	//lockTable
+	return s.ensureChangelogReaderStartLow(gtid, ts)
+}
+
+func (s *Streamer) waitForGtid(svc string, cluster string, sdb string, inputType string, gtid string) bool {
 	var current mysql.GTIDSet
 
-	log.Debugf("Waiting for snapshot server to catch up to: %v", gtid)
+	s.log.Debugf("Waiting for snapshot server to catch up to: %v", gtid)
 
 	target, err := mysql.ParseGTIDSet("mysql", gtid)
 	if log.EL(s.log, err) {
 		return false
 	}
 
-	conn, err := db.OpenService(&db.Loc{Service: svc, Name: sdb}, "")
+	conn, err := db.OpenService(&db.Loc{Service: svc, Cluster: cluster, Name: sdb}, "", inputType)
 	if log.EL(s.log, err) {
 		return false
 	}
@@ -116,7 +120,7 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 
 	tickCheck := time.NewTicker(5 * time.Second)
 	defer tickCheck.Stop()
-	tickLock := time.NewTicker(time.Duration(s.stateUpdateTimeout))
+	tickLock := time.NewTicker(s.stateUpdateInterval)
 	defer tickLock.Stop()
 	toCh := time.After(waitForGtidTimeout)
 	for {
@@ -133,183 +137,180 @@ func (s *Streamer) waitForGtid(svc string, sdb string, gtid string) bool {
 		}
 		select {
 		case <-toCh:
-			s.log.WithFields(log.Fields{"server has": current, "we need": gtid}).Errorf("Timeout waiting snapshot server to catch up")
+			s.log.WithFields(log.Fields{"server has": current, "we need": target.String()}).Errorf("Timeout waiting snapshot server to catch up")
 			return false
-		case <-tickCheck.C:
 		case <-tickLock.C:
-			if !s.tableLock.Refresh() || (s.clusterLock != nil && !s.clusterLock.Refresh()) {
+			if !state.RefreshTableLock(s.row.ID, s.workerID) || !s.clusterLock.Refresh() {
 				s.log.Debugf("Lost the lock while waiting for gtid")
 				return false
 			}
+			s.log.WithFields(log.Fields{"server has": current, "we need": target.String()}).Errorf("Still waiting snapshot server to catch up")
 		case <-shutdown.InitiatedCh():
 			return false
-		default:
+		case <-tickCheck.C:
 		}
 	}
 
-	log.Debugf("Snapshot server at: %v", current)
+	s.log.Debugf("Snapshot server at: %v", current)
 
 	return true
 }
 
-func (s *Streamer) lockTable(st state.Type, outPipes *map[string]pipe.Pipe, clusterConcurrency int) {
-	if len(st) == 0 {
-		return
-	}
-	for pos, j := rand.Int()%len(st), 0; j < len(st); j++ {
-		row := st[pos]
-		if s.tableLock.TryLock(fmt.Sprintf("table_id.%d", row.ID)) {
-			//If cluster concurrency is limited, try to get our ticket
-			if clusterConcurrency != 0 && row.NeedBootstrap {
-				if !s.clusterLock.TryLock(fmt.Sprintf("%v.%v", row.Service, row.Cluster)) {
-					s.tableLock.Unlock()
-					log.Debugf("All cluster concurrency tickets are taken: %v-%v", row.Service, row.Cluster)
-					continue
-				}
-			}
-
-			s.cluster = row.Cluster
-			s.svc = row.Service
-			s.db = row.Db
-			s.table = row.Table
-			s.id = row.ID
-			s.outPipe = (*outPipes)[row.Output]
-			if s.outPipe == nil {
-				s.table = ""
-				log.Errorf("Unknown output pipe type: %v", row.Output)
-				return
-			}
-			s.input = row.Input
-			s.output = row.Output
-			s.version = row.Version
-			s.outputFormat = row.OutputFormat
-			break
-		}
-		pos = (pos + 1) % len(st)
-	}
-}
-
-func readState(cfg *config.AppConfig) (state.Type, error) {
-	if cfg.ChangelogPipeType == "local" {
-		return state.GetForCluster(changelog.ThisInstanceCluster())
-	}
-	return state.GetCond("needBootstrap=1 OR input = 'mysql'")
-}
-
-func (s *Streamer) start(cfg *config.AppConfig, outPipes *map[string]pipe.Pipe) bool {
-	// Fetch Lock on a service-db-table entry in State.
-	// Currently, each event streamer worker handles a single table.
-	//TODO: Handle multiple tables per event streamer worker in future
-	var st state.Type
+func (s *Streamer) lockTable() bool {
 	var err error
 
-	log.Debugf("Started streamer thread")
-
-	if st, err = readState(cfg); log.E(err) {
-		log.Errorf("Error reading state: %v", err.Error())
+	//Table not found or snapshot is not needed and input doesn't need
+	//changelog tailing
+	if s.row == nil || ((!s.row.NeedSnapshot || s.row.Params.NoSnapshot) && changelog.Plugins[s.row.Input] == nil) {
+		return false
 	}
 
-	s.tableLock = lock.Create(state.GetDbAddr(), cfg.OutputPipeConcurrency)
-	defer s.tableLock.Close()
-	if cfg.ClusterConcurrency != 0 {
-		s.clusterLock = lock.Create(state.GetDbAddr(), cfg.ClusterConcurrency)
-		defer s.clusterLock.Close()
+	//If cluster concurrency is limited try to get our ticket
+	cc := s.row.Params.ClusterConcurrency
+	//MySQL 5.7 lock names are limited to 64 character, so we hash possible long
+	//cluster names here
+	h := md5.New()
+	_, err = io.WriteString(h, fmt.Sprintf("%v.%v", s.row.Service, s.row.Cluster))
+	log.E(err)
+	if cc != 0 && s.row.NeedSnapshot && !s.clusterLock.TryLockShared(fmt.Sprintf("%x", h.Sum(nil)), cc) {
+		return false
 	}
 
-	s.lockTable(st, outPipes, cfg.ClusterConcurrency)
+	s.outPipe, err = pipe.CacheGet(s.row.Output, &s.row.Params.Pipe, state.GetDB())
+	return !log.E(err)
+}
 
-	//If unable to take a lock, return back
-	if s.table == "" {
+func (s *Streamer) setupChangelogConsumer(cfg *config.AppConfig) (pipe.Consumer, bool) {
+	var err error
+	var consumer pipe.Consumer
+
+	if cfg.ChangelogBuffer {
+		var tn string
+		tn, err = config.Get().GetChangelogTopicName(s.row.Service, s.row.Db, s.row.Table, s.row.Input, s.row.Output, s.row.Version, s.row.SnapshottedAt)
+		if log.EL(s.log, err) {
+			return nil, false
+		}
+
+		s.log.Debugf("Setting up consumer for buffer topic: %v", tn)
+
+		//Consumer MUST be created before snapshotting the table.
+		//Creating it after may leave a gap in events stream.
+		consumer, err = s.inPipe.NewConsumer(tn)
+		if log.EL(s.log, err) {
+			return nil, false
+		}
+
+	}
+
+	var gtid string
+	gtid, _, err = s.ensureChangelogReaderStart()
+	if log.E(err) {
+		if consumer != nil {
+			log.E(consumer.CloseOnFailure())
+		}
+		return nil, false
+	}
+
+	if !s.waitForGtid(s.row.Service, s.row.Cluster, s.row.Db, s.row.Input, gtid) {
+		if consumer != nil {
+			log.E(consumer.CloseOnFailure())
+		}
+		return nil, false
+	}
+
+	return consumer, true
+}
+
+func (s *Streamer) start(cfg *config.AppConfig) bool {
+	var err error
+
+	s.clusterLock = lock.Create(state.GetDbAddr())
+	defer s.clusterLock.Close()
+
+	h, _ := os.Hostname()
+	w := log.GenWorkerID()
+	s.workerID = h + "." + w
+
+	s.row, err = state.GetTableTask(s.workerID, cfg.LockExpireTimeout)
+	if err != nil {
+		if util.MySQLError(err, mysql.ER_LOCK_WAIT_TIMEOUT) {
+			return true
+		}
+		log.E(err)
+		return false
+	}
+
+	if !s.lockTable() {
 		log.Debugf("Finished streamer: No free tables to work on")
 		return false
 	}
 
-	sTag := s.getTag()
-	s.metrics = metrics.GetStreamerMetrics(sTag)
-	log.Debugf("Initializing metrics for streamer: Cluster: %s, DB: %s, Table: %s -- Tags: %v",
-		s.cluster, s.db, s.table, sTag)
+	s.log = log.WithFields(log.Fields{"worker_id": w, "service": s.row.Service, "db": s.row.Db, "table": s.row.Table, "version": s.row.Version})
+	s.metrics = metrics.NewStreamerMetrics(s.getTag())
+
+	s.log.Debugf("Started event streamer")
 
 	s.metrics.NumWorkers.Inc()
-	defer s.metrics.NumWorkers.Dec()
-
-	s.log = log.WithFields(log.Fields{"service": s.svc, "db": s.db, "table": s.table})
+	defer func() {
+		if err != nil {
+			s.metrics.Errors.Inc(1)
+		}
+		s.metrics.NumWorkers.Dec()
+	}()
 
 	// Event Streamer worker has successfully acquired a lock on a table. Proceed further
 	// Each Event Streamer handles events from all partitions from Input buffer for a table
-	s.topic, err = cfg.GetOutputTopicName(s.svc, s.db, s.table, s.input, s.output, s.version)
+	s.topic, err = cfg.GetOutputTopicName(s.row.Service, s.row.Db, s.row.Table, s.row.Input, s.row.Output, s.row.Version, s.row.SnapshottedAt)
 	if log.E(err) {
 		return false
 	}
-	s.batchSize = cfg.PipeBatchSize
-	s.stateUpdateTimeout = cfg.StateUpdateTimeout
+	s.stateUpdateInterval = cfg.StateUpdateInterval
 
-	log.Debugf("Will be streaming to topic: %v", s.topic)
+	s.log.Debugf("Will be streaming to output topic: %v", s.topic)
 
-	s.outProducer, err = s.outPipe.NewProducer(s.topic)
-	if log.E(err) {
-		return false
-	}
-	defer func() { log.EL(s.log, s.outProducer.Close()) }()
-
-	s.outProducer.SetFormat(s.outputFormat)
-
-	// Ensures that some binlog reader worker has started reading log events for the cluster on
-	// which the table resides.
-	gtid, err := s.ensureBinlogReaderStart()
-	if err != nil {
+	consumer, res := s.setupChangelogConsumer(cfg)
+	if !res {
 		return false
 	}
 
-	if !s.waitForGtid(s.svc, s.db, gtid) {
-		return false
-	}
-
-	s.outEncoder, err = encoder.Create(s.outputFormat, s.svc, s.db, s.table)
+	s.outEncoder, err = encoder.Create(s.row.OutputFormat, s.row.Service, s.row.Db, s.row.Table, s.row.Input, s.row.Output, s.row.Version)
 	if log.EL(s.log, err) {
+		if consumer != nil {
+			log.E(consumer.CloseOnFailure())
+		}
 		return false
 	}
 
-	//Transit format encoder, aka envelope encoder
-	//It must be per table to be able to decode schematized events
-	s.envEncoder, err = encoder.Create(encoder.Internal.Type(), s.svc, s.db, s.table)
-	if log.EL(s.log, err) {
+	if s.row.NeedSnapshot && !s.row.Params.NoSnapshot && !s.streamFromConsistentSnapshot(cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS) {
+		if consumer != nil {
+			log.E(consumer.CloseOnFailure())
+		}
 		return false
 	}
 
-	//Consumer should registered before snapshot started, so it sees all the
-	//event during the snapshot
-	tn, err := config.Get().GetChangelogTopicName(s.svc, s.db, s.table, s.input, s.output, s.version)
-	if log.EL(s.log, err) {
-		return false
-	}
-	consumer, err := s.inPipe.NewConsumer(tn)
-	if log.EL(s.log, err) {
-		return false
-	}
-
-	// Checks whether table is new and needs bootstrapping.
-	// Stream events by invoking Consistent Snapshot Reader and allowing it to complete
-	needsBootstrap, err := state.GetTableNewFlag(s.svc, s.cluster, s.db, s.table, s.input, s.output, s.version)
-	if log.EL(s.log, err) {
-		return false
-	}
-
-	if needsBootstrap && !s.streamFromConsistentSnapshot(cfg.ThrottleTargetMB, cfg.ThrottleTargetIOPS) {
-		log.E(consumer.CloseOnFailure())
-		return false
-	}
+	s.clusterLock.Close() // ClusterConcurrency is limited for the duration of snapshot only
 
 	if cfg.ChangelogBuffer {
-		s.StreamTable(consumer)
+		//Transit format encoder, aka envelope encoder
+		//It must be per table to be able to decode schematized events
+		s.envEncoder, err = encoder.Create(encoder.Internal.Type(), s.row.Service, s.row.Db, s.row.Table, s.row.Input, s.row.Output, s.row.Version)
+		if log.EL(s.log, err) {
+			log.E(consumer.CloseOnFailure())
+			return false
+		}
+
+		if !s.streamTable(consumer) {
+			s.metrics.Errors.Inc(1)
+		}
 	}
 
-	log.Debugf("Finished streamer")
+	s.log.Debugf("Finished streamer")
 
 	return true
 }
 
 // Worker : Initializer function
-func Worker(cfg *config.AppConfig, inP pipe.Pipe, outPipes *map[string]pipe.Pipe) bool {
+func Worker(cfg *config.AppConfig, inP pipe.Pipe) bool {
 	s := &Streamer{inPipe: inP}
-	return s.start(cfg, outPipes)
+	return s.start(cfg)
 }

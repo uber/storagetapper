@@ -33,6 +33,8 @@ import (
 
 var cfg *config.AppConfig
 
+//TODO: Write some meaningful tests
+
 //This is a copy from test/env.go to avoid dependency cycle
 func assert(t *testing.T, cond bool) {
 	if !cond {
@@ -49,13 +51,10 @@ func testMetrics(c metricsConstructor, t *testing.T) {
 		t.Fatalf("Init failed")
 	}
 
-	m := GetGlobal()
-	b := GetBinlogReaderMetrics(map[string]string{"process": "BinlogReader"})
-	st := GetStreamerMetrics(map[string]string{"process": "Streamer"})
-	sn := GetSnapshotMetrics(map[string]string{"process": "Snapshot"})
+	b := NewChangelogReaderMetrics(map[string]string{"process": "ChangelogReader"})
+	st := NewStreamerMetrics(map[string]string{"process": "Streamer"})
+	sn := NewSnapshotMetrics("", map[string]string{"process": "Snapshot"})
 
-	m.NumTablesRegistered.Inc(1)
-	assert(t, int64(1) == m.NumTablesRegistered.Get())
 	b.NumTablesIngesting.Inc(1)
 	assert(t, int64(1) == b.NumTablesIngesting.Get())
 
@@ -74,15 +73,15 @@ func testMetrics(c metricsConstructor, t *testing.T) {
 	st.NumWorkers.Dec()
 	assert(t, int64(0) == st.NumWorkers.Get())
 
-	m.IdleWorkers.Inc()
-	assert(t, int64(1) == m.IdleWorkers.Get())
-	m.IdleWorkers.Dec()
-	assert(t, int64(0) == m.IdleWorkers.Get())
+	IdleWorkers.Inc()
+	assert(t, int64(1) == IdleWorkers.Get())
+	IdleWorkers.Dec()
+	assert(t, int64(0) == IdleWorkers.Get())
 
 	b.EventsRead.Inc(1)
-	b.BinlogRowEventsWritten.Inc(1)
-	b.BinlogQueryEventsWritten.Inc(1)
-	b.BinlogUnhandledEvents.Inc(1)
+	b.ChangelogRowEventsWritten.Inc(1)
+	b.ChangelogQueryEventsWritten.Inc(1)
+	b.ChangelogUnhandledEvents.Inc(1)
 
 	st.EventsRead.Inc(1)
 	st.EventsWritten.Inc(1)
@@ -103,6 +102,7 @@ func testMetrics(c metricsConstructor, t *testing.T) {
 
 func TestMetricsBasic(t *testing.T) {
 	testMetrics(noopMetricsInit, t)
+	testMetrics(tallyMetricsInit, t)
 }
 
 func TestMain(m *testing.M) {

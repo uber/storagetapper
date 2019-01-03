@@ -26,7 +26,7 @@ import (
 	"github.com/uber/storagetapper/config"
 )
 
-//This init must be called after all inits in the package, allowing all encoders
+//This init must be called after all calls to init in the package, allowing all encoders
 //to register, before we initializing internal encoder in here.
 //To ensure that it's called last the name of the file should be greater then
 //any other file in the package in lexical order.
@@ -36,7 +36,7 @@ import (
 
 func init() {
 	var err error
-	Internal, err = InitEncoder(config.Get().InternalEncoding, "", "", "")
+	Internal, err = InitEncoder(config.Get().InternalEncoding, "", "", "", "", "", 0)
 	if err != nil {
 		panic(fmt.Sprintf("Set InternalEncoding to json. Error: %s", err.Error()))
 	}

@@ -21,6 +21,7 @@
 package main
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -30,8 +31,6 @@ import (
 	"github.com/uber/storagetapper/test"
 	"github.com/uber/storagetapper/types"
 	"github.com/uber/storagetapper/util"
-
-	_ "net/http/pprof"
 )
 
 func TestPprofBasic(t *testing.T) {
@@ -58,11 +57,14 @@ func TestPprofBasic(t *testing.T) {
 		time.Sleep(time.Millisecond * 500)
 	}
 
-	_, err = util.HTTPGet("http://localhost:7836/debug/pprof/trace?seconds=1")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+	defer cancel()
+
+	_, err = util.HTTPGet(ctx, "http://localhost:7836/debug/pprof/trace?seconds=1")
 	test.CheckFail(err, t)
-	_, err = util.HTTPGet("http://localhost:7836/debug/pprof/profile?seconds=1")
+	_, err = util.HTTPGet(ctx, "http://localhost:7836/debug/pprof/profile?seconds=1")
 	test.CheckFail(err, t)
-	_, err = util.HTTPGet("http://localhost:7836/debug/pprof/heap")
+	_, err = util.HTTPGet(ctx, "http://localhost:7836/debug/pprof/heap")
 	test.CheckFail(err, t)
 
 	shutdown.Initiate()

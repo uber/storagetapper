@@ -4,10 +4,9 @@ set -ex
 
 NAME=hadoop
 DIR=/home/$NAME
-VERSION=2.8.4
-SHA256="6B545972FDD73173887CDBC3E1CBD3CC72068271924EDEA82A0E7E653199B115"
+VERSION=2.8.5
+SHA256="F9C726DF693CE2DAA4107886F603270D66E7257F77A92C9886502D6CD4A884A4"
 
-sudo apt-get install default-jre wget
 sudo useradd $NAME -m || [ $? -eq 9 ]
 cd $DIR
 [ -f hadoop-$VERSION.tar.gz ] || sudo -H -u $NAME wget "https://mirrors.ocf.berkeley.edu/apache/hadoop/common/hadoop-$VERSION/hadoop-$VERSION.tar.gz" -O hadoop-$VERSION.tar.gz
@@ -46,10 +45,10 @@ if [ ! -f ~/.ssh/id_rsa ]; then
 fi
 bin/hdfs namenode -format -force
 if [ -z "$DOCKER_BUILD" ]; then
-	(sbin/start-dfs.sh) &
-	PID=\$!
-	wait \$PID
-	bin/hdfs dfs -mkdir -p /user/$USER
-	bin/hdfs dfs -chown -R $USER:$(id -g -n) /user/$USER
+       (sbin/start-dfs.sh) &
+       PID=\$!
+       wait \$PID
+       bin/hdfs dfs -mkdir -p /user/$USER
+       bin/hdfs dfs -chown -R $USER:$(id -g -n) /user/$USER
 fi
 EOF

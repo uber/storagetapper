@@ -29,9 +29,8 @@ import (
 	"github.com/uber/storagetapper/types"
 )
 
-//HeatpipeNamespace is the namespace used in Avro schema
 var (
-	HeatpipeNamespace = "storagetapper"
+	namespace = "storagetapper"
 )
 
 //MySQLToAvroType is the static conversion map from MySQL types to Avro types
@@ -41,7 +40,7 @@ var MySQLToAvroType = map[string]types.AvroPrimitiveType{
 	"TINYINT":   types.AvroINT,
 	"SMALLINT":  types.AvroINT,
 	"MEDIUMINT": types.AvroINT,
-	"BOOLEAN":   types.AvroINT,
+	"BOOLEAN":   types.AvroBOOLEAN,
 	"BIGINT":    types.AvroLONG,
 
 	"FLOAT":   types.AvroFLOAT,
@@ -56,10 +55,11 @@ var MySQLToAvroType = map[string]types.AvroPrimitiveType{
 	"BINARY":    types.AvroBYTES,
 	"VARBINARY": types.AvroBYTES,
 
-	"TEXT":       types.AvroBYTES,
-	"TINYTEXT":   types.AvroBYTES,
-	"MEDIUMTEXT": types.AvroBYTES,
-	"LONGTEXT":   types.AvroBYTES,
+	"TEXT":       types.AvroSTRING,
+	"TINYTEXT":   types.AvroSTRING,
+	"MEDIUMTEXT": types.AvroSTRING,
+	"LONGTEXT":   types.AvroSTRING,
+	"JSON":       types.AvroSTRING,
 
 	"BLOB":       types.AvroBYTES,
 	"TINYBLOB":   types.AvroBYTES,
@@ -67,24 +67,33 @@ var MySQLToAvroType = map[string]types.AvroPrimitiveType{
 	"LONGBLOB":   types.AvroBYTES,
 
 	"DATE":      types.AvroSTRING,
-	"DATETIME":  types.AvroSTRING,
-	"TIMESTAMP": types.AvroSTRING,
+	"DATETIME":  types.AvroLONG,
+	"TIMESTAMP": types.AvroLONG,
 	"TIME":      types.AvroSTRING,
 	"YEAR":      types.AvroINT,
+	"ENUM":      types.AvroSTRING,
+	"SET":       types.AvroSTRING,
+	//TODO: Add geometry types
 }
 
 // ConvertToAvroFromSchema converts a MySQL schema to an Avro schema
-func ConvertToAvroFromSchema(dbl *db.Loc, typ string, tblSchema *types.TableSchema) ([]byte, error) {
+func ConvertToAvroFromSchema(tblSchema *types.TableSchema, formatType string) ([]byte, error) {
 	avroSchema := &types.AvroSchema{
-		Name:      fmt.Sprintf("%s-%s", tblSchema.DBName, tblSchema.TableName),
+		Name:      fmt.Sprintf("%s_%s", tblSchema.DBName, tblSchema.TableName),
 		Type:      types.AvroRECORD,
-		Namespace: HeatpipeNamespace,
+		Namespace: namespace,
 		Fields:    []types.AvroField{},
 		Owner:     tblSchema.DBName,
 	}
 
 	for _, colSchema := range tblSchema.Columns {
 		avroType := MySQLToAvroType[strings.ToUpper(colSchema.DataType)]
+		if avroType == "" {
+			continue
+		}
+		if colSchema.Type == types.MySQLBoolean {
+			avroType = MySQLToAvroType["BOOLEAN"]
+		}
 		fieldTypes := []types.AvroPrimitiveType{types.AvroNULL, avroType}
 		avroField := types.AvroField{
 			Name:    colSchema.Name,
@@ -94,38 +103,40 @@ func ConvertToAvroFromSchema(dbl *db.Loc, typ string, tblSchema *types.TableSche
 		avroSchema.Fields = append(avroSchema.Fields, avroField)
 	}
 
-	fieldTypes := []types.AvroPrimitiveType{types.AvroLONG}
-	avroField := types.AvroField{
-		Name:    "ref_key",
-		Type:    fieldTypes,
-		Default: nil,
-	}
-	avroSchema.Fields = append(avroSchema.Fields, avroField)
+	if formatType == "avro" {
+		fieldTypes := []types.AvroPrimitiveType{types.AvroLONG}
+		avroField := types.AvroField{
+			Name:    "ref_key",
+			Type:    fieldTypes,
+			Default: nil,
+		}
+		avroSchema.Fields = append(avroSchema.Fields, avroField)
 
-	fieldTypes = []types.AvroPrimitiveType{types.AvroBYTES}
-	avroField = types.AvroField{
-		Name:    "row_key",
-		Type:    fieldTypes,
-		Default: nil,
-	}
-	avroSchema.Fields = append(avroSchema.Fields, avroField)
+		fieldTypes = []types.AvroPrimitiveType{types.AvroBYTES}
+		avroField = types.AvroField{
+			Name:    "row_key",
+			Type:    fieldTypes,
+			Default: nil,
+		}
+		avroSchema.Fields = append(avroSchema.Fields, avroField)
 
-	fieldTypes = []types.AvroPrimitiveType{types.AvroNULL, types.AvroBOOLEAN}
-	avroField = types.AvroField{
-		Name:    "is_deleted",
-		Type:    fieldTypes,
-		Default: nil,
+		fieldTypes = []types.AvroPrimitiveType{types.AvroNULL, types.AvroBOOLEAN}
+		avroField = types.AvroField{
+			Name:    "is_deleted",
+			Type:    fieldTypes,
+			Default: nil,
+		}
+		avroSchema.Fields = append(avroSchema.Fields, avroField)
 	}
-	avroSchema.Fields = append(avroSchema.Fields, avroField)
 
 	return json.Marshal(avroSchema)
 }
 
 // ConvertToAvro converts a MySQL schema to an Avro schema
-func ConvertToAvro(dbl *db.Loc, tableName string, typ string) ([]byte, error) {
-	tblSchema, err := Get(dbl, tableName)
+func ConvertToAvro(dbl *db.Loc, tableName string, inputType string, formatType string) ([]byte, error) {
+	tblSchema, err := Get(dbl, tableName, inputType)
 	if err != nil {
 		return nil, err
 	}
-	return ConvertToAvroFromSchema(dbl, typ, tblSchema)
+	return ConvertToAvroFromSchema(tblSchema, formatType)
 }

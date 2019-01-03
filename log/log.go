@@ -22,6 +22,7 @@ package log
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"strings"
 )
@@ -187,4 +188,9 @@ func Panicf(format string, args ...interface{}) {
 //fields attached
 func WithFields(keyValues Fields) Logger {
 	return def.WithFields(keyValues)
+}
+
+//GenWorkerID generates random 32bit worker ID to be used by loggers
+func GenWorkerID() string {
+	return fmt.Sprintf("%0x", rand.Uint32())
 }

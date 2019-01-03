@@ -2,7 +2,7 @@ Source: storagetapper
 Priority: optional
 Maintainer: Evgeniy Firsov <firsov@uber.com>
 Uploaders: Evgeniy Firsov <firsov@uber.com>,
-Build-Depends: debhelper (>= 9), dh-systemd
+Build-Depends: git, debhelper (>= 9), dh-systemd
 Standards-Version: 3.9.8
 Section: utils
 Homepage: https://github.com/uber/storagetapper

@@ -4,39 +4,36 @@ import (
 	"os"
 	"testing"
 
-	"github.com/colinmarc/hdfs"
-	"github.com/uber/storagetapper/shutdown"
+	"github.com/efirs/hdfs"
 	"github.com/uber/storagetapper/test"
 )
 
 func deleteTestHdfsTopics(t *testing.T) {
-	cp := hdfs.ClientOptions{User: cfg.Hadoop.User, Addresses: cfg.Hadoop.Addresses}
+	cp := hdfs.ClientOptions{User: cfg.Pipe.Hadoop.User, Addresses: cfg.Pipe.Hadoop.Addresses}
 	client, err := hdfs.NewClient(cp)
 	test.CheckFail(err, t)
 
-	err = client.Remove(cfg.Hadoop.BaseDir)
+	err = client.Remove(cfg.Pipe.Hadoop.BaseDir)
 	if !os.IsNotExist(err) {
 		test.CheckFail(err, t)
 	}
 
-	err = client.MkdirAll(cfg.Hadoop.BaseDir, 0770) //Pipe calls mkdirall so this may not be needed
+	err = client.MkdirAll(cfg.Pipe.Hadoop.BaseDir, 0770) //Pipe calls mkdirall so this may not be needed
 	test.CheckFail(err, t)
 }
 
-func testHdfsBasic(size int64, t *testing.T) {
-	s := cfg.PipeFileDelimited
-	cfg.PipeFileDelimited = true
-	p, err := initHdfsPipe(shutdown.Context, 128, cfg, nil)
-	cfg.PipeFileDelimited = s
+func testHdfsBasic(size int64, pubKey string, privKey string, signKey string, t *testing.T) {
+	pcfg := cfg.Pipe
+	pcfg.FileDelimited = true
+	p, err := initHdfsPipe(&pcfg, nil)
 	test.CheckFail(err, t)
+	h, ok := p.(*hdfsPipe)
+	test.Assert(t, ok, "Unexpected pipe type")
+	h.cfg.Encryption.PrivateKey = privKey
+	h.cfg.Encryption.PublicKey = pubKey
+	h.cfg.Encryption.SigningKey = privKey
 
 	startCh = make(chan bool)
-
-	shutdown.Setup()
-	defer func() {
-		shutdown.Initiate()
-		shutdown.Wait()
-	}()
 
 	deleteTestHdfsTopics(t)
 	testLoop(p, t, NOKEY)
@@ -46,17 +43,34 @@ func testHdfsBasic(size int64, t *testing.T) {
 }
 
 func TestHdfsBasic(t *testing.T) {
-	t.Skip("Flaky in VM env. Skip for now")
-	testHdfsBasic(1024, t)
+	testHdfsBasic(1024, "", "", "", t)
 }
 
 func TestHdfsSmall(t *testing.T) {
-	t.Skip("Flaky in VM env. Skip for now")
-	testHdfsBasic(1, t)
+	testHdfsBasic(1, "", "", "", t)
 }
 
 func TestHdfsType(t *testing.T) {
 	pt := "hdfs"
-	p, _ := initHdfsPipe(nil, 0, cfg, nil)
+	p, err := initHdfsPipe(&cfg.Pipe, nil)
+	test.CheckFail(err, t)
 	test.Assert(t, p.Type() == pt, "type should be "+pt)
+}
+
+func TestHdfsEncryption(t *testing.T) {
+	pubKey, privKey := genTestKeys(t)
+	testHdfsBasic(1, pubKey, privKey, privKey, t)
+}
+
+func TestHdfsCompression(t *testing.T) {
+	cfg.Pipe.Compression = true
+	defer func() { cfg.Pipe.Compression = false }()
+	testHdfsBasic(1, "", "", "", t)
+}
+
+func TestHdfsCompressionAndEncryption(t *testing.T) {
+	cfg.Pipe.Compression = true
+	defer func() { cfg.Pipe.Compression = false }()
+	pubKey, privKey := genTestKeys(t)
+	testHdfsBasic(1, pubKey, privKey, privKey, t)
 }

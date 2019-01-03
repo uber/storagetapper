@@ -44,7 +44,8 @@ type clusterInfoReq struct {
 	User   string
 	Pw     string
 	Offset int64
-	Limit  int
+	Limit  int64
+	Filter string
 }
 
 func handleClusterListCmd(w http.ResponseWriter, t *clusterInfoReq) error {
@@ -52,12 +53,14 @@ func handleClusterListCmd(w http.ResponseWriter, t *clusterInfoReq) error {
 	var cond string
 	var args = make([]interface{}, 0)
 
-	cond, args = addSQLCond(cond, args, "name", "=", t.Name)
-	cond, args = addSQLCond(cond, args, "host", "=", t.Host)
-	cond, args = addSQLCond(cond, args, "user", "=", t.User)
+	cond, args = state.AddSQLCond(cond, args, "AND", "name", "=", t.Name)
+	cond, args = state.AddSQLCond(cond, args, "AND", "host", "=", t.Host)
+	cond, args = state.AddSQLCond(cond, args, "AND", "user", "=", t.User)
 	if t.Port != 0 {
-		cond, args = addSQLCond(cond, args, "port", "=", fmt.Sprintf("%+v", t.Port))
+		cond, args = state.AddSQLCond(cond, args, "AND", "port", "=", fmt.Sprintf("%+v", t.Port))
 	}
+
+	cond, args = addFilter(cond, args, []string{"name", "host", "user"}, t.Filter)
 
 	if cond != "" {
 		cond = " WHERE " + cond
@@ -65,7 +68,7 @@ func handleClusterListCmd(w http.ResponseWriter, t *clusterInfoReq) error {
 
 	if t.Offset != 0 || t.Limit != 0 {
 		if t.Limit == 0 && t.Offset != 0 {
-			t.Limit = int((^uint(0)) >> 1) //MaxInt
+			t.Limit = int64((^uint64(0)) >> 1) //MaxInt
 		}
 		cond += fmt.Sprintf(" LIMIT %v,%v", t.Offset, t.Limit)
 	}
@@ -90,46 +93,47 @@ func handleClusterListCmd(w http.ResponseWriter, t *clusterInfoReq) error {
 	return err
 }
 
+func parsePagination(r *http.Request) (offset int64, limit int64, err error) {
+	if r.FormValue("offset") != "" {
+		offset, err = strconv.ParseInt(r.FormValue("offset"), 10, 64)
+		if err != nil {
+			return
+		}
+	}
+	if r.FormValue("limit") != "" {
+		limit, err = strconv.ParseInt(r.FormValue("limit"), 10, 64)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
 func clusterInfoCmd(w http.ResponseWriter, r *http.Request) {
+	var err error
 	s := clusterInfoReq{}
-	ct, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	switch {
-	case ct == "application/x-www-form-urlencoded":
+	case ct == "application/x-www-form-urlencoded", ct == "multipart/form-data", ct == "":
 		s.Cmd = r.FormValue("cmd")
 		s.Name = r.FormValue("name")
 		s.Host = r.FormValue("host")
 		s.User = r.FormValue("user")
+		s.Filter = r.FormValue("filter")
 		s.Pw = r.FormValue("pw")
 		if r.FormValue("port") != "" {
 			i, err := strconv.ParseInt(r.FormValue("port"), 10, 16)
-			if err != nil {
-				log.E(err)
+			if log.E(err) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 			s.Port = uint16(i)
 		}
-		if r.FormValue("offset") != "" {
-			o, err := strconv.ParseInt(r.FormValue("offset"), 10, 64)
-			if err != nil {
-				log.E(err)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			s.Offset = int64(o)
-		}
-		if r.FormValue("limit") != "" {
-			l, err := strconv.ParseInt(r.FormValue("limit"), 10, 64)
-			if err != nil {
-				log.E(err)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			s.Limit = int(l)
+		if s.Offset, s.Limit, err = parsePagination(r); log.E(err) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 	case ct == "application/json":
-		if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
-			log.E(err)
+		if err := json.NewDecoder(r.Body).Decode(&s); log.E(err) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -145,14 +149,14 @@ func clusterInfoCmd(w http.ResponseWriter, r *http.Request) {
 		err = errors.New("invalid command. Name cannot be empty")
 	} else if s.Cmd == "add" {
 		if len(s.Host) == 0 || len(s.User) == 0 {
-			err = errors.New("Invalid 'add' command. Host and User cannot be empty")
+			err = errors.New("invalid 'add' command. Host and User cannot be empty")
 		} else {
 			err = state.InsertClusterInfo(s.Name, &db.Addr{Host: s.Host, Port: s.Port, User: s.User, Pwd: s.Pw})
 		}
 	} else if s.Cmd == "del" {
 		err = state.DeleteClusterInfo(s.Name)
 	} else {
-		err = errors.New("Unknown command (possible commands: add/del)")
+		err = errors.New("unknown command (possible commands: add/del)")
 	}
 	if err != nil {
 		log.Errorf("Cluster http: cmd=%v, name=%v, error=%v", s.Cmd, s.Name, err)

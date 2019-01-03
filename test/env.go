@@ -26,7 +26,9 @@ import (
 	"os"
 	"path"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Shopify/sarama"
 
@@ -63,7 +65,7 @@ func CheckFail(err error, t Failer) {
 }
 
 //MySQLAvailable test if local MySQL instance is running
-func mysqlAvailable() bool {
+func MySQLAvailable() bool {
 	d, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword})
 	if err != nil {
 		return false
@@ -75,7 +77,7 @@ func mysqlAvailable() bool {
 }
 
 func kafkaAvailable() bool {
-	producer, err := sarama.NewSyncProducer(cfg.KafkaAddrs, nil)
+	producer, err := sarama.NewSyncProducer(cfg.Pipe.Kafka.Addresses, nil)
 	if err != nil {
 		return false
 	}
@@ -94,36 +96,43 @@ func SkipIfNoKafkaAvailable(t Failer) {
 //SkipIfNoMySQLAvailable tries to connect to local MySQL and if fails, then skip
 //the test
 func SkipIfNoMySQLAvailable(t Failer) {
-	if !mysqlAvailable() {
+	if !MySQLAvailable() {
 		t.Skip("No local MySQL detected")
 	}
 }
 
 // Assert fails the test if cond is false, logs file, line, func of the failure
 // location
-func Assert(t *testing.T, cond bool, msg string, param ...interface{}) {
+func Assert(t *testing.T, cond bool, param ...interface{}) {
 	if !cond {
 		pc, file, no, _ := runtime.Caller(1)
 		details := runtime.FuncForPC(pc)
 		args := []interface{}{path.Base(file), no, path.Base(details.Name())}
-		args = append(args, param...)
-		t.Fatalf("%v:%v %v: "+msg, args...)
+		msg := "Assertion failed"
+		if len(param) > 0 {
+			var ok bool
+			if msg, ok = param[0].(string); !ok {
+				msg = strings.Repeat("%v ", len(param))
+			}
+			args = append(args, param[1:]...)
+		}
+		_, _ = fmt.Fprintf(os.Stderr, time.Now().Format(time.RFC3339Nano)+" ASSERT %v:%v %v: "+msg+"\n", args...)
+		t.FailNow()
 	}
 }
 
 // LoadConfig loads config for testing environment
 func LoadConfig() *config.AppConfig {
 	cfg = config.Get()
-	if cfg == nil {
-		fmt.Fprintf(os.Stderr, "Can't load config")
-	}
 
-	log.Configure(cfg.LogType, cfg.LogLevel, config.EnvProduction())
+	log.Configure(cfg.LogType, cfg.LogLevel, config.Environment() == config.EnvProduction)
 
 	err := metrics.Init()
 	log.F(err)
 
-	db.GetInfo = db.GetInfoForTest
+	db.GetConnInfo = db.GetConnInfoForTest
+	db.GetEnumerator = db.GetEnumeratorForTest
+	db.IsValidConn = db.IsValidConnForTest
 
 	log.Debugf("Config: %+v", cfg)
 

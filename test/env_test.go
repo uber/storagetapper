@@ -25,8 +25,6 @@ import (
 
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/types"
-
-	_ "github.com/go-sql-driver/mysql"
 )
 
 func TestBasic(t *testing.T) {

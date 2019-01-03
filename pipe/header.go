@@ -1,12 +1,5 @@
 package pipe
 
-import (
-	"bufio"
-	"encoding/json"
-	"fmt"
-	"io"
-)
-
 //Header represent file metadata in the beginning of the file
 type Header struct {
 	Format    string
@@ -17,6 +10,7 @@ type Header struct {
 	IV        string   `json:"AES256-CFB-IV,omitempty"`
 }
 
+/*
 func writeHeader(header *Header, hash []byte, f io.Writer) error {
 	if len(hash) != 0 {
 		header.HMAC = fmt.Sprintf("%x", hash)
@@ -49,3 +43,4 @@ func readHeader(r *bufio.Reader) (Header, error) {
 
 	return *u, nil
 }
+*/

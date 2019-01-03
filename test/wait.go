@@ -26,14 +26,24 @@ import (
 	"github.com/uber/storagetapper/shutdown"
 )
 
-//WaitForNumProc waits when number of running procs registered in shutdown
+// WaitForNumProc waits when number of running procs registered in shutdown
 //framework becomes less or equal to the given number
 //Returns false if the timeout expires and number of procs still above the limit
-func WaitForNumProc(n int32, timeout int32) bool {
-	var i int32
-	for i = 0; shutdown.NumProcs() > n && i < timeout/200; i++ {
+func WaitForNumProc(n int32, timeout time.Duration) bool {
+	for shutdown.NumProcs() > n && timeout > 0 {
 		time.Sleep(200 * time.Millisecond)
+		timeout -= 200 * time.Millisecond
 	}
 
 	return shutdown.NumProcs() <= n
+}
+
+// WaitForNumProcGreater opposite to WaitForNumProc
+func WaitForNumProcGreater(n int32, timeout time.Duration) bool {
+	for shutdown.NumProcs() < n && timeout > 0 {
+		time.Sleep(200 * time.Millisecond)
+		timeout -= 200 * time.Millisecond
+	}
+
+	return shutdown.NumProcs() >= n
 }

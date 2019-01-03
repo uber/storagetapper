@@ -23,8 +23,9 @@ package pipe
 import (
 	"database/sql"
 	"fmt"
-	"golang.org/x/net/context" //"context"
 	"strings"
+
+	//"context"
 
 	"github.com/uber/storagetapper/config"
 )
@@ -36,7 +37,7 @@ type Consumer interface {
 	//CloseOnFailure doesn't save offsets
 	CloseOnFailure() error
 	/*FetchNext is a blocking call which receives a message.
-	  Message and error can be later retreived by Pop call.
+	  Message and error can be later retrieved by Pop call.
 	  If it returns false this means EOF and no more Pops allowed */
 	FetchNext() bool
 	//Allows to explicitly persists current consumer position
@@ -57,6 +58,7 @@ type Producer interface {
 	//PushCommit writes out all the messages queued by PushBatch
 	PushBatchCommit() error
 	Close() error
+	CloseOnFailure() error
 
 	SetFormat(format string)
 
@@ -68,10 +70,11 @@ type Pipe interface {
 	NewConsumer(topic string) (Consumer, error)
 	NewProducer(topic string) (Producer, error)
 	Type() string
-	//FIXME: Add close method for graceful resources deallocation
+	Config() *config.PipeConfig
+	Close() error
 }
 
-type constructor func(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error)
+type constructor func(cfg *config.PipeConfig, db *sql.DB) (Pipe, error)
 
 //Pipes is the list of registered pipes
 //Plugins insert their constructors into this map
@@ -86,19 +89,16 @@ func registerPlugin(name string, init constructor) {
 }
 
 //Create is a pipe factory
-//Creates pipe of given type, with given buffer size
-//cfg is used by Kafka pipe to get additional configuration
-//db is used by Kafka pipe to save state
 //pctx is used to be able to cancel blocking calls inside pipe, like during
 //shutdown
-func Create(pctx context.Context, pipeType string, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
+func Create(pipeType string, cfg *config.PipeConfig, db *sql.DB) (Pipe, error) {
 
 	init := Pipes[strings.ToLower(pipeType)]
 	if init == nil {
-		return nil, fmt.Errorf("Unsupported pipe: %s", strings.ToLower(pipeType))
+		return nil, fmt.Errorf("unsupported pipe: %s", strings.ToLower(pipeType))
 	}
 
-	pipe, err := init(pctx, batchSize, cfg, db)
+	pipe, err := init(cfg, db)
 	if err != nil {
 		return nil, err
 	}

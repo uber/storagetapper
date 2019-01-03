@@ -25,6 +25,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/uber/storagetapper/log"
@@ -41,6 +42,9 @@ type jsonEncoder struct {
 	Service   string
 	Db        string
 	Table     string
+	Input     string
+	Output    string
+	Version   int
 	inSchema  *types.TableSchema
 	filter    []int //Contains indexes of fields which are not in output schema
 	outSchema *types.CommonFormatEvent
@@ -58,8 +62,11 @@ func genTime() int64 {
 //generator
 var GenTime GenTimeFunc = genTime
 
-func initJSONEncoder(service string, db string, table string) (Encoder, error) {
-	return &jsonEncoder{Service: service, Db: db, Table: table}, nil
+//ZeroTime in UTC
+var ZeroTime = time.Time{}.In(time.UTC)
+
+func initJSONEncoder(service, db, table, input string, output string, version int) (Encoder, error) {
+	return &jsonEncoder{Service: service, Db: db, Table: table, Input: input, Output: output, Version: version}, nil
 }
 
 //Type returns this encoder type
@@ -74,11 +81,11 @@ func (e *jsonEncoder) Schema() *types.TableSchema {
 
 //EncodeSchema encodes current output schema
 func (e *jsonEncoder) EncodeSchema(seqno uint64) ([]byte, error) {
-	return e.Row(types.Schema, nil, seqno)
+	return e.Row(types.Schema, nil, seqno, time.Time{})
 }
 
 //Row encodes row into CommonFormat
-func (e *jsonEncoder) Row(tp int, row *[]interface{}, seqno uint64) ([]byte, error) {
+func (e *jsonEncoder) Row(tp int, row *[]interface{}, seqno uint64, _ time.Time) ([]byte, error) {
 	cf := e.convertRowToCommonFormat(tp, row, e.inSchema, seqno, e.filter)
 	return e.CommonFormatEncode(cf)
 }
@@ -113,18 +120,21 @@ func (e *jsonEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) 
 
 /*UpdateCodec refreshes the schema from state DB */
 func (e *jsonEncoder) UpdateCodec() error {
-	schema, err := state.GetSchema(e.Service, e.Db, e.Table)
+	schema, err := state.GetSchema(e.Service, e.Db, e.Table, e.Input, e.Output, e.Version)
 	if err != nil {
 		return err
 	}
 
 	e.inSchema = schema
-
-	s := state.GetOutputSchema(GetOutputSchemaName(e.Service, e.Db, e.Table), "json")
+	n, err := GetOutputSchemaName(e.Service, e.Db, e.Table, e.Input, e.Output, e.Version)
+	if err != nil {
+		return err
+	}
+	s := state.GetOutputSchema(n, "json")
 	if s != "" {
-		c, err1 := e.schemaDecode([]byte(s))
-		if err1 != nil {
-			return err1
+		c, err := e.schemaDecode([]byte(s))
+		if err != nil {
+			return err
 		}
 		if c.Type != "schema" {
 			return nil
@@ -133,7 +143,7 @@ func (e *jsonEncoder) UpdateCodec() error {
 		e.outSchema = c
 
 		if e.outSchema.Fields != nil && len(e.inSchema.Columns)-len(*e.outSchema.Fields) < 0 {
-			err = fmt.Errorf("Input schema has less fields than output schema")
+			err = fmt.Errorf("input schema has less fields than output schema")
 			log.E(err)
 			return err
 		}
@@ -144,27 +154,53 @@ func (e *jsonEncoder) UpdateCodec() error {
 	return err
 }
 
-func fixField(f *interface{}, typ string) (err error) {
-	switch v := (*f).(type) {
+func fixFieldType(f interface{}, dt string) (interface{}, error) {
+	var err error
+	switch v := f.(type) {
 	case float64:
-		switch typ {
-		case "bigint":
-			*f = int64(v)
+		switch dt {
+		case "bigint", "enum", "set":
+			f = int64(v)
 		case "int", "integer", "tinyint", "smallint", "mediumint", "year":
-			*f = int32(v)
+			f = int32(v)
 		case "float":
-			*f = float32(v)
+			f = float32(v)
 		}
 	case string:
-		switch typ {
-		case "text", "tinytext", "mediumtext", "longtext", "blob", "tinyblob", "mediumblob", "longblob", "binary", "varbinary":
-			*f, err = base64.StdEncoding.DecodeString(v)
+		switch dt {
+		case "blob", "tinyblob", "mediumblob", "longblob", "binary", "varbinary":
+			f, err = base64.StdEncoding.DecodeString(v)
 			if err != nil {
-				return err
+				return nil, err
 			}
+		case "timestamp", "datetime":
+			t := ZeroTime
+			//MySQL binlog reader library return string intread of time.Time for
+			//"zero" time.
+			if !strings.HasPrefix(v, "0000-00-00 00:00:00") {
+				//t.UnmashalJSON can't be used, because it uses RFC3339 to parse while
+				//MarshalJSON uses RFC3339Nano format.
+				t, err = time.Parse(time.RFC3339Nano, v)
+				if err != nil {
+					return nil, err
+				}
+				if dt == "timestamp" && !t.Equal(time.Time{}) {
+					//If the local time is UTC while marshalling, then timezone info is
+					//not included in result, in this case when parsing back, timezone is
+					//not matched to local timezone. We forcibly set zone to Local if
+					//local zone is UTC and parsed time in UTC.
+					name, _ := time.Now().Zone() //TODO: cache this
+					if t.Location().String() == "UTC" && name == "UTC" {
+						t = t.In(time.Local)
+					}
+				} else {
+					t = t.In(time.UTC)
+				}
+			}
+			f = t
 		}
 	}
-	return
+	return f, nil
 }
 
 func (e *jsonEncoder) fixFieldTypes(res *types.CommonFormatEvent) (err error) {
@@ -180,14 +216,15 @@ func (e *jsonEncoder) fixFieldTypes(res *types.CommonFormatEvent) (err error) {
 
 			if res.Fields != nil && i-j < len(*res.Fields) {
 				f := &(*res.Fields)[i-j]
-				err = fixField(&f.Value, e.inSchema.Columns[i].DataType)
+				f.Value, err = fixFieldType(f.Value, e.inSchema.Columns[i].DataType)
 				if err != nil {
 					return err
 				}
 			}
 
 			if e.inSchema.Columns[i].Key == "PRI" && k < len(res.Key) {
-				err = fixField(&res.Key[k], e.inSchema.Columns[i].DataType)
+				f := &res.Key[k]
+				*f, err = fixFieldType(*f, e.inSchema.Columns[i].DataType)
 				if err != nil {
 					return err
 				}
@@ -226,6 +263,7 @@ func fillCommonFormatKey(e *types.CommonFormatEvent, row *[]interface{}, s *type
 				e.Key = append(e.Key, s.Columns[i].Name)
 			} else {
 				e.Key = append(e.Key, (*row)[i])
+				//FIXME: Fix datatypes same as in fields
 			}
 		}
 	}
@@ -241,7 +279,35 @@ func fillCommonFormatFields(c *types.CommonFormatEvent, row *[]interface{}, sche
 		if row == nil {
 			v = schema.Columns[i].Type
 		} else {
-			v = (*row)[i]
+			s := schema.Columns[i].DataType
+			if schema.Columns[i].Type == types.MySQLBoolean {
+				b, ok := (*row)[i].(int8)
+				if ok {
+					if b != 0 {
+						v = true
+					} else {
+						v = false
+					}
+				} else {
+					v = (*row)[i]
+				}
+			} else if s == "text" || s == "tinytext" || s == "mediumtext" || s == "longtext" || s == "json" {
+				b, ok := (*row)[i].([]byte)
+				if ok {
+					v = string(b)
+				} else {
+					v = (*row)[i]
+				}
+			} else if s == "binary" || s == "varbinary" {
+				b, ok := (*row)[i].(string)
+				if ok {
+					v = []byte(b)
+				} else {
+					v = (*row)[i]
+				}
+			} else {
+				v = (*row)[i]
+			}
 		}
 		f = append(f, types.CommonFormatField{Name: schema.Columns[i].Name, Value: v})
 	}
@@ -318,9 +384,15 @@ func (e *jsonEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent)
 		return
 	}
 
-	err = e.fixFieldTypes(cfEvent)
-	if err != nil {
-		return
+	s, ok := cfEvent.Key[0].(string)
+	if len(cfEvent.Key) > 1 || !ok || cfEvent.Type == "insert" || cfEvent.Type == "delete" {
+		if err = e.fixFieldTypes(cfEvent); err != nil {
+			return
+		}
+	} else if b, err := base64.StdEncoding.DecodeString(s); err == nil {
+		cfEvent.Key[0] = string(b)
+	} else {
+		cfEvent.Key[0] = s
 	}
 
 	if e.inSchema != nil && cfEvent.Type == "schema" {

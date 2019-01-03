@@ -38,18 +38,18 @@ import (
 	"github.com/uber/storagetapper/types"
 )
 
+//TODO: Test list filters
+
 func clustersTableInit(t *testing.T) {
-	conn := state.ConnectLow(cfg, true)
+	conn := state.GetDB()
 	if conn == nil {
 		t.FailNow()
 	}
 	_, err := conn.Exec("TRUNCATE TABLE " + types.MyDbName + ".clusters")
 	test.CheckFail(err, t)
-	err = conn.Close()
-	test.CheckFail(err, t)
 }
 
-func clusterJsonRequest(cmd clusterInfoReq, code int, t *testing.T) {
+func clusterJSONRequest(cmd clusterInfoReq, code int, t *testing.T) {
 	body, _ := json.Marshal(cmd)
 	req, err := http.NewRequest("POST", "/cluster", bytes.NewReader(body))
 	req.Header.Add("Content-Type", "application/json")
@@ -72,6 +72,7 @@ func clusterFormRequest(typ string, cmd clusterInfoReq, code int, t *testing.T) 
 	body.Add("limit", fmt.Sprintf("%v", cmd.Limit))
 	body.Add("user", cmd.User)
 	body.Add("pw", cmd.Pw)
+	body.Add("filter", cmd.Filter)
 	req, err := http.NewRequest("GET", "/cluster?"+body.Encode(), nil)
 	if typ == "POST" {
 		req, err = http.NewRequest("POST", "/cluster", strings.NewReader(body.Encode()))
@@ -85,17 +86,8 @@ func clusterFormRequest(typ string, cmd clusterInfoReq, code int, t *testing.T) 
 	return res
 }
 
-func clusterGETRequest(cmd clusterInfoReq, code int, t *testing.T) {
-	body, _ := json.Marshal(cmd)
-	req, err := http.NewRequest("POST", "/cluster", bytes.NewReader(body))
-	test.Assert(t, err == nil, "Failed: %v", err)
-	res := httptest.NewRecorder()
-	clusterInfoCmd(res, req)
-	test.Assert(t, res.Code == code, "Not OK: code=%v", res.Code)
-}
-
 func clusterRequest(cmd clusterInfoReq, code int, t *testing.T) {
-	clusterJsonRequest(cmd, code, t)
+	clusterJSONRequest(cmd, code, t)
 	clusterFormRequest("POST", cmd, code, t)
 	clusterFormRequest("GET", cmd, code, t)
 }
@@ -128,13 +120,14 @@ func TestClusterInfoListCommands(t *testing.T) {
 	clustersTableInit(t)
 
 	addrs := []db.Addr{
-		db.Addr{Name: "clst1", Host: "host1", Port: 1, User: "user1"},
-		db.Addr{Name: "clst2", Host: "host2", Port: 2, User: "user2"},
-		db.Addr{Name: "clst3", Host: "host3", Port: 3, User: "user3"},
-		db.Addr{Name: "clst4", Host: "host4", Port: 4, User: "user4"},
+		{Name: "clst1", Host: "host1", Port: 1, User: "user1"},
+		{Name: "clst2", Host: "host2", Port: 2, User: "user2"},
+		{Name: "clst3", Host: "host3", Port: 3, User: "user3"},
+		{Name: "clst4", Host: "host4", Port: 4, User: "user4"},
 	}
 	for _, v := range addrs {
-		state.InsertClusterInfo(v.Name, &v)
+		err := state.InsertClusterInfo(v.Name, &v)
+		test.CheckFail(err, t)
 	}
 
 	req := clusterInfoReq{
@@ -144,7 +137,7 @@ func TestClusterInfoListCommands(t *testing.T) {
 	resp := clusterFormRequest("GET", req, http.StatusOK, t)
 	raddrs := strings.Split(resp.Body.String(), "\n")
 	if len(addrs) != len(raddrs)-1 {
-		t.Fatal("Should return all 4 the rows")
+		t.Fatal("Should return all 4 rows")
 	}
 	for i, v := range raddrs {
 		if v == "" {
@@ -155,7 +148,7 @@ func TestClusterInfoListCommands(t *testing.T) {
 		err := json.Unmarshal([]byte(v), &a)
 		test.CheckFail(err, t)
 		if !reflect.DeepEqual(a, addrs[i]) {
-			t.Fatal("%v: %v != %v", i, a, addrs[i])
+			t.Fatalf("%v: %v != %v", i, a, addrs[i])
 		}
 	}
 
@@ -231,7 +224,7 @@ func TestClusterInfoListCommands(t *testing.T) {
 	}
 }
 
-func TestClusterInfoCmdInvalidInput(t *testing.T) {
+func TestClusterInfCmdInvalidInput(t *testing.T) {
 	clustersTableInit(t)
 	add := clusterInfoReq{
 		Cmd:  "add",
@@ -259,10 +252,13 @@ func TestClusterInfoCmdInvalidInput(t *testing.T) {
 
 	req, err := http.NewRequest("POST", "/cluster", bytes.NewReader([]byte("this is supposed to be garbage formatted json")))
 	test.Assert(t, err == nil, "Failed: %v", err)
+	req.Header.Add("Content-Type", "application/x-yaml")
 	res := httptest.NewRecorder()
 	clusterInfoCmd(res, req)
 	test.Assert(t, res.Code == http.StatusUnsupportedMediaType, "Not OK: code=%v", res.Code)
 
+	req, err = http.NewRequest("POST", "/cluster", bytes.NewReader([]byte("this is supposed to be garbage formatted json")))
+	test.Assert(t, err == nil, "Failed: %v", err)
 	req.Header.Add("Content-Type", "application/json")
 	res = httptest.NewRecorder()
 	clusterInfoCmd(res, req)

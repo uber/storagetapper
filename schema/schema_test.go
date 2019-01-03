@@ -35,15 +35,14 @@ import (
 	"github.com/uber/storagetapper/types"
 
 	"github.com/linkedin/goavro"
-
-	_ "github.com/go-sql-driver/mysql"
 )
 
 var (
-	TestSvc = types.MySvcName
-	TestDb  = types.MyDbName
-	TestTbl = "test_schema"
-	conn    *sql.DB
+	TestSvc   = types.MySvcName
+	TestDb    = types.MyDbName
+	TestTbl   = "test_schema"
+	TestInput = types.InputMySQL
+	conn      *sql.DB
 )
 
 var schemaTesttbl = map[string]string{
@@ -56,25 +55,28 @@ var schemaTesttbl = map[string]string{
 	"bl": "BLOB",
 	"dt": "DATE",
 	"ts": "TIMESTAMP",
+	"b":  "BOOLEAN",
 }
 
 func createTestSchemaTable(t *testing.T) {
-	schemaStr := ""
+	testSchema := ""
 	for col, colType := range schemaTesttbl {
 		if colType == "VARCHAR" {
 			colType = "VARCHAR(32)"
 		}
-		schemaStr += (col + " " + colType + ",")
+		testSchema += col + " " + colType + ","
 	}
+	test.ExecSQL(conn, t, `CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.t1_ref (f1 int primary key)`)
 	test.ExecSQL(conn, t, `CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.`+TestTbl+` (`+
-		schemaStr+
-		` PRIMARY KEY(bi)
+		testSchema+
+		`CONSTRAINT fk1 FOREIGN KEY fidx(i) REFERENCES t1_ref(f1), PRIMARY KEY(bi)
 	) ENGINE=INNODB`)
 }
 
 func dropTestSchemaTable(t *testing.T) {
 	test.ExecSQL(conn, t, `DROP TABLE IF EXISTS `+TestTbl)
 	test.ExecSQL(conn, t, `DROP TABLE IF EXISTS `+TestTbl+"new")
+	test.ExecSQL(conn, t, `DROP TABLE IF EXISTS t1_ref`)
 }
 
 func TestHasPrimaryKey(t *testing.T) {
@@ -82,7 +84,7 @@ func TestHasPrimaryKey(t *testing.T) {
 
 	createTestSchemaTable(t)
 
-	tblSchema, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl)
+	tblSchema, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, TestInput)
 	test.CheckFail(err, t)
 
 	if !HasPrimaryKey(tblSchema) {
@@ -91,7 +93,7 @@ func TestHasPrimaryKey(t *testing.T) {
 
 	test.ExecSQL(conn, t, `ALTER TABLE `+types.MyDbName+`.`+TestTbl+` DROP PRIMARY KEY`)
 
-	tblSchema, err = Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl)
+	tblSchema, err = Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, TestInput)
 	test.CheckFail(err, t)
 
 	if HasPrimaryKey(tblSchema) {
@@ -107,15 +109,15 @@ func TestGetRaw(t *testing.T) {
 	createTestSchemaTable(t)
 
 	loc := &db.Loc{Service: TestSvc, Name: TestDb}
-	rawSchema, err := GetRaw(loc, TestTbl)
+	rawSchema, err := GetRaw(loc, TestTbl, TestInput)
 	test.CheckFail(err, t)
 
 	test.ExecSQL(conn, t, `CREATE TABLE `+types.MyDbName+`.`+TestTbl+`new `+rawSchema)
 
-	tblSchemaRef, err := Get(loc, TestTbl)
+	tblSchemaRef, err := Get(loc, TestTbl, TestInput)
 	test.CheckFail(err, t)
 
-	tblSchema, err := Get(loc, TestTbl+"new")
+	tblSchema, err := Get(loc, TestTbl+"new", TestInput)
 	test.CheckFail(err, t)
 
 	tblSchema.TableName = TestTbl //make table names equal for comparison
@@ -125,7 +127,7 @@ func TestGetRaw(t *testing.T) {
 	}
 
 	loc.Cluster = "please_return_nil_db_addr"
-	_, err = GetRaw(loc, TestTbl)
+	_, err = GetRaw(loc, TestTbl, TestInput)
 	test.Assert(t, err != nil, "invalid db loc should fail")
 
 	dropTestSchemaTable(t)
@@ -137,15 +139,31 @@ func TestGetMySQLTableSchema(t *testing.T) {
 
 	createTestSchemaTable(t)
 
-	tblSchema, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl)
+	tblSchema, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, TestInput)
 	test.Assert(t, err == nil, fmt.Sprintf("Fetch MySQL schema errored out: %v", err))
 	test.Assert(t, tblSchema.DBName == TestDb, "Not OK")
 	test.Assert(t, tblSchema.TableName == TestTbl, "Not OK")
 	test.Assert(t, len(tblSchema.Columns) == len(schemaTesttbl), "Not OK")
 	for _, tblCol := range tblSchema.Columns {
 		test.Assert(t, schemaTesttbl[tblCol.Name] != "", "Not OK")
-		test.Assert(t, strings.ToUpper(tblCol.DataType) == schemaTesttbl[strings.ToLower(tblCol.Name)], "Not OK")
+		if tblCol.Type == types.MySQLBoolean {
+			test.Assert(t, "BOOLEAN" == schemaTesttbl[strings.ToLower(tblCol.Name)], "%v != %v", strings.ToUpper(tblCol.DataType), schemaTesttbl[strings.ToLower(tblCol.Name)])
+		} else {
+			test.Assert(t, strings.ToUpper(tblCol.DataType) == schemaTesttbl[strings.ToLower(tblCol.Name)], "%v != %v", strings.ToUpper(tblCol.DataType), schemaTesttbl[strings.ToLower(tblCol.Name)])
+		}
 	}
+	dropTestSchemaTable(t)
+}
+
+func TestCutForeignkey(t *testing.T) {
+	test.SkipIfNoMySQLAvailable(t)
+
+	createTestSchemaTable(t)
+
+	tblSchema, err := GetRaw(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, TestInput)
+	test.Assert(t, err == nil, fmt.Sprintf("Fetch MySQL schema errored out: %v", err))
+	test.Assert(t, !strings.Contains(strings.ToLower(tblSchema), "constraint"), "shouldn't contain foreign keys")
+
 	dropTestSchemaTable(t)
 }
 
@@ -153,10 +171,10 @@ func TestGetMySQLTableSchema(t *testing.T) {
 func TestGetMySQLTableSchema_Fail(t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 
-	_, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl+"_nonexistent")
+	_, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl+"_nonexistent", TestInput)
 	test.Assert(t, err != nil, "GetMySQLTableSchema on a non-existent table did not raise error")
 
-	_, err = Get(&db.Loc{Cluster: "please_return_nil_db_addr", Service: TestSvc, Name: TestDb}, TestTbl)
+	_, err = Get(&db.Loc{Cluster: "please_return_nil_db_addr", Service: TestSvc, Name: TestDb}, TestTbl, TestInput)
 	test.Assert(t, err != nil, "GetMySQLTableSchema on a nil-addr did not raise error")
 }
 
@@ -166,7 +184,7 @@ func TestConvertToAvroSchema(t *testing.T) {
 
 	createTestSchemaTable(t)
 
-	serAvroSchema, err := ConvertToAvro(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, "avro")
+	serAvroSchema, err := ConvertToAvro(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, TestInput, "avro")
 	test.CheckFail(err, t)
 
 	avroSchema := &types.AvroSchema{}
@@ -177,16 +195,14 @@ func TestConvertToAvroSchema(t *testing.T) {
 	_, err = goavro.NewCodec(string(serAvroSchema))
 	test.CheckFail(err, t)
 
-	//TODO: Validate by calling heatpipe endpoint as well
-
 	dropTestSchemaTable(t)
 }
 
 func TestMain(m *testing.M) {
-	_ = test.LoadConfig()
+	test.LoadConfig()
 
 	var err error
-	conn, err = db.OpenService(&db.Loc{Service: TestSvc, Name: TestDb}, "")
+	conn, err = db.OpenService(&db.Loc{Service: TestSvc, Name: TestDb}, "", TestInput)
 	if err != nil {
 		log.Warnf("MySQL not available")
 		os.Exit(0)

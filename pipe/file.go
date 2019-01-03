@@ -22,17 +22,12 @@ package pipe
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
+	"crypto"
 	"database/sql"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
-	"golang.org/x/net/context" //"context"
 	"hash"
 	"io"
 	"io/ioutil"
@@ -40,53 +35,64 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
+
+	"golang.org/x/crypto/openpgp"
+	"golang.org/x/crypto/openpgp/armor"
+	"golang.org/x/crypto/openpgp/packet"
+	"golang.org/x/net/context" //"context"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/log"
+	"github.com/uber/storagetapper/metrics"
 )
 
 //TODO: Support reading file currently open by producer
 //TODO: Support offset persistence
 
-var delimiter byte = '\n'
+const (
+	dirPerm        = 0775
+	delimiter byte = '\n'
+)
+
+var signKeyPw = ""
+var privateKeyPw = ""
+
+type flushWriteCloser interface {
+	Write([]byte) (int, error)
+	Flush() error
+	Close() error
+}
 
 //fs calls abstraction to reuse most of the code in HDFS pipe
 type fs interface {
 	MkdirAll(path string, perm os.FileMode) error
 	Rename(oldpath, newpath string) error
-	ReadDir(dirname string) ([]os.FileInfo, error)
+	ReadDir(dirname string, listFrom string) ([]os.FileInfo, error)
 	OpenRead(name string, offset int64) (io.ReadCloser, error)
-	OpenWrite(name string) (io.WriteCloser, io.Seeker, error)
-	Close(io.WriteCloser) error
+	OpenWrite(name string) (flushWriteCloser, io.Seeker, error)
 	Remove(name string) error
+	Cancel(io.Closer) error
 }
 
 type filePipe struct {
-	datadir     string
-	maxFileSize int64
-	AESKey      string
-	HMACKey     string
-	verifyHMAC  bool
-	compression bool
-	noHeader    bool
-	delimited   bool
-}
-
-type writerFlusher interface {
-	Write([]byte) (int, error)
-	Flush() error
+	datadir string
+	cfg     config.PipeConfig
 }
 
 type file struct {
 	name   string
-	file   io.WriteCloser
+	key    string
+	file   io.WriteCloser //this is only used to cancel s3 streams, see fs.Cancel()
 	seek   io.Seeker
 	offset int64
-	hash   *hashWriter
-	writer writerFlusher
+	writer flushWriteCloser
+	//Open order dlist
+	prev *file
+	next *file
+
+	compressedSize int64
 }
 
 // fileProducer synchronously pushes messages to File using topic specified during producer creation
@@ -96,10 +102,15 @@ type fileProducer struct {
 	header Header
 	topic  string
 	files  map[string]*file
+	//Linked list of files in open order, to be able to close in the same order
+	ffirst *file
+	flast  *file
 	seqno  int
 
 	fs   fs
 	text bool //Can be changed by SetFormat
+
+	metrics *metrics.FilePipeMetrics
 }
 
 // fileConsumer consumes messages from File using topic and partition specified during consumer creation
@@ -118,25 +129,81 @@ type fileConsumer struct {
 
 	msg []byte
 	err error
+
+	metrics *metrics.FilePipeMetrics
+	pgpMD   *openpgp.MessageDetails
+
+	watcher *fsnotify.Watcher
 }
 
+type noopFlusher struct {
+	io.WriteCloser
+}
+
+func (f *noopFlusher) Flush() error {
+	return nil
+}
+
+type flushClose struct {
+	*bufio.Writer
+}
+
+func (f *flushClose) Close() error {
+	return f.Writer.Flush()
+}
+
+//hashWriter currently is used only to report number of bytes really written
+//to file and count compressed file size for rotation
 type hashWriter struct {
-	writer io.Writer
-	hash   hash.Hash
+	flushWriteCloser
+	hash    hash.Hash
+	metrics *metrics.FilePipeMetrics
+	f       *file
 }
 
 func (w *hashWriter) Write(b []byte) (int, error) {
-	n, err := w.writer.Write(b)
-	_, _ = w.hash.Write(b)
+	n, err := w.flushWriteCloser.Write(b)
+	if w.hash != nil {
+		_, _ = w.hash.Write(b)
+	}
+	w.metrics.BytesWritten.Inc(int64(n))
+	if w.f != nil {
+		w.f.compressedSize += int64(n)
+	}
 	return n, err
+}
+
+type chainer struct {
+	w1 flushWriteCloser
+	w2 flushWriteCloser
+}
+
+func (c *chainer) Write(b []byte) (int, error) {
+	return c.w1.Write(b) // writes to c.w2
+}
+
+func (c *chainer) Close() error {
+	err1 := c.w1.Close()
+	err2 := c.w2.Close()
+	if err1 != nil {
+		return err1
+	}
+	return err2
+}
+
+func (c *chainer) Flush() error {
+	if err := c.w1.Flush(); err != nil {
+		return err
+	}
+	return c.w2.Flush()
 }
 
 func init() {
 	registerPlugin("file", initFilePipe)
 }
 
-func initFilePipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
-	return &filePipe{cfg.DataDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC, cfg.PipeCompression, cfg.PipeFileNoHeader, cfg.PipeFileDelimited}, nil
+func initFilePipe(cfg *config.PipeConfig, db *sql.DB) (Pipe, error) {
+	return &filePipe{cfg.BaseDir, *cfg}, nil
 }
 
 // Type returns Pipe type as File
@@ -144,9 +211,20 @@ func (p *filePipe) Type() string {
 	return "file"
 }
 
+// Config returns pipe configuration
+func (p *filePipe) Config() *config.PipeConfig {
+	return &p.cfg
+}
+
+// Close releases resources associated with the pipe
+func (p *filePipe) Close() error {
+	return nil
+}
+
 //NewProducer registers a new sync producer
 func (p *filePipe) NewProducer(topic string) (Producer, error) {
-	return &fileProducer{filePipe: p, topic: topic, files: make(map[string]*file), fs: p}, nil
+	m := metrics.NewFilePipeMetrics("pipe_producer", map[string]string{"topic": topic, "pipeType": "file"})
+	return &fileProducer{filePipe: p, topic: topic, files: make(map[string]*file), fs: &fileFS{}, metrics: m}, nil
 }
 
 func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
@@ -168,23 +246,14 @@ func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
 
 //NewConsumer registers a new file consumer with context
 func (p *filePipe) NewConsumer(topic string) (Consumer, error) {
-	c := &fileConsumer{filePipe: p, topic: topic, fs: p}
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, err
+	}
+	m := metrics.NewFilePipeMetrics("pipe_consumer", map[string]string{"topic": topic, "pipeType": "file"})
+	c := &fileConsumer{filePipe: p, topic: topic, fs: &fileFS{}, metrics: m, watcher: w}
 	return p.initConsumer(c)
 }
-
-/*
-//SetGen sets generation of the topic stream, separate directory with the string
-//representation of "gen" will be created inside the topic directory
-func (p *fileProducer) SetGen(gen int64) {
-	p.gen = strconv.FormatInt(gen, 10)
-}
-
-//SetGen sets generation of the topic stream, separate directory with the string
-//representation of "gen" will be consumed
-func (p *fileConsumer) SetGen(gen int64) {
-	p.gen = strconv.FormatInt(gen, 10)
-}
-*/
 
 func topicPath(datadir string, topic string) string {
 	var r string
@@ -208,28 +277,15 @@ func (p *fileConsumer) topicPath(topic string) string {
 	return topicPath(p.datadir, topic)
 }
 
-/*
-func (p *fileConsumer) parseFileName(name string) (string, int64, error) {
-	ehint := "Expected file name format 'unixtimestamp.seqno.partitionkey'"
-
-	s := strings.Split(name, ".")
-	if len(s) != 3 {
-		return "", 0, fmt.Errorf("Incorrect file name format. %v", ehint)
-	}
-
-	offs, err := strconv.ParseInt(s[1], 10, 64)
-	if err != nil {
-		return "", 0, fmt.Errorf("Error: %v, %v", err.Error(), ehint)
-	}
-
-	return s[2], offs, nil
-}
-*/
-
 func (p *fileConsumer) nextFile(topic string, curFile string) (string, error) {
 	tp := p.topicPath(topic)
 	dir := filepath.Dir(tp)
-	files, err := p.fs.ReadDir(dir)
+
+	if curFile == "" {
+		curFile = tp
+	}
+
+	files, err := p.fs.ReadDir(dir, curFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
@@ -242,19 +298,15 @@ func (p *fileConsumer) nextFile(topic string, curFile string) (string, error) {
 		return "", nil
 	}
 
-	if curFile == "" {
-		curFile = tp
-	}
-
 	i := sort.Search(len(files), func(i int) bool {
 		fn := dir + "/" + files[i].Name()
 		return fn > curFile
 	})
 
 	if i < len(files) {
-		log.Debugf("NextFile: %v,  CurFile: %v", files[i].Name(), curFile)
 		fn := dir + "/" + files[i].Name()
 		if strings.HasPrefix(fn, tp) && !files[i].IsDir() {
+			log.Debugf("%v NextFile: %v,  CurFile: %v", topic, files[i].Name(), curFile)
 			return files[i].Name(), nil
 		}
 	}
@@ -265,7 +317,7 @@ func (p *fileConsumer) nextFile(topic string, curFile string) (string, error) {
 func (p *fileConsumer) seek(topic string, offset int64) (string, int64, error) {
 	tp := p.topicPath(topic)
 	dir := filepath.Dir(tp)
-	files, err := p.fs.ReadDir(dir)
+	files, err := p.fs.ReadDir(dir, tp)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", 0, nil
@@ -296,98 +348,146 @@ func (p *fileConsumer) seek(topic string, offset int64) (string, int64, error) {
 		return "", 0, nil
 	}
 
-	return "", 0, fmt.Errorf("Arbitrary offsets not supported, only OffsetOldest and OffsetNewest offsets supported")
+	return "", 0, fmt.Errorf("arbitrary offsets not supported, only OffsetOldest and OffsetNewest offsets supported")
 }
 
 func (p *fileProducer) newFileName(key string) string {
 	p.seqno++ //Precaution to not generate file with the same name if timestamps are equal
 	format := "%s%010d.%03d.%s"
-	if p.compression {
+	if p.cfg.Compression {
 		format += ".gz"
+	}
+	if p.cfg.Encryption.Enabled {
+		format += ".gpg"
 	}
 	return fmt.Sprintf(format+".open", p.topicPath(p.topic), time.Now().Unix(), p.seqno, key)
 }
 
-func (p *fileProducer) initCrypterWriter(writer io.Writer, iv []byte) (io.Writer, error) {
-	var crypter cipher.Stream
-	if p.AESKey != "" {
-		block, err := aes.NewCipher([]byte(p.AESKey))
-		if err != nil {
-			return nil, err
-		}
+func (p *fileProducer) initCrypterWriter(filename string, writer io.WriteCloser) (io.WriteCloser, error) {
+	if len(p.cfg.Encryption.PublicKey) == 0 {
+		return nil, fmt.Errorf("public key is empty. required for producing encrypted stream")
+	}
+	block, err := armor.Decode(bytes.NewReader([]byte(p.cfg.Encryption.PublicKey)))
+	if log.E(err) {
+		return nil, err
+	}
 
-		crypter = cipher.NewCFBEncrypter(block, iv)
-		writer = cipher.StreamWriter{S: crypter, W: writer}
+	if block.Type != openpgp.PublicKeyType {
+		return nil, fmt.Errorf("expected public key. got:%s", block.Type)
+	}
+
+	encEntity, err := openpgp.ReadEntity(packet.NewReader(block.Body))
+	if log.E(err) {
+		return nil, err
+	}
+
+	block, err = armor.Decode(bytes.NewReader([]byte(p.cfg.Encryption.SigningKey)))
+	if log.E(err) {
+		return nil, err
+	}
+
+	if block.Type != openpgp.PrivateKeyType {
+		return nil, fmt.Errorf("expected private key. got:%s", block.Type)
+	}
+
+	signEntity, err := openpgp.ReadEntity(packet.NewReader(block.Body))
+	if log.E(err) {
+		return nil, err
+	}
+
+	err = signEntity.PrivateKey.Decrypt([]byte(signKeyPw))
+	log.Debugf("signKeyPw %v", err)
+	if log.E(err) {
+		return nil, err
+	}
+
+	log.Debugf("pubKey:  %x", encEntity.PrimaryKey.Fingerprint)
+	log.Debugf("signKey: %x", signEntity.PrimaryKey.Fingerprint)
+
+	hints := &openpgp.FileHints{
+		IsBinary: true,
+		FileName: filename,
+		ModTime:  time.Now(),
+	}
+
+	writer, err = openpgp.Encrypt(writer, []*openpgp.Entity{encEntity}, signEntity, hints, nil)
+	if log.E(err) {
+		return nil, err
 	}
 
 	return writer, nil
 }
 
+func listInsert(p *fileProducer, n *file) {
+	if p.flast != nil {
+		p.flast.next = n
+	}
+	if p.ffirst == nil {
+		p.ffirst = n
+	}
+	p.flast = n
+}
+
+func listRemove(p *fileProducer, d *file) {
+	if d.prev != nil {
+		d.prev.next = d.next
+	} else {
+		p.ffirst = d.next
+	}
+	if d.next != nil {
+		d.next.prev = d.prev
+	} else {
+		p.flast = d.prev
+	}
+}
+
 func (p *fileProducer) newFile(key string) error {
-	if err := p.fs.MkdirAll(filepath.Dir(p.topicPath(p.topic)), 0770); err != nil {
+	if err := p.fs.MkdirAll(filepath.Dir(p.topicPath(p.topic)), dirPerm); err != nil {
 		return err
 	}
 
 	n := p.newFileName(key)
-	f, seeker, err := p.fs.OpenWrite(n)
+	w, seeker, err := p.fs.OpenWrite(n)
 	if err != nil {
 		return err
 	}
 
-	var writer io.Writer = f
-
+	// continue writing works for uncompressed unencrypted files only
 	var offset int64
 	if seeker != nil {
-		offset, err = seeker.Seek(0, os.SEEK_END)
+		offset, err = seeker.Seek(0, io.SeekEnd)
 		if err != nil {
 			return err
 		}
 	}
 
-	iv := make([]byte, aes.BlockSize)
-	if p.AESKey != "" {
-		if _, err = io.ReadFull(rand.Reader, iv); err != nil {
+	hw := &hashWriter{w, nil, p.metrics, nil}
+	var writer flushWriteCloser = hw
+
+	if p.cfg.Encryption.Enabled {
+		w, err := p.initCrypterWriter(n, writer)
+		if err != nil {
 			return err
 		}
-		p.header.IV = fmt.Sprintf("%0x", iv)
+		writer = &chainer{&noopFlusher{w}, writer}
 	}
 
-	if offset == 0 && !p.noHeader {
-		p.header.Delimited = p.delimited
-		p.header.Filters = nil
-		if p.AESKey != "" {
-			p.header.Filters = append(p.header.Filters, "aes256-cfb")
-		}
-		if p.compression {
-			p.header.Filters = append(p.header.Filters, "gzip")
-		}
-		var hash []byte
-		if seeker != nil {
-			hash = make([]byte, sha256.Size)
-		}
-		if err = writeHeader(&p.header, hash, writer); err != nil {
-			return err
-		}
+	writer = &chainer{&flushClose{bufio.NewWriter(writer)}, writer}
+	if p.cfg.Compression {
+		writer = &chainer{gzip.NewWriter(writer), writer}
 	}
 
-	hw := &hashWriter{writer, hmac.New(sha256.New, []byte(p.HMACKey))}
-	writer = hw
+	_ = p.closeFile(p.files[key], true)
 
-	writer, err = p.initCrypterWriter(writer, iv)
-	if err != nil {
-		return err
-	}
+	log.Debugf("Opened: %v, %v compression: %v", key, n, p.cfg.Compression)
 
-	var bufWriter writerFlusher = bufio.NewWriter(writer)
-	if p.compression {
-		bufWriter = gzip.NewWriter(writer)
-	}
+	f := &file{n, key, w, seeker, offset, writer, p.flast, nil, offset}
+	hw.f = f
 
-	_ = p.closeFile(p.files[key])
+	listInsert(p, f)
+	p.files[key] = f
 
-	log.Debugf("Opened: %v, %v compression: %v", key, n, p.compression)
-
-	p.files[key] = &file{n, f, seeker, offset, hw, bufWriter}
+	p.metrics.FilesOpened.Inc(1)
 
 	return nil
 }
@@ -403,58 +503,52 @@ func (p *fileProducer) getFile(key string) (*file, error) {
 	return f, nil
 }
 
-func (p *fileProducer) closeFile(f *file) error {
+func (p *fileProducer) cancel(f *file) {
+	log.E(p.fs.Remove(strings.TrimSuffix(f.name, ".open")))
+	log.E(p.fs.Remove(f.name))
+	log.E(p.fs.Cancel(f.file))
+}
+
+func (p *fileProducer) closeFile(f *file, graceful bool) error {
+	log.Debugf("Closed: %v", f)
 	if f == nil {
 		return nil
 	}
 	var rerr error
 	defer func() {
-		if rerr != nil {
-			log.E(p.fs.Remove(strings.TrimSuffix(f.name, ".open")))
-			log.E(p.fs.Remove(f.name))
+		listRemove(p, f)
+		delete(p.files, f.key)
+		if rerr != nil || !graceful {
+			p.cancel(f)
 		}
 	}()
-	if p.compression {
-		gzipWriter, ok := f.writer.(*gzip.Writer)
-		if ok {
-			if err := gzipWriter.Close(); log.E(err) {
-				rerr = err
-			}
-		}
-	} else if err := f.writer.Flush(); log.E(err) {
+	if err := f.writer.Close(); log.E(err) {
 		rerr = err
 	}
-	if f.seek != nil && !p.noHeader {
-		if _, err := f.seek.Seek(0, os.SEEK_SET); log.E(err) {
-			rerr = err
-		}
-		if err := writeHeader(&p.header, f.hash.hash.Sum(nil), f.file); log.E(err) {
+	if graceful && rerr == nil {
+		if err := p.fs.Rename(f.name, strings.TrimSuffix(f.name, ".open")); log.E(err) {
 			rerr = err
 		}
 	}
-	if err := p.fs.Close(f.file); log.E(err) {
-		rerr = err
-	}
-	if err := p.fs.Rename(f.name, strings.TrimSuffix(f.name, ".open")); log.E(err) {
-		rerr = err
-	}
+	p.metrics.FilesClosed.Inc(1)
 	log.Debugf("Closed: %v", f.name)
 	return rerr
 }
 
 func (p *fileProducer) writeBinaryMsgLength(f *file, len int) error {
-	if p.text || !p.delimited {
+	if p.text || !p.cfg.FileDelimited {
 		return nil
 	}
 
-	sz := make([]byte, binary.MaxVarintLen64)
-	n := binary.PutUvarint(sz, uint64(len))
-	_, err := f.writer.Write(sz[:n])
+	sz := make([]byte, 4)
+	binary.LittleEndian.PutUint32(sz, uint32(len))
+	_, err := f.writer.Write(sz)
+
 	return err
 }
 
 func (p *fileProducer) writeTextMsgDelimiter(f *file) error {
-	if !p.text || !p.delimited {
+	if !p.text || !p.cfg.FileDelimited {
 		return nil
 	}
 
@@ -465,6 +559,12 @@ func (p *fileProducer) writeTextMsgDelimiter(f *file) error {
 	return err
 }
 
+func (p *fileProducer) rotateOnSizeLimit(key string, f *file) {
+	if (p.cfg.MaxFileDataSize != 0 && f.offset >= p.cfg.MaxFileDataSize) || (p.cfg.MaxFileSize != 0 && f.compressedSize > p.cfg.MaxFileSize) {
+		_ = p.closeFile(p.files[key], true)
+	}
+}
+
 //Push produces message to File topic
 func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 	var bytes []byte
@@ -472,7 +572,7 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 	case []byte:
 		bytes = in.([]byte)
 	default:
-		return fmt.Errorf("File pipe can handle binary arrays only")
+		return fmt.Errorf("file pipe can handle binary arrays only")
 	}
 
 	f, err := p.getFile(key)
@@ -482,8 +582,7 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 
 	defer func() {
 		if err != nil {
-			log.E(p.fs.Remove(strings.TrimSuffix(f.name, ".open")))
-			log.E(p.fs.Remove(f.name))
+			p.cancel(f)
 		}
 	}()
 
@@ -501,23 +600,13 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 		return nil
 	}
 
-	log.Debugf("Push: %v, len=%v", key, len(bytes))
+	f.offset += int64(len(bytes)) + 1
 
 	if !batch {
 		if err = f.writer.Flush(); err != nil {
 			return err
 		}
-	}
-
-	f.offset += int64(len(bytes)) + 1
-	if f.offset >= p.maxFileSize {
-		if batch {
-			if err = f.writer.Flush(); err != nil {
-				return err
-			}
-		}
-		_ = p.closeFile(p.files[key])
-		delete(p.files, key)
+		p.rotateOnSizeLimit(key, f)
 	}
 
 	return nil
@@ -541,12 +630,15 @@ func (p *fileProducer) PushBatch(key string, in interface{}) error {
 
 //PushBatchCommit commits currently queued messages in the producer
 func (p *fileProducer) PushBatchCommit() error {
-	for _, v := range p.files {
-		if err := v.writer.Flush(); err != nil {
-			log.E(p.fs.Remove(strings.TrimSuffix(v.name, ".open")))
-			log.E(p.fs.Remove(v.name))
+	//Flush and may be close in open order
+	f := p.ffirst
+	for f != nil {
+		if err := f.writer.Flush(); err != nil {
+			p.cancel(f)
 			return err
 		}
+		p.rotateOnSizeLimit(f.key, f)
+		f = f.next
 	}
 	return nil
 }
@@ -556,10 +648,9 @@ func (p *fileProducer) PushSchema(key string, data []byte) error {
 		return err
 	}
 	if key == "" {
-		key = "default"
+		key = "schema"
 	}
-	_ = p.closeFile(p.files[key])
-	delete(p.files, key)
+	_ = p.closeFile(p.files[key], true)
 
 	if len(data) == 0 {
 		return nil
@@ -570,26 +661,46 @@ func (p *fileProducer) PushSchema(key string, data []byte) error {
 	return p.push(key, data, false)
 }
 
-// Close File Producer
-func (p *fileProducer) Close() error {
-	var err error
-	var keys []string
-
-	//Consumers expect to see files in order, so we need to close them in order here
-	for k := range p.files {
-		keys = append(keys, k)
+func (p *fileProducer) close(graceful bool) (err error) {
+	if len(p.files) == 0 {
+		return nil
 	}
 
-	sort.Slice(keys, func(i, j int) bool { return p.files[keys[i]].name < p.files[keys[j]].name })
-
-	for i := 0; i < len(keys); i++ {
-		v := p.files[keys[i]]
-		if e := p.closeFile(v); log.E(e) {
+	for p.ffirst != nil {
+		if e := p.closeFile(p.ffirst, graceful); e != nil {
 			err = e
 		}
 	}
 
+	p.files = nil
+
 	return err
+}
+
+// Close removes unfinished files
+func (p *fileProducer) Close() error {
+	err := p.close(true)
+	if err != nil {
+		return err
+	}
+
+	if p.cfg.EndOfStreamMark {
+		if err := p.fs.MkdirAll(filepath.Dir(p.topicPath(p.topic)), dirPerm); err != nil {
+			return err
+		}
+		name := filepath.Dir(p.topicPath(p.topic)) + "/_DONE"
+		f, _, err := p.fs.OpenWrite(name)
+		if err != nil {
+			return err
+		}
+		f.Close()
+	}
+	return nil
+}
+
+// CloseOnFailure removes unfinished files
+func (p *fileProducer) CloseOnFailure() error {
+	return p.close(false)
 }
 
 //PartitionKey transforms input row key into partition key
@@ -600,23 +711,21 @@ func (p *fileProducer) PartitionKey(source string, key string) string {
 	return "log"
 }
 
-func (p *fileConsumer) waitForNextFilePrepare() (*fsnotify.Watcher, error) {
-	watcher, err := fsnotify.NewWatcher()
+func (p *fileConsumer) waitForNextFilePrepare() error {
+	err := p.watcher.Add(filepath.Dir(p.topicPath(p.topic)))
 	if err != nil {
-		return nil, err
-	}
-
-	err = watcher.Add(filepath.Dir(p.topicPath(p.topic)))
-	if err != nil {
-		switch v := err.(type) {
-		case syscall.Errno:
-			if v == syscall.ENOENT {
-				err = watcher.Add(p.datadir)
-			}
+		if os.IsNotExist(err) {
+			err = p.watcher.Add(p.datadir)
 		}
 	}
 
-	return watcher, err
+	return err
+}
+
+func (p *fileConsumer) waitForNextFileFinish(watcher *fsnotify.Watcher) error {
+	_ = watcher.Remove(filepath.Dir(p.topicPath(p.topic)))
+	_ = watcher.Remove(p.datadir)
+	return nil
 }
 
 func (p *fileConsumer) waitForNextFile(watcher *fsnotify.Watcher) (bool, error) {
@@ -641,12 +750,11 @@ func (p *fileConsumer) waitForNextFile(watcher *fsnotify.Watcher) (bool, error) 
 func (p *fileConsumer) waitAndOpenNextFile() bool {
 	for {
 		//Need to start watching before p.nextFile() to avoid race condition
-		var watcher *fsnotify.Watcher
-		watcher, p.err = p.waitForNextFilePrepare()
+		p.err = p.waitForNextFilePrepare()
 		if log.E(p.err) {
 			return true
 		}
-		defer func() { log.E(watcher.Close()) }()
+		defer func() { log.E(p.waitForNextFileFinish(p.watcher)) }()
 
 		nextFn, err := p.nextFile(p.topic, p.name)
 		if log.E(p.err) {
@@ -658,8 +766,12 @@ func (p *fileConsumer) waitAndOpenNextFile() bool {
 			return true
 		}
 
+		if p.cfg.NonBlocking {
+			return false
+		}
+
 		var ctxDone bool
-		ctxDone, p.err = p.waitForNextFile(watcher)
+		ctxDone, p.err = p.waitForNextFile(p.watcher)
 		if log.E(err) {
 			return true
 		}
@@ -670,66 +782,69 @@ func (p *fileConsumer) waitAndOpenNextFile() bool {
 	}
 }
 
-func skipHeader(file io.Reader) error {
-	b := make([]byte, 1)
-	for b[0] != delimiter {
-		if _, err := file.Read(b); log.E(err) {
-			return err
+func (p *fileConsumer) waitAndOpenNextFilePoll() bool {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		nextFn, err := p.nextFile(p.topic, p.name)
+		if log.E(err) {
+			p.err = err
+			return true
+		}
+
+		if nextFn != "" && !strings.HasSuffix(nextFn, ".open") {
+			p.openFile(nextFn, 0)
+			return true
+		}
+
+		if p.cfg.NonBlocking {
+			return false
+		}
+
+		select {
+		case <-ticker.C:
+		case <-p.ctx.Done():
+			return false
 		}
 	}
-	return nil
 }
 
-func (p *fileConsumer) checkHMAC(fn string, HMACRef string) error {
-	file, err := p.fs.OpenRead(fn, 0)
+func (p *fileConsumer) initCrypterReader(reader io.Reader) (io.Reader, *openpgp.MessageDetails, error) {
+	if len(p.cfg.Encryption.PrivateKey) == 0 {
+		return nil, nil, fmt.Errorf("private key is empty. required for consuming encrypted stream")
+	}
+
+	block, err := armor.Decode(bytes.NewReader([]byte(p.cfg.Encryption.PrivateKey)))
 	if log.E(err) {
-		return err
+		return nil, nil, err
 	}
 
-	if err = skipHeader(file); err != nil {
-		return err
+	if block.Type != openpgp.PrivateKeyType {
+		err = fmt.Errorf("expected private key. got:%s", block.Type)
+		log.E(err)
+		return nil, nil, err
 	}
 
-	buf := make([]byte, 32768)
-	h := hmac.New(sha256.New, []byte(p.HMACKey))
-
-	for {
-		var n int
-		n, err = file.Read(buf)
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			log.E(err)
-			return err
-		}
-		if n != 0 {
-			_, _ = h.Write(buf[:n])
-		}
-	}
-
-	err = file.Close()
+	privEntity, err := openpgp.ReadEntity(packet.NewReader(block.Body))
 	if log.E(err) {
-		return err
+		return nil, nil, err
 	}
 
-	if HMACRef != fmt.Sprintf("%0x", h.Sum(nil)) {
-		return fmt.Errorf("File authentication failed")
+	err = privEntity.PrivateKey.Decrypt([]byte(privateKeyPw))
+	if log.E(err) {
+		return nil, nil, err
 	}
 
-	log.Debugf("HMAC successfully verified for: %v", fn)
-	return nil
+	md, err := openpgp.ReadMessage(reader, openpgp.EntityList{privEntity}, nil, &packet.Config{DefaultHash: crypto.SHA256})
+	if log.E(err) {
+		return nil, nil, err
+	}
+	return md.UnverifiedBody, md, nil
 }
 
 func (p *fileConsumer) openFileInitFilter() (err error) {
-	iv := make([]byte, hex.DecodedLen(len(p.header.IV)))
-	_, p.err = hex.Decode(iv, []byte(p.header.IV))
-	if p.err != nil {
-		return
-	}
-
 	//TODO: Get encryption and compression type from Filters field of the header
-	if p.AESKey != "" || p.compression {
+	if p.cfg.Encryption.Enabled || p.cfg.Compression {
 		//Header reader cached more then just a header, so need to reopen
 		log.E(p.file.Close())
 		p.file, err = p.fs.OpenRead(p.name, 0)
@@ -737,23 +852,15 @@ func (p *fileConsumer) openFileInitFilter() (err error) {
 			return
 		}
 
-		if err = skipHeader(p.file); err != nil {
-			return
-		}
-
 		var reader io.Reader = p.file
-		if p.AESKey != "" {
-			var block cipher.Block
-			block, err = aes.NewCipher([]byte(p.AESKey))
-			if log.E(err) {
+		if p.cfg.Encryption.Enabled {
+			reader, p.pgpMD, err = p.initCrypterReader(reader)
+			if err != nil {
 				return
 			}
-
-			crypter := cipher.NewCFBDecrypter(block, iv)
-			reader = cipher.StreamReader{S: crypter, R: p.file}
 		}
 
-		if p.compression {
+		if p.cfg.Compression {
 			reader, err = gzip.NewReader(reader)
 			if log.E(err) {
 				return
@@ -785,14 +892,7 @@ func (p *fileConsumer) openFile(nextFn string, offset int64) {
 
 	p.reader = bufio.NewReader(p.file)
 
-	p.header.Delimited = p.delimited
-	if !p.noHeader {
-		p.header, p.err = readHeader(p.reader)
-		if log.E(p.err) {
-			return
-		}
-
-	}
+	p.header.Delimited = p.cfg.FileDelimited
 
 	if !p.header.Delimited {
 		p.err = fmt.Errorf("cannot consume non delimited file")
@@ -801,13 +901,6 @@ func (p *fileConsumer) openFile(nextFn string, offset int64) {
 	}
 
 	p.text = p.header.Format == "json" || p.header.Format == "text"
-
-	if p.verifyHMAC {
-		p.err = p.checkHMAC(dir+nextFn, p.header.HMAC)
-		if p.err != nil {
-			return
-		}
-	}
 
 	if offset != 0 {
 		log.E(p.file.Close())
@@ -821,39 +914,45 @@ func (p *fileConsumer) openFile(nextFn string, offset int64) {
 	p.name = dir + nextFn
 
 	p.err = p.openFileInitFilter()
-	if log.E(p.err) {
+	if p.err != nil {
 		return
 	}
 
+	p.metrics.FilesOpened.Inc(1)
 	log.Debugf("Consumer opened: %v, header: %+v", p.name, p.header)
+}
+
+func (p *fileConsumer) writeMessage() {
+	if !p.text {
+		msg := make([]byte, 4)
+		_, p.err = p.reader.Read(msg)
+		if p.err == nil {
+			p.msg = make([]byte, binary.LittleEndian.Uint32(msg))
+			_, p.err = io.ReadFull(p.reader, p.msg)
+			/*
+				if p.err == nil {
+					log.Debugf("Consumed message: %x", p.msg)
+				}
+			*/
+		}
+	} else {
+		p.msg, p.err = p.reader.ReadBytes(delimiter)
+		if p.err == nil {
+			p.msg = p.msg[:len(p.msg)-1]
+		}
+	}
 }
 
 func (p *fileConsumer) fetchNextLow() bool {
 	//reader and file can be nil when directory is empty during
 	//NewConsumer
 	if p.reader != nil {
-		if !p.text {
-			var sz uint64
-			sz, p.err = binary.ReadUvarint(p.reader)
-			if p.err == nil {
-				p.msg = make([]byte, sz)
-				_, p.err = io.ReadFull(p.reader, p.msg)
-				if p.err == nil {
-					log.Debugf("Consumed message: %x", p.msg)
-				}
-			}
-		} else {
-			p.msg, p.err = p.reader.ReadBytes(delimiter)
-			if p.err == nil {
-				p.msg = p.msg[:len(p.msg)-1]
-				log.Debugf("Consumed message: %v", string(p.msg))
-			}
-		}
+		p.writeMessage()
 		if p.err == nil {
 			return true
 		}
 
-		if p.err != io.EOF && (!p.compression || p.err != io.ErrUnexpectedEOF) {
+		if p.err != io.EOF && (!p.cfg.Compression || p.err != io.ErrUnexpectedEOF) {
 			log.E(p.err)
 			return true
 		}
@@ -861,10 +960,21 @@ func (p *fileConsumer) fetchNextLow() bool {
 		log.E(p.file.Close())
 		p.reader = nil
 		p.file = nil
+
+		if p.pgpMD != nil && p.pgpMD.IsSigned && p.pgpMD.SignedBy != nil {
+			if p.pgpMD.SignatureError != nil {
+				log.Errorf("signature error:  %v", p.pgpMD.SignatureError)
+			} else {
+				if p.pgpMD.SignedBy.PublicKey != nil {
+					log.Debugf("valid signature, signed by: %x", p.pgpMD.SignedBy.PublicKey.Fingerprint)
+				}
+			}
+		}
+
 		log.Debugf("Consumer closed: %v", p.name)
 
-		if p.text && p.delimited && len(p.msg) != 0 {
-			p.err = fmt.Errorf("Corrupted file. Not ending with delimiter: %v %v", p.name, string(p.msg))
+		if p.text && p.cfg.FileDelimited && len(p.msg) != 0 {
+			p.err = fmt.Errorf("corrupted file. Not ending with delimiter: %v %v", p.name, string(p.msg))
 			return true
 		}
 
@@ -894,14 +1004,18 @@ func (p *fileConsumer) Pop() (interface{}, error) {
 }
 
 //Close closes consumer
-func (p *fileConsumer) close(graceful bool) error {
+func (p *fileConsumer) close(graceful bool) (err error) {
 	log.Debugf("Close consumer: %v", p.topic)
-	p.cancel()
-	if p.file != nil {
-		err := p.file.Close()
+	if p.watcher != nil {
+		err = p.watcher.Close()
 		log.E(err)
 	}
-	return nil
+	p.cancel()
+	if p.file != nil {
+		err = p.file.Close()
+		log.E(err)
+	}
+	return err
 }
 
 //Close closes consumer
@@ -928,39 +1042,50 @@ func (p *fileProducer) SetFormat(format string) {
 	p.text = format == "json" || format == "text"
 }
 
-func (p *filePipe) MkdirAll(path string, perm os.FileMode) error {
+type fileFS struct {
+}
+
+func (p *fileFS) MkdirAll(path string, perm os.FileMode) error {
 	return os.MkdirAll(path, perm)
 }
 
-func (p *filePipe) Rename(oldpath, newpath string) error {
+func (p *fileFS) Rename(oldpath, newpath string) error {
 	return os.Rename(oldpath, newpath)
 }
 
-func (p *filePipe) ReadDir(dirname string) ([]os.FileInfo, error) {
+func (p *fileFS) ReadDir(dirname string, _ string) ([]os.FileInfo, error) {
 	return ioutil.ReadDir(dirname)
 }
 
-func (p *filePipe) OpenRead(name string, offset int64) (io.ReadCloser, error) {
+func (p *fileFS) OpenRead(name string, offset int64) (io.ReadCloser, error) {
 	f, err := os.OpenFile(name, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}
-	_, err = f.Seek(offset, os.SEEK_SET)
+	_, err = f.Seek(offset, io.SeekStart)
 	if err != nil {
 		return nil, err
 	}
 	return f, nil
 }
 
-func (p *filePipe) OpenWrite(name string) (io.WriteCloser, io.Seeker, error) {
-	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE, 0640)
-	return f, f, err
+type fileWriter struct {
+	*os.File
 }
 
-func (p *filePipe) Remove(path string) error {
+func (f *fileWriter) Flush() error {
+	return f.File.Sync()
+}
+
+func (p *fileFS) OpenWrite(name string) (flushWriteCloser, io.Seeker, error) {
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE, 0644)
+	return &fileWriter{f}, f, err
+}
+
+func (p *fileFS) Remove(path string) error {
 	return os.Remove(path)
 }
 
-func (p *filePipe) Close(f io.WriteCloser) error {
-	return f.Close()
+func (p *fileFS) Cancel(f io.Closer) error {
+	return nil
 }

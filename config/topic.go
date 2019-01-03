@@ -23,21 +23,27 @@ package config
 import (
 	"bytes"
 	"text/template"
+	"time"
 
 	"github.com/uber/storagetapper/types"
 )
 
-func getTopicName(template *template.Template, tloc *types.TableLoc) (string, error) {
+type topicParams struct {
+	types.TableLoc
+	Timestamp time.Time
+}
+
+func getTopicName(template *template.Template, tp *topicParams) (string, error) {
 	buf := &bytes.Buffer{}
-	err := template.Execute(buf, tloc)
+	err := template.Execute(buf, tp)
 	if err != nil {
 		return "", err
 	}
-	return string(buf.Bytes()), nil
+	return buf.String(), nil
 }
 
 // GetOutputTopicName returns output topic name
-func (c *AppConfig) GetOutputTopicName(svc string, db string, tbl string, input string, output string, ver int) (string, error) {
+func (c *AppConfig) GetOutputTopicName(svc string, db string, tbl string, input string, output string, ver int, ts time.Time) (string, error) {
 	tmpl := c.OutputTopicNameTemplateDefaultParsed
 
 	inp := c.OutputTopicNameTemplateParsed[input]
@@ -48,11 +54,11 @@ func (c *AppConfig) GetOutputTopicName(svc string, db string, tbl string, input 
 		}
 	}
 
-	return getTopicName(tmpl, &types.TableLoc{Service: svc, Cluster: "", Db: db, Table: tbl, Input: input, Output: output, Version: ver})
+	return getTopicName(tmpl, &topicParams{types.TableLoc{Service: svc, Cluster: "", Db: db, Table: tbl, Input: input, Output: output, Version: ver}, ts})
 }
 
 // GetChangelogTopicName returns output topic name
-func (c *AppConfig) GetChangelogTopicName(svc string, db string, tbl string, input string, output string, ver int) (string, error) {
+func (c *AppConfig) GetChangelogTopicName(svc string, db string, tbl string, input string, output string, ver int, ts time.Time) (string, error) {
 	tmpl := c.ChangelogTopicNameTemplateDefaultParsed
 
 	inp := c.ChangelogTopicNameTemplateParsed[input]
@@ -63,5 +69,5 @@ func (c *AppConfig) GetChangelogTopicName(svc string, db string, tbl string, inp
 		}
 	}
 
-	return getTopicName(tmpl, &types.TableLoc{Service: svc, Cluster: "", Db: db, Table: tbl, Input: input, Output: output, Version: ver})
+	return getTopicName(tmpl, &topicParams{types.TableLoc{Service: svc, Cluster: "", Db: db, Table: tbl, Input: input, Output: output, Version: ver}, ts})
 }

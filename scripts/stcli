@@ -1,0 +1,230 @@
+#!/bin/bash
+
+# Copyright (c) 2019 Uber Technologies, Inc.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
+DEF_INPUT="mysql"
+DEF_OUTPUT="kafka"
+DEF_FORMAT="json"
+
+HOST=127.0.0.1:7836
+
+CMD=${1:-"list"}
+INSTANCE=$2
+TABLE=$3
+DB=${4:-"*"}
+CLUSTER=${5:-"*"}
+INPUT=${6:-$INPUT}
+OUTPUT=${7:-$OUTPUT}
+FORMAT=${8:-$FORMAT}
+VERSION=${9:-$VERSION}
+PARAMS=${10:-$PARAMS}
+
+if [ -n "$PARAMS" ]; then
+	PARAMS=",\"Params\":\"$PARAMS\""
+fi
+
+if [ "$CMD" != "list" ]; then
+	INPUT=${INPUT:-$DEF_INPUT}
+	OUTPUT=${OUTPUT:-$DEF_OUTPUT}
+	FORMAT=${FORMAT:-$DEF_FORMAT}
+fi
+
+ENDPOINT=table
+
+if [ -n "$CREATE_TOPIC" ]; then
+	PARAMS=$PARAMS",\"createTopic\":true"
+fi
+
+if [ -n "$PUBLISH_SCHEMA" ]; then
+	PARAMS=$PARAMS",\"publishSchema\":\"state\""
+fi
+
+if [ $# -eq 0 ]; then
+cat <<EOF
+Usage: $0 {add/del/list/register} {instance} {table} [db] [cluster] [input] [output] [format] [version] [params]
+       $0 {add_list/del_list} [file_name(standard input if omitted)]
+
+Examples:
+ Show all registered tables:
+
+	stcli list
+
+ Add table:
+  with default input, output, format, version:
+
+	stcli add herbieteststore box_office 
+
+  with explicitly specified all the parameters:
+
+	stcli add documents document_archive document_store doc mysql kafka avro 0 '{\"NoSnapshot\":true}'
+
+ Delete table:
+
+	VERSION=vvv stcli del herbieteststore box_office 
+		or
+	stcli del herbieteststore box_office "" "" "" "" "" vvv'
+	vvv - can be found out from output of add or list command
+
+ Publish current MySQL schema to HeatPipe (both DCs):
+
+	stcli register documents documents_archive documents_store doc mysql kafka avro
+
+  also create Kafka topic in both DCs:
+
+	CREATE_TOPIC=1 stcli register documents documents_archive documents_store doc mysql kafka avro
+
+ Add/Delete multiple tables from provided list:
+
+	stcli list "" "" "" clst1 >clst1_list.json
+	stlci del_list clst1_list.json
+	stlci add_list clst1_list.json
+
+  or list can be read from standard input:
+
+	stcli list "" "" "" clst1 | stlci del_list
+
+Parameters can be set using environment variables:
+
+	INSTANCE, TABLE, DB, CLUSTER, INPUT, OUTPUT, FORMAT, VERSION
+
+	Command line parameters have precedence
+
+Defaults:
+	Db:			*
+	Cluster:	*
+	Input:	$DEF_INPUT
+	Output:	$DEF_OUTPUT
+	Format:	$DEF_FORMAT
+EOF
+
+	exit 1
+fi
+
+confirm() {
+	read -p "Continue (y/N)?" reply
+	echo
+	if [[ "$reply" =~ ^[Yy]$ ]]; then
+		return 0
+	fi
+	return 1
+}
+
+add_del_from_list() {
+	while read -r line
+	do
+		service=$(echo "$line"|jq -r '. | .service')
+		cluster=$(echo "$line"|jq -r '. | .cluster')
+		db=$(echo "$line"|jq -r '. | .db')
+		table=$(echo "$line"|jq -r '. | .table')
+		version=$(echo "$line"|jq -r '. | .version')
+		input=$(echo "$line"|jq -r '. | .input')
+		output=$(echo "$line"|jq -r '. | .output')
+		outputFormat=$(echo "$line"|jq -r '. | .outputFormat')
+
+		msg="Onboarding"
+		if [ "$1" = "del" ]; then
+			msg="Offboarding"
+		fi
+		echo "$msg $service $cluster $db $table $input $output $version"
+
+		./"$0" "$1" "$service" "$table" "$db" "$cluster" "$input" "$output" "$outputFormat" "$version"
+	done < "${2:-/dev/stdin}"
+}
+
+if [ "$CMD" == "add_list" ]; then
+	add_del_from_list add "$2"
+elif [ "$CMD" == "del_list" ]; then
+	add_del_from_list del "$2"
+elif [ "$CMD" == "create_kafka_topic" ]; then
+	if [ "$VERSION" == "0" ]; then
+		create_topic "storagetapper-$INSTANCE-$DB-$TABLE" "$INSTANCE" "$CLUSTER" "$DB" "$TABLE"
+		create_topic "hp-dbevents-mysql-$INSTANCE-$DB-$TABLE-snapshot" "$INSTANCE" "$CLUSTER" "$DB" "$TABLE"
+	elif [ "$VERSION" == "2" ]; then
+		create_topic "storagetapper-$INSTANCE-$DB-$TABLE-v$VERSION" "$INSTANCE" "$CLUSTER" "$DB" "$TABLE"
+		create_topic "hp-dbevents-mysql-$INSTANCE-$DB-$TABLE-snapshot-objectsearch" "$INSTANCE" "$CLUSTER" "$DB" "$TABLE"
+	else
+		create_topic "storagetapper-$INSTANCE-$DB-$TABLE-v$VERSION" "$INSTANCE" "$CLUSTER" "$DB" "$TABLE"
+		create_topic "hp-dbevents-mysql-$INSTANCE-$DB-$TABLE" "$INSTANCE" "$CLUSTER" "$DB" "$TABLE"
+	fi
+elif [ "$CMD" = "update_kafka_topic" ]; then
+	if [ "$VERSION" = "0" ]; then
+		update_topic "storagetapper-$INSTANCE-$DB-$TABLE" "$INSTANCE" "$CLUSTER" "$DB" "$TABLE"
+		update_topic "hp-dbevents-mysql-$INSTANCE-$DB-$TABLE-snapshot" "$INSTANCE" "$CLUSTER" "$DB" "$TABLE"
+	elif [ "$VERSION" == "2" ]; then
+		create_topic "storagetapper-$INSTANCE-$DB-$TABLE-v$VERSION" "$INSTANCE" "$CLUSTER" "$DB" "$TABLE"
+		create_topic "hp-dbevents-mysql-$INSTANCE-$DB-$TABLE-snapshot-objectsearch" "$INSTANCE" "$CLUSTER" "$DB" "$TABLE"
+	else
+		update_topic "storagetapper-$INSTANCE-$DB-$TABLE-v$VERSION" "$INSTANCE" "$CLUSTER" "$DB" "$TABLE"
+		update_topic "hp-dbevents-mysql-$INSTANCE-$DB-$TABLE" "$INSTANCE" "$CLUSTER" "$DB" "$TABLE"
+	fi
+elif [ "$CMD" = "delete_schema" ]; then
+	delete_schema "hp-dbevents-mysql-$INSTANCE-$DB-$TABLE"
+	delete_schema "hp-dbevents-mysql-$INSTANCE-$DB-$TABLE-snapshot"
+elif [ "$CMD" = "create_special_user" ]; then
+	create_special_user "$INSTANCE" "$DB" "$CLUSTER"
+else
+	if [ "$CMD" = "add" ]; then
+		VERSION=${VERSION:-$(date +%s)}
+		echo "Will add: Instance: $INSTANCE, Table: $TABLE, Cluster: $CLUSTER, Db: $DB, Input: $INPUT, Output: $OUTPUT, Format: $FORMAT, Version: $VERSION"
+		if ! confirm; then
+			exit 1
+		fi
+	elif [ "$CMD" = "del" ]; then
+		echo "Will delete: Instance: $INSTANCE, Table: $TABLE, Cluster: $CLUSTER, Db: $DB, Input: $INPUT, Output: $OUTPUT, Format: $FORMAT, Version: $VERSION"
+		if ! confirm; then
+			exit 1
+		fi
+		APPLY="yes"
+	fi
+
+	if [ -z "$VERSION" ]; then
+		VERSION=0
+	fi
+
+	if [ "$CMD" = "register" ]; then
+		if [ "$INPUT" != "mysql" ]; then
+			echo "Schema register supported for MySQL input only"
+			exit 1
+		fi
+		echo "Will publish schema for: Service: $INSTANCE, Table: $TABLE, Cluster: $CLUSTER, Db: $DB"
+		if ! confirm; then
+			exit 1
+		fi
+		ENDPOINT=schema
+	fi
+
+	payload="{\"cmd\" : \"$1\", \"cluster\" : \"$CLUSTER\", \"service\" : \"$INSTANCE\", \"db\":\"$DB\", \"table\":\"$TABLE\",\"input\":\"$INPUT\",\"inputType\":\"$INPUT\",\"output\":\"$OUTPUT\",\"outputFormat\":\"$FORMAT\",\"type\":\"$FORMAT\",\"version\":$VERSION,\"apply\":\"$APPLY\"$PARAMS}"
+	#ssh adhoc07-sjc1 curl -s -X POST -H "Content-Type: application/json" --data  "$payload" http://$HOST/$ENDPOINT
+	curl -s -X POST -H "Content-Type: application/json" --data  "$payload" "http://$HOST/$ENDPOINT"
+
+	if [ $? ]; then
+		if [ "$CMD" != "list" ]; then
+			echo "Success"
+		fi
+		if [ "$CMD" = "add" ]; then
+			echo "Table added. Version: $VERSION"
+		fi
+	else
+		echo "Failure"
+		exit 1
+	fi
+fi
+

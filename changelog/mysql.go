@@ -23,7 +23,6 @@ package changelog
 import (
 	"bytes"
 	"fmt"
-	"golang.org/x/net/context" //"context"
 	"math/rand"
 	"os"
 	"regexp"
@@ -31,13 +30,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/satori/go.uuid"
+	"github.com/gofrs/uuid"
 	"github.com/siddontang/go-mysql/mysql"
 	"github.com/siddontang/go-mysql/replication"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/encoder"
-	"github.com/uber/storagetapper/lock"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/metrics"
 	"github.com/uber/storagetapper/pipe"
@@ -47,9 +45,13 @@ import (
 	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/types"
 	"github.com/uber/storagetapper/util"
+
+	"golang.org/x/net/context" //"context"
 )
 
-const seqnoSaveInterval = 1000000
+// SeqnoSaveInterval is the number of messages after which seqno gets persisted in state
+const SeqnoSaveInterval = 1000000
+const eventsBatchSize = 16
 
 type table struct {
 	id           int64
@@ -62,47 +64,72 @@ type table struct {
 	output       string
 	version      int
 	outputFormat string
+	params       string
+
+	snapshottedAt time.Time
 }
 
 type mysqlReader struct {
-	gtidSet       *mysql.MysqlGTIDSet
-	seqNo         uint64
-	masterCI      *db.Addr
-	tables        map[string]map[string][]*table
-	numTables     int
-	bufPipe       pipe.Pipe
-	outPipes      *map[string]pipe.Pipe
-	dbl           db.Loc
-	ctx           context.Context
-	log           log.Logger
-	alterRE       *regexp.Regexp
-	alterQuotedRE *regexp.Regexp
-	tpool         pool.Thread
-	metrics       *metrics.BinlogReader
-	batchSize     int
-	lock          lock.Lock
+	gtidSet   *mysql.MysqlGTIDSet
+	seqNo     uint64
+	masterCI  *db.Addr
+	tables    map[string]map[string][]*table
+	numTables int
+	bufPipe   pipe.Pipe
+	dbl       db.Loc
+	inputType string
+	ctx       context.Context
+	log       log.Logger
+	tpool     pool.Thread
+	metrics   *metrics.ChangelogReader
+	batchSize int
+	curGTID   replication.GTIDEvent
+
+	workerID string
+
+	heartbeatTime time.Time
 }
 
 func init() {
 	registerPlugin("mysql", createMySQLReader)
 }
 
-func createMySQLReader(c context.Context, cfg *config.AppConfig, bp pipe.Pipe, op *map[string]pipe.Pipe, tp pool.Thread) (Reader, error) {
-	return &mysqlReader{ctx: c, tpool: tp, bufPipe: bp, outPipes: op}, nil
+func createMySQLReader(c context.Context, _ *config.AppConfig, bp pipe.Pipe,
+	tp pool.Thread) (Reader, error) {
+
+	return &mysqlReader{ctx: c, tpool: tp, bufPipe: bp, inputType: types.InputMySQL, batchSize: eventsBatchSize, heartbeatTime: time.Now()}, nil
+}
+
+type queryHandler struct {
+	regexp   string
+	handler  func(*mysqlReader, *replication.QueryEvent, [][]string) bool
+	compiled *regexp.Regexp
+}
+
+var queryHandlers = []queryHandler{
+	//Handle all four combination of quotes for alter table: `a`.`b`, `a`.b,
+	//a.`b`, a.b
+	{regexp: "(?mis)^\\s*(?:/\\*[^\\*]*\\*/)?\\s*alter\\s+table\\s+(?:([^`][^\\.]*)\\.)?(\\w+)\\s+(.+)", handler: handleAlterTable},
+	{regexp: "(?mis)^\\s*(?:/\\*[^\\*]*\\*/)?\\s*alter\\s+table\\s+(?:`([^`]+)`\\.)?`([^`]+)`\\s+(.+)", handler: handleAlterTable},
+	{regexp: "(?mis)^\\s*(?:/\\*[^\\*]*\\*/)?\\s*alter\\s+table\\s+([^`][^\\.]*)\\.`([^`]+)`\\s+(.+)", handler: handleAlterTable},
+	{regexp: "(?mis)^\\s*(?:/\\*[^\\*]*\\*/)?\\s*alter\\s+table\\s+`([^`]+)`\\.(\\w+)\\s+(.+)", handler: handleAlterTable},
+	//Handle only fully quoted and fully unquoted cases for rename table: `a`.`b`, a.b
+	{regexp: "(?mi)(^\\s*(?:/\\*[^\\*]*\\*/)?\\s*rename\\s+table\\s+)|(?:(?:\\s*,\\s*)?(?:([^`][^\\.]*)\\.)?(\\w+)\\s+TO\\s+(?:([^`][^\\.]*)\\.)?(\\w+))", handler: handleRenameTable},
+	{regexp: "(?mi)(^\\s*rename\\s+table\\s+)|(?:(?:\\s*,\\s*)?(?:`([^`]+)`\\.)?`([^`]+)`\\s+TO\\s+(?:`([^`]+)`\\.)?`([^`]+)`)", handler: handleRenameTable},
 }
 
 var thisInstanceCluster string
+var injectAlterFailure = false
 
 /*ThisInstanceCluster returns the cluster name name this instance's binlog
-* mysqlReader is working on. This is used by local streamers identify tables they
+* mysqlReader is working on. This is used by local streamers to identify tables they
 * have to stream*/
 func ThisInstanceCluster() string {
 	return thisInstanceCluster
 }
 
-// GetClusterTag return the cluster tag
-func getClusterTag(cName string) map[string]string {
-	return map[string]string{"cluster": cName}
+func getTags(cluster string, input string) map[string]string {
+	return map[string]string{"cluster": cluster, "input": input}
 }
 
 func (b *mysqlReader) binlogFormat() string {
@@ -127,12 +154,10 @@ func (b *mysqlReader) pushSchema(tver []*table) bool {
 		return false
 	}
 
+	buffered := config.Get().ChangelogBuffer
+
 	for i := 0; i < len(tver); i++ {
 		t := tver[i]
-		log.Debugf("format vvvvv %v %v %v", t.outputFormat, t.encoder.Type(), encoder.Internal.Type())
-		if t.outputFormat != "json" && t.outputFormat != "msgpack" {
-			continue
-		}
 
 		bd, err := t.encoder.EncodeSchema(seqno)
 		if log.EL(b.log, err) {
@@ -140,7 +165,14 @@ func (b *mysqlReader) pushSchema(tver []*table) bool {
 		}
 
 		if bd == nil {
-			return true
+			continue
+		}
+
+		if buffered && encoder.Internal.Type() != t.encoder.Type() {
+			bd, err = encoder.WrapEvent(t.outputFormat, "", bd, seqno)
+			if log.EL(b.log, err) {
+				return false
+			}
 		}
 
 		err = t.producer.PushSchema("", bd)
@@ -153,11 +185,33 @@ func (b *mysqlReader) pushSchema(tver []*table) bool {
 	return true
 }
 
-func (b *mysqlReader) addNewTable(st state.Type, i int) bool {
-	t := st[i]
+func (b *mysqlReader) createProducer(tn string, t *state.Row) (pipe.Producer, error) {
+	var err error
+	pipe2 := b.bufPipe
 
-	b.log.Infof("Adding table to MySQL binlog reader (%v,%v,%v,%v,%v), will produce to: %v", t.Service, t.Db, t.Table, t.Output, t.Version, t.OutputFormat)
-	enc, err := encoder.Create(t.OutputFormat, t.Service, t.Db, t.Table)
+	format := encoder.Internal.Type()
+	if !config.Get().ChangelogBuffer {
+		pipe2, err = pipe.CacheGet(t.Output, &t.Params.Pipe, state.GetDB())
+		if err != nil {
+			b.log.WithFields(log.Fields{"service": t.Service, "db": t.Db, "table": t.Table, "pipe": t.Output}).Errorf("%v", err)
+			return nil, err
+		}
+		format = t.OutputFormat
+	}
+
+	p, err := pipe2.NewProducer(tn)
+	if err != nil {
+		return nil, err
+	}
+
+	p.SetFormat(format)
+
+	return p, nil
+}
+
+func (b *mysqlReader) addNewTable(t *state.Row) bool {
+	b.log.Infof("Adding table to MySQL binlog reader (%v,%v,%v,%v,%v,%v)", t.Service, t.Db, t.Table, t.Output, t.Version, t.OutputFormat)
+	enc, err := encoder.Create(t.OutputFormat, t.Service, t.Db, t.Table, t.Input, t.Output, t.Version)
 	if log.EL(b.log, err) {
 		return false
 	}
@@ -167,85 +221,80 @@ func (b *mysqlReader) addNewTable(st state.Type, i int) bool {
 		return true
 	}
 
-	pn, err := config.Get().GetChangelogTopicName(t.Service, t.Db, t.Table, t.Input, t.Output, t.Version)
+	pn, err := config.Get().GetChangelogTopicName(t.Service, t.Db, t.Table, t.Input, t.Output, t.Version, t.SnapshottedAt)
 	if log.EL(b.log, err) {
 		return false
 	}
-	pipe := b.bufPipe
 
-	format := encoder.Internal.Type()
-	if !config.Get().ChangelogBuffer {
-		var ok bool
-		pipe, ok = (*b.outPipes)[t.Output]
-		if !ok {
-			b.log.Errorf("Service: %v Db: %v Table: %v. Unknown pipe: %v", t.Service, t.Db, t.Table, t.Output)
-			return false
-		}
-		format = t.OutputFormat
-	}
-
-	p, err := pipe.NewProducer(pn)
-	if err != nil {
+	p, err := b.createProducer(pn, t)
+	if log.EL(b.log, err) {
 		return false
 	}
 
-	p.SetFormat(format)
-
-	b.log.Infof("New table added to MySQL binlog reader (%v,%v,%v,%v,%v,%v), will produce to: %v", t.Service, t.Db, t.Table, t.Output, t.Version, t.OutputFormat, pn)
-
-	nt := &table{t.ID, false, p, t.RawSchema, t.SchemaGtid, t.Service, enc, t.Output, t.Version, t.OutputFormat}
+	nt := &table{t.ID, false, p, t.RawSchema, t.SchemaGtid, t.Service, enc, t.Output, t.Version, t.OutputFormat, t.ParamsRaw, t.SnapshottedAt}
 
 	if b.tables[t.Db][t.Table] == nil {
 		b.tables[t.Db][t.Table] = make([]*table, 0)
 	}
 	b.tables[t.Db][t.Table] = append(b.tables[t.Db][t.Table], nt)
 
+	b.log.Infof("New table added to MySQL binlog reader (%v,%v,%v,%v,%v,%v), will produce to: %v", t.Service, t.Db, t.Table, t.Output, t.Version, t.OutputFormat, pn)
+
 	return true
 }
 
 func (b *mysqlReader) removeDeletedTables() (count uint) {
-	for m := range b.tables {
-		for n := range b.tables[m] {
-			for i := 0; i < len(b.tables[m][n]); {
-				t := b.tables[m][n][i]
+	var s string
+	for dbn := range b.tables {
+		for tbn := range b.tables[dbn] {
+			for i := 0; i < len(b.tables[dbn][tbn]); {
+				t := b.tables[dbn][tbn][i]
 				if t.dead {
 					b.log.Infof("Table with id %v removed from binlog reader", t.id)
 					err := t.producer.Close()
 					log.EL(b.log, err)
-					s := b.tables[m][n]
+					s := b.tables[dbn][tbn]
 					s[i] = s[len(s)-1]
 					s[len(s)-1] = nil
-					b.tables[m][n] = s[:len(s)-1]
-					if len(b.tables[m][n]) == 0 {
-						delete(b.tables[m], n)
+					b.tables[dbn][tbn] = s[:len(s)-1]
+					if len(b.tables[dbn][tbn]) == 0 {
+						delete(b.tables[dbn], tbn)
 					}
 				} else {
 					t.dead = true
 					count++
-					log.Debugf("%v", t.id)
+					s += fmt.Sprintf("%v,", t.id)
 					i++
 				}
 			}
 		}
-		if len(b.tables[m]) == 0 {
-			delete(b.tables, m)
+		if len(b.tables[dbn]) == 0 {
+			delete(b.tables, dbn)
 		}
 	}
+	b.log.Debugf("Working on %v tables with ids: %s", count, s)
 	return
 }
 
 func (b *mysqlReader) closeTableProducers() {
-	for m, sdb := range b.tables {
-		for n, tver := range sdb {
+	for dbn, sdb := range b.tables {
+		for tbn, tver := range sdb {
 			for i := 0; i < len(tver); i++ {
 				b.log.Debugf("Closing producer for service=%v, table=%v", tver[i].service, tver[i].id)
 				log.EL(b.log, tver[i].producer.Close())
 				tver[i] = nil
 			}
-			delete(b.tables[m], n)
+			delete(b.tables[dbn], tbn)
 		}
-		delete(b.tables, m)
+		delete(b.tables, dbn)
 	}
+}
+
+func findInVersionArray(a []*table, output string, version int) int {
+	j := 0
+	for ; j < len(a) && (a[j].version != version || a[j].output != output); j++ {
+	}
+	return j
 }
 
 func (b *mysqlReader) reloadState() bool {
@@ -257,7 +306,9 @@ func (b *mysqlReader) reloadState() bool {
 
 	b.log.Debugf("reloadState")
 
-	for i, t := range st {
+	for i := 0; i < len(st); i++ {
+		t := &st[i]
+
 		if b.tables[t.Db] == nil {
 			b.tables[t.Db] = make(map[string][]*table)
 		}
@@ -272,9 +323,7 @@ func (b *mysqlReader) reloadState() bool {
 
 		tver := b.tables[t.Db][t.Table]
 
-		var j int
-		for ; j < len(tver) && (tver[j].version != t.Version || tver[j].output != t.Output); j++ {
-		}
+		j := findInVersionArray(tver, t.Output, t.Version)
 
 		if j < len(tver) {
 			/* Table was deleted and inserted again. Reinitialize */
@@ -286,8 +335,23 @@ func (b *mysqlReader) reloadState() bool {
 				b.tables[t.Db][t.Table] = tver[:len(tver)-1]
 			} else {
 				tver[j].dead = false
+				if t.SnapshotTimeChanged(tver[j].snapshottedAt) {
+					pn, err := config.Get().GetChangelogTopicName(t.Service, t.Db, t.Table, t.Input, t.Output, t.Version, t.SnapshottedAt)
+					if log.EL(b.log, err) {
+						return false
+					}
+
+					err = tver[j].producer.Close()
+					log.EL(b.log, err)
+
+					tver[j].producer, err = b.createProducer(pn, t)
+					if log.EL(b.log, err) {
+						return false
+					}
+					tver[j].snapshottedAt = t.SnapshottedAt
+				}
 			}
-		} else if !b.addNewTable(st, i) {
+		} else if !b.addNewTable(t) {
 			return false
 		}
 	}
@@ -296,7 +360,7 @@ func (b *mysqlReader) reloadState() bool {
 
 	b.metrics.NumTablesIngesting.Set(int64(c))
 
-	if b.bufPipe.Type() == "local" {
+	if b.bufPipe.Type() == "local" && b.tpool != nil {
 		b.tpool.Adjust(c + 1)
 	}
 
@@ -311,10 +375,10 @@ func (b *mysqlReader) reloadState() bool {
 }
 
 /* Generates next seqno, seqno is used as a logical time in the produced events */
-/* Saves seqno in the state every seqnoSaveInterval */
+/* Saves seqno in the state every SeqnoSaveInterval */
 func (b *mysqlReader) nextSeqNo() uint64 {
 	b.seqNo++
-	if b.seqNo%seqnoSaveInterval == 0 && !b.updateState(false) {
+	if b.seqNo%SeqnoSaveInterval == 0 && !b.updateState(false) {
 		return 0
 	}
 	return b.seqNo
@@ -323,7 +387,11 @@ func (b *mysqlReader) nextSeqNo() uint64 {
 func (b *mysqlReader) updateState(inc bool) bool {
 	log.Debugf("Updating state")
 
-	if !b.lock.Refresh() {
+	if !db.IsValidConn(&b.dbl, db.Slave, b.masterCI, b.inputType) {
+		return false
+	}
+
+	if !state.RefreshClusterLock(b.dbl.Cluster, b.workerID) {
 		return false
 	}
 
@@ -333,10 +401,10 @@ func (b *mysqlReader) updateState(inc bool) bool {
 
 	/* Skip all seqNo possibly used before restart.*/
 	if inc {
-		b.seqNo += seqnoSaveInterval
+		b.seqNo += SeqnoSaveInterval
 	}
 
-	if log.E(state.SaveBinlogState(&b.dbl, b.gtidSet.String(), b.seqNo)) {
+	if log.E(state.SaveBinlogState(b.dbl.Cluster, util.SortedGTIDString(b.gtidSet), b.seqNo)) {
 		return false
 	}
 
@@ -356,7 +424,7 @@ func (b *mysqlReader) updateState(inc bool) bool {
 		}
 	*/
 
-	metrics.GetGlobal().NumTablesRegistered.Emit()
+	state.EmitRegisteredTablesCount()
 	b.metrics.NumWorkers.Emit()
 
 	log.Debugf("Updating state finished")
@@ -364,54 +432,49 @@ func (b *mysqlReader) updateState(inc bool) bool {
 	return true
 }
 
-func (b *mysqlReader) wrapEvent(outputFormat string, key string, bd []byte, seqno uint64) ([]byte, error) {
-	akey := make([]interface{}, 1)
-	akey[0] = key
-
-	cfw := types.CommonFormatEvent{
-		Type:      outputFormat,
-		Key:       akey,
-		SeqNo:     seqno,
-		Timestamp: time.Now().UnixNano(),
-		Fields:    nil,
+func gtidToString(v *replication.GTIDEvent) string {
+	u, err := uuid.FromBytes(v.SID)
+	s := "error"
+	if !log.E(err) {
+		s = u.String()
 	}
 
-	cfb, err := encoder.Internal.CommonFormat(&cfw)
-	if err != nil {
-		return nil, err
-	}
-
-	buf := bytes.NewBuffer(cfb)
-	buf.Write(bd)
-
-	return buf.Bytes(), nil
+	return fmt.Sprintf("%v:%v", s, v.GNO)
 }
 
-func (b *mysqlReader) produceRow(tp int, t *table, row *[]interface{}) error {
+func (b *mysqlReader) produceRow(tp int, t *table, ts time.Time, row *[]interface{}) error {
 	var err error
 	buffered := config.Get().ChangelogBuffer
 	seqno := b.nextSeqNo()
 	if seqno == 0 {
-		return fmt.Errorf("Failed to generate next seqno. Current seqno:%+v", b.seqNo)
+		return fmt.Errorf("failed to generate next seqno. Current seqno: %+v", b.seqNo)
 	}
 	key := encoder.GetRowKey(t.encoder.Schema(), row)
 	if buffered && b.bufPipe.Type() == "local" {
-		err = t.producer.PushBatch(key, &types.RowMessage{Type: tp, Key: key, Data: row, SeqNo: seqno})
+		err = t.producer.PushBatch(key, &types.RowMessage{Type: tp, Key: key, Data: row, SeqNo: seqno, Timestamp: ts})
 	} else {
 		var bd []byte
-		bd, err = t.encoder.Row(tp, row, seqno)
-		if log.EL(b.log, err) {
+		bd, err = t.encoder.Row(tp, row, seqno, ts)
+		if err != nil {
+			var masterGTID string
+			if strings.Contains(err.Error(), "column count mismatch") {
+				var err1 error
+				masterGTID, err1 = db.GetCurrentGTID(b.masterCI)
+				log.E(err1)
+			}
+			b.log.WithFields(log.Fields{"state gtid": util.SortedGTIDString(b.gtidSet), "event gtid": gtidToString(&b.curGTID), "master gtid": masterGTID, "table": t.id}).Errorf(err.Error())
 			return err
 		}
 		if !buffered {
 			key = t.producer.PartitionKey("log", key)
 		} else if t.encoder.Type() != encoder.Internal.Type() {
-			bd, err = b.wrapEvent(t.outputFormat, key, bd, seqno)
+			bd, err = encoder.WrapEvent(t.outputFormat, key, bd, seqno)
 			if log.EL(b.log, err) {
 				return err
 			}
 		}
 		err = t.producer.PushBatch(key, bd)
+		b.metrics.BytesWritten.Inc(int64(len(bd)))
 	}
 	//log.Debugf("Pushed to buffer. seqno=%v, table=%v", seqno, t.id)
 	if shutdown.Initiated() {
@@ -421,7 +484,7 @@ func (b *mysqlReader) produceRow(tp int, t *table, row *[]interface{}) error {
 		b.log.Errorf("Type: %v, Error: %v", tp, err.Error())
 		return err
 	}
-	b.metrics.BinlogRowEventsWritten.Inc(1)
+	b.metrics.ChangelogRowEventsWritten.Inc(1)
 	return nil
 }
 
@@ -429,8 +492,7 @@ func (b *mysqlReader) handleRowsEventLow(ev *replication.BinlogEvent, t *table) 
 	var err error
 
 	re := ev.Event.(*replication.RowsEvent)
-
-	//	log.Debugf("Handle rows event %+v. tableid=%v, latency=%v, now=%v, timestamp=%v", ev.Header.EventType, t.id, time.Now().Unix()-int64(ev.Header.Timestamp), time.Now().Unix(), int64(ev.Header.Timestamp))
+	ts := time.Unix(int64(ev.Header.Timestamp), 0)
 
 	/*
 		bb := new(bytes.Buffer)
@@ -442,38 +504,152 @@ func (b *mysqlReader) handleRowsEventLow(ev *replication.BinlogEvent, t *table) 
 	case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
 		//TODO: Produce as a batch
 		for i := 0; i < len(re.Rows) && err == nil; i++ {
-			err = b.produceRow(types.Insert, t, &re.Rows[i])
+			err = b.produceRow(types.Insert, t, ts, &re.Rows[i])
 		}
 	case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
 		for i := 0; i < len(re.Rows) && err == nil; i++ {
-			err = b.produceRow(types.Delete, t, &re.Rows[i])
+			err = b.produceRow(types.Delete, t, ts, &re.Rows[i])
 		}
 	case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
 		for i := 0; i < len(re.Rows) && err == nil; i += 2 {
-			err = b.produceRow(types.Delete, t, &re.Rows[i])
+			if !strings.HasSuffix(t.outputFormat, "_idempotent") {
+				err = b.produceRow(types.Delete, t, ts, &re.Rows[i])
+			}
 			if err == nil {
-				err = b.produceRow(types.Insert, t, &re.Rows[i+1])
+				err = b.produceRow(types.Insert, t, ts, &re.Rows[i+1])
 			}
 		}
 	default:
-		err = fmt.Errorf("Not supported event type %v", ev.Header.EventType)
+		err = fmt.Errorf("not supported event type %v", ev.Header.EventType)
 	}
 
 	return !log.E(err)
 }
 
-func (b *mysqlReader) handleRowsEvent(ev *replication.BinlogEvent, dbn string, tn string) bool {
-	if b.tables[dbn] == nil || b.tables[dbn][tn] == nil {
+func (b *mysqlReader) handleRowsEvent(ev *replication.BinlogEvent, dbn string, tbn string) bool {
+	if b.tables[dbn] == nil || b.tables[dbn][tbn] == nil {
 		return true
 	}
 
 	//Produce event to all outputs and versions of the table
-	for i := 0; i < len(b.tables[dbn][tn]); i++ {
-		if !b.handleRowsEventLow(ev, b.tables[dbn][tn][i]) {
+	for i := range b.tables[dbn][tbn] {
+		if !b.handleRowsEventLow(ev, b.tables[dbn][tbn][i]) {
 			return false
 		}
 	}
 
+	return true
+}
+
+func handleAlterTable(b *mysqlReader, qe *replication.QueryEvent, m [][]string) bool {
+	//Make sure that we have up to date state before deciding whether this
+	// alter table is for being ingested table or not
+	if !b.updateState(false) {
+		return false
+	}
+	dbname := m[0][1]
+	table := m[0][2]
+	if dbname == "" {
+		dbname = util.BytesToString(qe.Schema)
+	}
+	d := b.tables[dbname]
+	if d != nil && d[table] != nil {
+		tver := d[table]
+		b.log.WithFields(log.Fields{"db": dbname, "table": table, "alter": m[0][3]}).Debugf("detected alter statement of being ingested table")
+		b.metrics.ChangelogAlterTableEvents.Inc(1)
+
+		if strings.Contains(strings.ToLower(m[0][3]), " foreign key ") {
+			log.Debugf("Skipping foreign key alter")
+			return true
+		}
+
+		if injectAlterFailure {
+			log.Errorf("Exited due to failure injection")
+			return false
+		}
+
+		for i := range tver {
+			t := tver[i]
+			newGtid := util.SortedGTIDString(b.gtidSet)
+			if !schema.MutateTable(state.GetNoDB(), t.service, dbname, table, m[0][3], t.encoder.Schema(), &t.rawSchema) ||
+				!state.ReplaceSchema(t.service, b.dbl.Cluster, t.encoder.Schema(), t.rawSchema, t.schemaGtid, newGtid, b.inputType, t.output, t.version, t.outputFormat, t.params) {
+				return false
+			}
+
+			t.schemaGtid = newGtid
+
+			err := t.encoder.UpdateCodec()
+			if log.EL(b.log, err) {
+				return false
+			}
+			log.Debugf("Updated codec. id=%v", t.id)
+		}
+
+		if !b.pushSchema(tver) {
+			return false
+		}
+
+		b.metrics.ChangelogQueryEventsWritten.Inc(int64(len(tver)))
+		return true
+	}
+	b.log.WithFields(log.Fields{"query": util.BytesToString(qe.Query), "db": util.BytesToString(qe.Schema)}).Debugf("Unhandled query (alter). cluster: " + b.dbl.Cluster)
+	return true
+}
+
+func handleRenameTable(b *mysqlReader, qe *replication.QueryEvent, m [][]string) bool {
+	s := util.BytesToString(qe.Query)
+	renameRE := regexp.MustCompile(`(?i)(^\s*(?:/\*[^\*]*\*/)?\s*rename\s+table\s+)`)
+	r := renameRE.FindAllStringSubmatch(s, -1)
+	if len(r) == 0 || len(m) < 2 {
+		b.log.WithFields(log.Fields{"query": util.BytesToString(qe.Query), "db": util.BytesToString(qe.Schema)}).Debugf("Unhandled query (rename). cluster: " + b.dbl.Cluster)
+		return true
+	}
+	for _, t := range m {
+		dbname := t[4]
+		table := t[5]
+		if dbname == "" {
+			dbname = util.BytesToString(qe.Schema)
+		}
+		d := b.tables[dbname]
+		if d != nil && len(d[table]) > 0 {
+			tver := d[table]
+			b.log.WithFields(log.Fields{"db": dbname, "table": table, "rename": t[0]}).Debugf("detected rename statement of being ingested table")
+			b.metrics.ChangelogAlterTableEvents.Inc(1)
+
+			newGtid := util.SortedGTIDString(b.gtidSet)
+			ts, rs := state.PullCurrentSchema(&db.Loc{Service: tver[0].service, Cluster: b.dbl.Cluster, Name: dbname}, table, types.InputMySQL)
+			if ts == nil {
+				return false
+			}
+
+			for i := range tver {
+				t := tver[i]
+				t.rawSchema = rs
+				ets := t.encoder.Schema()
+				ets.DBName = ts.DBName
+				ets.TableName = ts.TableName
+				ets.Columns = ts.Columns
+				if !state.ReplaceSchema(t.service, b.dbl.Cluster, t.encoder.Schema(), t.rawSchema, t.schemaGtid, newGtid, b.inputType, t.output, t.version, t.outputFormat, t.params) {
+					return false
+				}
+
+				t.schemaGtid = newGtid
+
+				err := t.encoder.UpdateCodec()
+				if log.EL(b.log, err) {
+					return false
+				}
+				log.Debugf("Updated codec. id=%v", t.id)
+			}
+
+			if !b.pushSchema(tver) {
+				return false
+			}
+
+			b.metrics.ChangelogQueryEventsWritten.Inc(int64(len(tver)))
+			return true
+		}
+	}
 	return true
 }
 
@@ -491,85 +667,57 @@ func (b *mysqlReader) handleQueryEvent(ev *replication.BinlogEvent) bool {
 
 	b.log.Debugf("handleQueryEvent %+v", s)
 
-	log.Debugf("REGEXP: %q\n", b.alterQuotedRE.FindAllStringSubmatch(s, -1))
+	matched := false
+	for _, v := range queryHandlers {
+		m := v.compiled.FindAllStringSubmatch(s, -1)
+		if len(m) > 0 {
+			matched = true
+			b.log.Debugf("Match result: %q", m)
 
-	m := b.alterRE.FindAllStringSubmatch(s, -1)
-
-	if len(m) == 0 {
-		m = b.alterQuotedRE.FindAllStringSubmatch(s, -1)
-	}
-
-	b.log.Debugf("Match result: %q", m)
-
-	if len(m) == 1 {
-		/*Make sure that we have up to date state before deciding whether this
-		* alter table is for being ingested table or not */
-		if !b.updateState(false) {
-			return false
-		}
-		dbname := m[0][1]
-		table := m[0][2]
-		if dbname == "" {
-			dbname = util.BytesToString(qe.Schema)
-		}
-		d := b.tables[dbname]
-		if d != nil && d[table] != nil {
-			tver := d[table]
-			b.log.Debugf("detected alter statement of being ingested table '%v.%v', mutation '%v'", dbname, table, m[0][3])
-			for i := 0; i < len(tver); i++ {
-				t := tver[i]
-				if !schema.MutateTable(state.GetNoDB(), t.service, dbname, table, m[0][3], t.encoder.Schema(), &t.rawSchema) ||
-					!state.ReplaceSchema(t.service, b.dbl.Cluster, t.encoder.Schema(), t.rawSchema, t.schemaGtid, b.gtidSet.String(), "mysql", t.output, t.version, t.outputFormat) {
-					return false
-				}
-
-				t.schemaGtid = b.gtidSet.String()
-
-				err := t.encoder.UpdateCodec()
-				if log.EL(b.log, err) {
-					return false
-				}
-				log.Debugf("Updated codec. id=%v", t.id)
-			}
-
-			if !b.pushSchema(tver) {
+			if !v.handler(b, qe, m) {
 				return false
 			}
-
-			b.metrics.BinlogQueryEventsWritten.Inc(int64(len(tver)))
-
-			return true
 		}
 	}
 
-	b.log.Debugf("Unhandled query. Query: %+v, Schema: %+v", s, util.BytesToString(qe.Schema))
+	if !matched {
+		b.log.WithFields(log.Fields{"query": s, "db": util.BytesToString(qe.Schema)}).Debugf("Unhandled query. cluster: " + b.dbl.Cluster)
+	}
 	return true
 }
 
 func (b *mysqlReader) incGTID(v *replication.GTIDEvent) bool {
-	u, err := uuid.FromBytes(v.SID)
+	if b.curGTID.SID == nil {
+		b.curGTID = *v
+		return true
+	}
+
+	u, err := uuid.FromBytes(b.curGTID.SID)
 	if log.E(err) {
 		return false
 	}
 
 	if s, ok := b.gtidSet.Sets[u.String()]; ok {
 		l := &s.Intervals[len(s.Intervals)-1]
-		if l.Stop == v.GNO {
+		if l.Stop == b.curGTID.GNO {
 			l.Stop++
+			b.curGTID = *v
 			return true
 		}
-		b.log.Infof("non-sequential gtid event: %+v %+v", l.Stop, v.GNO)
+		b.log.Infof("non-sequential gtid GNO: %+v %+v", l.Stop, b.curGTID.GNO)
 	}
 
-	gtid := fmt.Sprintf("%s:%d", u.String(), v.GNO)
-	b.log.Infof("non-sequential gtid event: %+v", gtid)
-	b.log.Infof("out gtid set: %+v", b.gtidSet.String())
+	gtid := fmt.Sprintf("%s:%d", u.String(), b.curGTID.GNO)
 	us, err := mysql.ParseUUIDSet(gtid)
 	if log.E(err) {
 		return false
 	}
 
 	b.gtidSet.AddSet(us)
+
+	b.log.WithFields(log.Fields{"gtid": gtid, "out_gtid_set": util.SortedGTIDString(b.gtidSet)}).Debugf("non-sequential gtid event")
+
+	b.curGTID = *v
 
 	return true
 }
@@ -599,11 +747,10 @@ func (b *mysqlReader) handleEvent(ev *replication.BinlogEvent) bool {
 		//ignoring
 	default:
 		if ev.Header.EventType != replication.HEARTBEAT_EVENT {
-			b.metrics.BinlogUnhandledEvents.Inc(1)
+			b.metrics.ChangelogUnhandledEvents.Inc(1)
 			bb := new(bytes.Buffer)
 			ev.Dump(bb)
 			b.log.Debugf("Unhandled binlog event: %+v", bb.String())
-			fmt.Fprintf(os.Stderr, bb.String())
 		}
 	}
 
@@ -615,38 +762,7 @@ type result struct {
 	err error
 }
 
-func (b *mysqlReader) processBatch(msg *result, msgCh chan *result) bool {
-	var i, s int
-L:
-	for {
-		if msg.err != nil {
-			if msg.err.Error() != "context canceled" {
-				b.log.Errorf("BinlogReadEvents: %v", msg.err.Error())
-				return false
-			}
-			break L //Shutting down, let it commit current  batchu
-		}
-
-		s++
-		if !b.handleEvent(msg.ev) {
-			return false
-		}
-
-		i++
-		if i >= b.batchSize*b.numTables {
-			break
-		}
-
-		select {
-		case msg = <-msgCh:
-		default:
-			break L //No messages for now, break the loop and commit whatever we pushed to the batch already
-		}
-	}
-
-	b.metrics.EventsRead.Inc(int64(s))
-	b.metrics.BatchSize.Record(time.Duration(s * 1000000))
-
+func (b *mysqlReader) commitBatch() bool {
 	//TODO: Commit only tables which had data in this batch
 	w := b.metrics.ProduceLatency
 	w.Start()
@@ -662,8 +778,57 @@ L:
 		}
 	}
 	w.Stop()
-
 	return true
+}
+
+func (b *mysqlReader) processBatch(msg *result, msgCh chan *result) bool {
+	var i int
+L:
+	for {
+		if msg.err != nil {
+			merr, ok := msg.err.(*mysql.MyError)
+			if ok && merr.Code == 1236 {
+				serverGtid, err := db.GetCurrentGTID(b.masterCI)
+				if err != nil {
+					b.log.Errorf("Error fetchching gtid from server: %v", err)
+				}
+				purgedGtid, err := db.GetPurgedGTID(b.masterCI)
+				if err != nil {
+					b.log.Errorf("Error fetchching purged gtid from server: %v", err)
+				}
+				b.log.WithFields(log.Fields{"my_gtid_set": strings.Replace(util.SortedGTIDString(b.gtidSet), ",", ",\n", -1), "server_gtid_set": serverGtid, "purged_gtid": purgedGtid}).Errorf("Error connecting to master: %v", merr)
+				return false
+			} else if msg.err.Error() != "context canceled" {
+				b.log.Errorf("BinlogReadEvents: %v", msg.err.Error())
+				return false
+			}
+			break L //Shutting down, let it commit current  batch
+		}
+
+		if !b.handleEvent(msg.ev) {
+			return false
+		}
+
+		i++
+		//TODO: Unify with streamer logic. Extract MaxBatchSize from per table
+		//pipe config
+		if i >= b.batchSize*b.numTables {
+			break
+		}
+
+		select {
+		case msg = <-msgCh:
+		default:
+			break L //No messages for now, break the loop and commit whatever we pushed to the batch already
+		}
+	}
+
+	b.heartbeatTime = time.Now()
+
+	b.metrics.EventsRead.Inc(int64(i))
+	b.metrics.BatchSize.Record(time.Duration(i) * time.Millisecond)
+
+	return b.commitBatch()
 }
 
 //eventFetcher is blocking call to buffered channel converter
@@ -672,9 +837,7 @@ func (b *mysqlReader) eventFetcher(ctx context.Context, s *replication.BinlogStr
 L:
 	for {
 		msg := &result{}
-		//b.metrics.ReadLatency.Start()
 		msg.ev, msg.err = s.GetEvent(ctx)
-		//b.metrics.ReadLatency.Stop()
 		select {
 		case msgCh <- msg:
 			if msg.err != nil && msg.err.Error() != "context canceled" {
@@ -684,39 +847,70 @@ L:
 			break L
 		}
 	}
-	log.Debugf("Finished MySQL binlog reader helper goroutine")
+	b.log.Debugf("Finished MySQL binlog reader helper goroutine")
 }
 
-func (b *mysqlReader) readEvents(c *db.Addr, stateUpdateTimeout int) {
+func (b *mysqlReader) fetchFirstEvent(stateUpdateTicker *time.Ticker, watchdogTicker *time.Ticker, msgCh chan *result) (bool, *result) {
+	defer b.metrics.ReadLatency.Start().Stop()
+	select {
+	case <-watchdogTicker.C:
+		if b.heartbeatTime.Add(config.Get().ChangelogWatchdogInterval).After(time.Now()) {
+			return true, nil
+		}
+		b.log.Errorf("Watchdog expired")
+	case <-stateUpdateTicker.C:
+		if b.updateState(false) {
+			return true, nil
+		}
+	case msg, ok := <-msgCh:
+		return ok, msg
+	case <-shutdown.InitiatedCh():
+		b.incGTID(&replication.GTIDEvent{})
+		g := util.SortedGTIDString(b.gtidSet)
+		if !log.EL(b.log, state.SaveBinlogState(b.dbl.Cluster, g, b.seqNo)) {
+			b.log.WithFields(log.Fields{"gtid": g, "SeqNo": b.seqNo}).Infof("Binlog state saved")
+			return false, nil
+		}
+	}
+	b.metrics.Errors.Inc(1)
+	return false, nil
+}
+
+func (b *mysqlReader) readEvents(c *db.Addr, stateUpdateInterval time.Duration) {
 	id := rand.Uint32()
 	for id == 0 {
 		id = rand.Uint32()
 	}
 	cfg := replication.BinlogSyncerConfig{
-		ServerID: id,
-		Flavor:   "mysql",
-		Host:     c.Host,
-		Port:     c.Port,
-		User:     c.User,
-		Password: c.Pwd,
+		ServerID:  id,
+		Flavor:    "mysql",
+		Host:      c.Host,
+		Port:      c.Port,
+		User:      c.User,
+		Password:  c.Pwd,
+		ParseTime: true,
 	}
 
-	syncer := replication.NewBinlogSyncer(&cfg)
-	streamer, err := syncer.StartSyncGTID(b.gtidSet)
-	if log.E(err) {
+	syncer := replication.NewBinlogSyncer(cfg)
+	streamer, err := syncer.StartSyncGTID(b.gtidSet.Clone())
+	if log.EL(b.log, err) {
+		b.metrics.Errors.Inc(1)
 		return
 	}
 	defer syncer.Close()
 
-	updateTicker := time.NewTicker(time.Second * time.Duration(stateUpdateTimeout))
-	defer updateTicker.Stop()
+	stateUpdateTicker := time.NewTicker(stateUpdateInterval)
+	defer stateUpdateTicker.Stop()
+	watchdogTicker := time.NewTicker(config.Get().ChangelogWatchdogInterval)
+	defer watchdogTicker.Stop()
 
 	defer b.closeTableProducers()
 	if !b.updateState(true) {
+		b.metrics.Errors.Inc(1)
 		return
 	}
 
-	b.log.WithFields(log.Fields{"gtid": b.gtidSet.String(), "SeqNo": b.seqNo}).Infof("Binlog start")
+	b.log.WithFields(log.Fields{"gtid": util.SortedGTIDString(b.gtidSet), "SeqNo": b.seqNo}).Infof("Binlog start")
 
 	msgCh, exitCh := make(chan *result, b.batchSize), make(chan bool)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -727,81 +921,51 @@ func (b *mysqlReader) readEvents(c *db.Addr, stateUpdateTimeout int) {
 	/*This goroutine is to multiplex blocking streamer.GetEvent and tickCh*/
 	go b.eventFetcher(ctx, streamer, &wg, msgCh, exitCh)
 
-M:
-	for !shutdown.Initiated() {
-		select {
-		case <-updateTicker.C:
-			if !b.updateState(false) {
-				break M
-			}
-		case msg, ok := <-msgCh:
-			if !ok || !b.processBatch(msg, msgCh) {
-				break M
-			}
-		case <-shutdown.InitiatedCh():
+	for {
+		more, msg := b.fetchFirstEvent(stateUpdateTicker, watchdogTicker, msgCh)
+		if !more {
+			break
+		}
+		if msg != nil && !b.processBatch(msg, msgCh) {
+			b.metrics.Errors.Inc(1)
+			break
 		}
 	}
 
 	b.log.Debugf("Finishing MySQL binlog reader")
-
-	if !log.EL(b.log, state.SaveBinlogState(&b.dbl, b.gtidSet.String(), b.seqNo)) {
-		b.log.WithFields(log.Fields{"gtid": b.gtidSet.String(), "SeqNo": b.seqNo}).Infof("Binlog state saved")
-	}
-}
-
-func (b *mysqlReader) lockCluster(lock lock.Lock, st state.Type) bool {
-	if len(st) == 0 {
-		return false
-	}
-	for pos, j := rand.Int()%len(st), 0; j < len(st); j++ {
-		r := st[pos]
-		ln := "cluster." + r.Cluster
-		log.Debugf("Trying to lock: " + ln)
-		if lock.TryLock(ln) {
-			b.dbl.Cluster = r.Cluster
-			b.dbl.Service = r.Service
-			b.dbl.Name = r.Db
-			return true
-		}
-		pos = (pos + 1) % len(st)
-	}
-
-	return false
 }
 
 func (b *mysqlReader) start(cfg *config.AppConfig) bool {
-	st, err := state.GetCond("input='mysql'")
-	if log.E(err) {
-		return true
+	var err error
+
+	h, _ := os.Hostname()
+	w := log.GenWorkerID()
+	b.workerID = h + "." + w
+
+	b.dbl.Service, b.dbl.Cluster, b.dbl.Name, err = state.GetClusterTask(types.InputMySQL, b.workerID, cfg.LockExpireTimeout)
+	if err != nil || b.dbl.Service == "" {
+		return false
 	}
 
-	b.lock = lock.Create(state.GetDbAddr(), 1)
-	defer b.lock.Close()
-
-	if !b.lockCluster(b.lock, st) {
-		if len(st) != 0 {
-			log.Debugf("Couldn't lock any cluster")
-		}
-		return false /* Couldn't lock any cluster, no binlog-readers needed */
-	}
-
-	bTags := getClusterTag(b.dbl.Cluster)
-	b.metrics = metrics.GetBinlogReaderMetrics(bTags)
-	log.Debugf("Initializing metrics for MySQL binlog reader, tagged with tags: %v ", bTags)
+	b.metrics = metrics.NewChangelogReaderMetrics(getTags(b.dbl.Cluster, b.inputType))
 
 	b.metrics.NumWorkers.Inc()
-	defer b.metrics.NumWorkers.Dec()
+	defer func() {
+		if err != nil {
+			b.metrics.Errors.Inc(1)
+		}
+		b.metrics.NumWorkers.Dec()
+	}()
 
 	thisInstanceCluster = b.dbl.Cluster
-	b.batchSize = cfg.PipeBatchSize
 
-	b.log = log.WithFields(log.Fields{"cluster": b.dbl.Cluster})
+	b.log = log.WithFields(log.Fields{"worker_id": w, "cluster": b.dbl.Cluster})
 
 	b.log.Infof("Starting MySQL binlog reader")
 
-	/* Get Master's connection info */
-	b.masterCI = db.GetInfo(&b.dbl, db.Master)
-	if b.masterCI == nil {
+	// Get slave's connection info. Connecting to slave guarantees that we will connect to DC local slave
+	b.masterCI, err = db.GetConnInfo(&b.dbl, db.Slave, b.inputType)
+	if err != nil {
 		return true
 	}
 
@@ -813,40 +977,39 @@ func (b *mysqlReader) start(cfg *config.AppConfig) bool {
 	}
 
 	b.tables = make(map[string]map[string][]*table)
-	//Golang doesn't support backreferences so next doesn't work:
-	//b.alterRE = regexp.MustCompile("^\\s*alter\\s+table\\s+(?:(`)?(\\w+)(`)?\\.)?(`)?(\\w+)(`)?\\s+(.*)$")
-	//And we will not handle cases when table is backticked and database is not
-	//and vice versa
-	b.alterRE = regexp.MustCompile(`(?im)^\s*alter\s+table\s+(?:(\w+)\.)?(\w+)\s+([^$]+)$`)
-	//b.alterQuotedRE = regexp.MustCompile("(?i)^\\s*alter\\s+table\\s+(?:`([^\\.]+)`\\.)?`([^`]+)`\\s+([^$]*)$")
-	b.alterQuotedRE = regexp.MustCompile(`(?i)^\s*alter\s+table\s+(?:` + "`" + `([^\.]+)` + "`" + `\.)?` + "`" + `([^` + "`" + `]+)` + "`" + `\s+([^$]*)$`)
 
-	/* Start reading binlogs from the gtid set saved in the state */
-	gtid, err := state.GetGTID(&b.dbl)
+	for i := 0; i < len(queryHandlers); i++ {
+		queryHandlers[i].compiled = regexp.MustCompile(queryHandlers[i].regexp)
+	}
+
+	// Start reading binlogs from the gtid set saved in the state
+	var gtid string
+	gtid, err = state.GetGTID(b.dbl.Cluster)
 	if log.EL(b.log, err) {
 		return true
 	}
 
 	/* If no gtid in the state get current gtid set from master */
 	if gtid == "" {
-		gtid, err = state.GetCurrentGTID(b.masterCI)
+		gtid, err = db.GetCurrentGTID(b.masterCI)
 		if err != nil {
 			return true
 		}
-		err = state.SetGTID(&b.dbl, gtid)
+		err = state.SetGTID(b.dbl.Cluster, gtid)
 		if err != nil {
 			b.log.Errorf("Error saving gtid. gtid %v. Error: %v", gtid, err.Error())
 		}
 	}
 
-	s, err := mysql.ParseMysqlGTIDSet(gtid)
+	var s mysql.GTIDSet
+	s, err = mysql.ParseMysqlGTIDSet(gtid)
 	if err != nil {
 		b.log.Errorf("Invalid gtid: '%v' Error: %v", gtid, err.Error())
 		return true
 	}
 	b.gtidSet = s.(*mysql.MysqlGTIDSet)
 
-	b.readEvents(b.masterCI, cfg.StateUpdateTimeout)
+	b.readEvents(b.masterCI, cfg.StateUpdateInterval)
 
 	b.log.Infof("MySQL Binlog reader finished")
 

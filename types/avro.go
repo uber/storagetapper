@@ -47,8 +47,7 @@ type AvroSchema struct {
 	Name          string          `json:"name"`
 	Namespace     string          `json:"namespace"`
 	Owner         string          `json:"owner"`
-	SchemaID      int             `json:"schema_id"`
-	SchemaVersion int             `json:"schemaVersion"`
+	SchemaVersion int             `json:",omitempty"`
 	Type          AvroComplexType `json:"type"`
 	Doc           string          `json:"doc,omitempty"`
 	LastModified  string          `json:"last_modified,omitempty"`

@@ -27,14 +27,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/colinmarc/hdfs"
+	"github.com/efirs/hdfs"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/log"
-	"golang.org/x/net/context" //"context"
+	"github.com/uber/storagetapper/metrics"
+	//"context"
 )
 
 type hdfsClient struct {
 	*hdfs.Client
+}
+
+type hdfsWriter struct {
+	*hdfs.FileWriter
 }
 
 func (p *hdfsClient) OpenRead(name string, offset int64) (io.ReadCloser, error) {
@@ -43,7 +48,7 @@ func (p *hdfsClient) OpenRead(name string, offset int64) (io.ReadCloser, error) 
 		return nil, err
 	}
 
-	_, err = f.Seek(offset, os.SEEK_SET)
+	_, err = f.Seek(offset, io.SeekStart)
 	if err != nil {
 		return nil, err
 	}
@@ -51,12 +56,12 @@ func (p *hdfsClient) OpenRead(name string, offset int64) (io.ReadCloser, error) 
 	return f, nil
 }
 
-func (p *hdfsClient) OpenWrite(name string) (io.WriteCloser, io.Seeker, error) {
+func (p *hdfsClient) OpenWrite(name string) (flushWriteCloser, io.Seeker, error) {
 	f, err := p.Client.Append(name)
 	if err != nil {
 		f, err = p.Client.Create(name)
 	}
-	return f, nil, err
+	return &hdfsWriter{f}, nil, err
 }
 
 var retryTimeout = 10 //seconds
@@ -87,8 +92,37 @@ func (p *hdfsClient) Remove(path string) error {
 	return withRetry(func() error { return p.Client.Remove(path) })
 }
 
-func (p *hdfsClient) Close(f io.WriteCloser) error {
-	return withRetry(func() error { return f.Close() })
+func (p *hdfsClient) Cancel(f io.Closer) error {
+	return nil
+}
+
+func (p *hdfsClient) ReadDir(dir string, _ string) ([]os.FileInfo, error) {
+	return p.Client.ReadDir(dir)
+}
+
+func (p *hdfsWriter) Write(b []byte) (int, error) {
+	var err error
+	var n int
+	off := 0
+	for off < len(b) && err == nil {
+		n, err = p.FileWriter.Write(b[off:])
+		off += n
+		for i := 0; err != nil && retriable(err) && i < retryTimeout*10 && off < len(b); i++ {
+			time.Sleep(100 * time.Millisecond)
+			n, err = p.FileWriter.Write(b[off:])
+			off += n
+		}
+	}
+	return off, err
+}
+
+func (p *hdfsWriter) Flush() error {
+	return nil
+	//	return withRetry(func() error { return p.FileWriter.Flush() })
+}
+
+func (p *hdfsWriter) Close() error {
+	return withRetry(func() error { return p.FileWriter.Close() })
 }
 
 type hdfsPipe struct {
@@ -105,7 +139,7 @@ func init() {
 	registerPlugin("hdfs", initHdfsPipe)
 }
 
-func initHdfsPipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
+func initHdfsPipe(cfg *config.PipeConfig, db *sql.DB) (Pipe, error) {
 	cp := hdfs.ClientOptions{User: cfg.Hadoop.User, Addresses: cfg.Hadoop.Addresses}
 	client, err := hdfs.NewClient(cp)
 	if log.E(err) {
@@ -114,7 +148,7 @@ func initHdfsPipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db
 
 	log.Infof("Connected to HDFS cluster at: %v", cfg.Hadoop.Addresses)
 
-	return &hdfsPipe{filePipe{cfg.Hadoop.BaseDir, cfg.MaxFileSize, cfg.PipeAES256Key, cfg.PipeHMACKey, cfg.PipeVerifyHMAC, cfg.PipeCompression, cfg.PipeFileNoHeader, cfg.PipeFileDelimited}, client}, nil
+	return &hdfsPipe{filePipe{cfg.Hadoop.BaseDir, *cfg}, client}, nil
 }
 
 // Type returns Pipe type as Hdfs
@@ -122,35 +156,23 @@ func (p *hdfsPipe) Type() string {
 	return "hdfs"
 }
 
+// Close releases resources associated with the pipe
+func (p *hdfsPipe) Close() error {
+	return p.hdfs.Close()
+}
+
 //NewProducer registers a new sync producer
 func (p *hdfsPipe) NewProducer(topic string) (Producer, error) {
-	return &fileProducer{filePipe: &p.filePipe, topic: topic, files: make(map[string]*file), fs: &hdfsClient{p.hdfs}}, nil
+	m := metrics.NewFilePipeMetrics("pipe_producer", map[string]string{"topic": topic, "pipeType": "hdfs"})
+	return &fileProducer{filePipe: &p.filePipe, topic: topic, files: make(map[string]*file), fs: &hdfsClient{p.hdfs}, metrics: m}, nil
 }
 
 //NewConsumer registers a new hdfs consumer with context
 func (p *hdfsPipe) NewConsumer(topic string) (Consumer, error) {
-	c := &hdfsConsumer{fileConsumer{filePipe: &p.filePipe, topic: topic, fs: &hdfsClient{p.hdfs}}}
+	m := metrics.NewFilePipeMetrics("pipe_consumer", map[string]string{"topic": topic, "pipeType": "hdfs"})
+	c := &hdfsConsumer{fileConsumer{filePipe: &p.filePipe, topic: topic, fs: &hdfsClient{p.hdfs}, metrics: m}}
 	_, err := p.initConsumer(&c.fileConsumer)
 	return c, err
-}
-
-func (p *hdfsConsumer) waitAndOpenNextFile() bool {
-	for {
-		nextFn, err := p.nextFile(p.topic, p.name)
-		if log.E(err) {
-			p.err = err
-			return true
-		}
-
-		if nextFn != "" && !strings.HasSuffix(nextFn, ".open") {
-			p.openFile(nextFn, 0)
-			return true
-		}
-
-		//TODO: Implement proper watching for new files. Instead of polling.
-		//For now use consumer in tests only
-		time.Sleep(200 * time.Millisecond)
-	}
 }
 
 //FetchNext fetches next message from Hdfs and commits offset read
@@ -159,7 +181,7 @@ func (p *hdfsConsumer) FetchNext() bool {
 		if p.fetchNextLow() {
 			return true
 		}
-		if !p.waitAndOpenNextFile() {
+		if !p.waitAndOpenNextFilePoll() {
 			return false //context canceled, no message
 		}
 		if p.err != nil {

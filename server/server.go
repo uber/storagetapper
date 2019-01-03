@@ -23,21 +23,40 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/uber/storagetapper/log"
+	"github.com/uber/storagetapper/state"
+
+	"golang.org/x/net/context"
 )
+
+var server *http.Server
+var mutex = sync.Mutex{}
 
 func init() {
 	http.HandleFunc("/health", healthCheck)
 	http.HandleFunc("/schema", schemaCmd)
 	http.HandleFunc("/cluster", clusterInfoCmd)
 	http.HandleFunc("/table", tableCmd)
+	http.HandleFunc("/config", configCmd)
+	http.HandleFunc("/", indexCmd)
 }
 
 //StartHTTPServer starts listening and serving traffic on configured port and sets up http routes.
 func StartHTTPServer(port int) {
-	updateTableRegCnt()
-	log.E(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
+	state.EmitRegisteredTablesCount()
+	mutex.Lock()
+
+	server = &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: nil}
+
+	mutex.Unlock()
+
+	err := server.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
+		log.E(err)
+	}
+	log.Debugf("HTTP server is listening on %v port", port)
 }
 
 //healthCheck handles call to the health check endpoint
@@ -47,4 +66,17 @@ func healthCheck(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write([]byte("OK")); err != nil {
 		log.Errorf("Health check failed: %s\n", err)
 	}
+}
+
+//Shutdown gracefully stops the server
+func Shutdown() {
+	mutex.Lock()
+	defer mutex.Unlock()
+	if server == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log.E(server.Shutdown(ctx))
+	server = nil
 }

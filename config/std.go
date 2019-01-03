@@ -26,107 +26,111 @@ import (
 	"os"
 	"strings"
 
-	yaml "gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v2"
 
 	"github.com/uber/storagetapper/types"
 )
 
-const defaultEnvironment = "production"
+const defaultEnvironment = EnvProduction
+const defaultZone = ""
 
 var paths = []string{"/etc/" + types.MySvcName, os.Getenv("HOME") + "/." + types.MySvcName, os.Getenv(strings.ToUpper(types.MySvcName) + "_CONFIG_DIR")}
 
-var loadFile = ioutil.ReadFile
 var exit = os.Exit
 
-type stdConfig struct {
-	environment string
-	cfg         *AppConfig
+type std struct {
+	loadFn func(interface{}, string) ([]byte, error)
+	saveFn func(interface{}, string, []byte) error
+	env    string
 }
 
-func (c *stdConfig) getEnvironment() string {
-	if len(c.environment) != 0 {
-		return c.environment
+func (c *std) getEnvironment() string {
+	if len(c.env) != 0 {
+		return c.env
 	}
-	c.environment = strings.ToLower(os.Getenv(strings.ToUpper(types.MySvcName) + "_ENVIRONMENT"))
-	if c.environment != "production" && c.environment != "development" {
-		c.environment = defaultEnvironment
+	c.env = strings.ToLower(os.Getenv(strings.ToUpper(types.MySvcName) + "_ENVIRONMENT"))
+	if c.env != EnvProduction && c.env != EnvDevelopment && c.env != EnvStaging && c.env != EnvTest {
+		c.env = defaultEnvironment
 	}
-	return c.environment
+	return c.env
 }
 
-//EnvProduction returns true in production environment
-func (c *stdConfig) EnvProduction() bool {
-	c.getEnvironment()
-	return c.environment == "production"
+//environment returns current environment
+func (c *std) environment() string {
+	return c.getEnvironment()
 }
 
-func (c *stdConfig) loadFile(file string, cfg interface{}) error {
-	b, err := loadFile(file)
+// Zone returns the current zone that the application is running in
+func (c *std) zone() string {
+	return defaultZone
+}
+
+func stdReadFile(_ interface{}, name string) ([]byte, error) {
+	return ioutil.ReadFile(name)
+}
+
+func (c *std) loadFile(file string, cfg interface{}) error {
+	b, err := c.loadFn(cfg, file)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("Error loading: %v: %v", file, err.Error())
+		return fmt.Errorf("error loading: %v: %v", file, err.Error())
 	}
-	fmt.Fprintf(os.Stderr, "config file: %+v\n", file)
+	log("config file: %+v\n", file)
 	if err = yaml.Unmarshal(b, cfg); err != nil {
-		return fmt.Errorf("Error parsing: %v: %v", file, err.Error())
+		return fmt.Errorf("error parsing: %v: %v", file, err.Error())
 	}
 	return nil
 }
 
-func (c *stdConfig) loadPath(path string, cfg interface{}) error {
+func (c *std) saveFile(file string, cfg interface{}) error {
+	var b []byte
+	var err error
+	if c.saveFn == nil {
+		return nil
+	}
+	if b, err = yaml.Marshal(cfg); err != nil {
+		return fmt.Errorf("error serializing: %v: %v", file, err.Error())
+	}
+	err = c.saveFn(cfg, file, b)
+	if err != nil {
+		return fmt.Errorf("error saving: %v: %v", file, err.Error())
+	}
+	log("saved config file: %+v\n", file)
+	return nil
+}
+
+func (c *std) loadPath(path string, cfg interface{}) error {
 	if err := c.loadFile(path+"/base.yaml", cfg); err != nil {
 		return err
 	}
-	if err := c.loadFile(path+"/"+c.environment+".yaml", cfg); err != nil {
-		return err
-	}
-	return nil
+	return c.loadFile(path+"/"+c.env+".yaml", cfg)
 }
 
-//LoadSection returns
-func (c *stdConfig) LoadSection(cfg interface{}) error {
+func (c *std) loadSection(cfg interface{}) error {
 	c.getEnvironment()
-
 	for _, v := range paths {
+		if v == "" {
+			continue
+		}
 		if err := c.loadPath(v, cfg); err != nil {
 			return err
 		}
 	}
-
-	fmt.Fprintf(os.Stderr, "config: %+v\n", cfg)
-
+	log("config: %+v\n", cfg)
 	return nil
 }
 
-//Load config from files
-func (c *stdConfig) Load() error {
-	cfg := getDefaultConfig()
-
-	if err := c.LoadSection(cfg); err != nil {
-		return err
-	}
-
-	cp, err := parseConfig(cfg)
-	if err != nil {
-		return err
-	}
-
-	cp.PortDyn = cfg.Port
-	c.cfg = cp
-
+func (c *std) parseConfig(cfg *AppConfig) error {
+	cfg.PortDyn = cfg.Port
 	return nil
 }
 
-//Get returns currently loaded config
-func (c *stdConfig) Get() *AppConfig {
-	if c.cfg == nil {
-		err := Load()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s", err.Error())
-			exit(1)
-		}
-	}
-	return c.cfg
+func (c *std) load(cfg *AppConfig) error {
+	return c.loadSection(&cfg.AppConfigODS)
+}
+
+func (c *std) save(cfg *AppConfig) error {
+	return c.saveFile(paths[len(paths)-1]+"/"+c.env+".yaml", &cfg.AppConfigODS)
 }

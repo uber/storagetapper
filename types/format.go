@@ -29,7 +29,7 @@ const (
 	Schema int = iota
 )
 
-//CommonFormatField refresent single field of the CommonFormatEvent
+//CommonFormatField represents single field of the CommonFormatEvent
 type CommonFormatField struct {
 	Name  string
 	Value interface{}

@@ -26,23 +26,13 @@ import "sync/atomic"
 type Counter struct {
 	backend counter
 	value   int64
-	name    string
 }
 
 //CounterInit is a constructor for Counter
-func CounterInit(c metricsFactory, name string, tags map[string]string) *Counter {
+func CounterInit(s scope, name string) *Counter {
 	var p Counter
-	p.backend = c.InitCounter(name)
-	if tags != nil {
-		p.backend.Tag(tags)
-	}
-	p.name = name
+	p.backend = s.InitCounter(name)
 	return &p
-}
-
-//Tag adds metric tags
-func (p *Counter) Tag(tags map[string]string) {
-	p.backend.Tag(tags)
 }
 
 //Inc increments the value by v

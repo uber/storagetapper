@@ -18,7 +18,6 @@ type Throttle struct {
 }
 
 //New creates new Throttler
-//FIXME: Fix timer leak
 func New(target int64, checkInterval int64, numSamples int64) *Throttle {
 	return &Throttle{checkInterval, numSamples, target, 0, make([]int64, numSamples), 0, 0, time.NewTicker(time.Microsecond * time.Duration(checkInterval))}
 }
@@ -33,7 +32,7 @@ func (t *Throttle) tick() int64 {
 		t.samplesHand = 0
 	}
 
-	avg := t.sumSamples / int64(t.NumSamples)
+	avg := t.sumSamples / t.NumSamples
 	if avg <= t.Target {
 		return 0
 	}
@@ -58,4 +57,9 @@ func (t *Throttle) Advice(add int64) int64 {
 	}
 
 	return s
+}
+
+//Close releases resources
+func (t *Throttle) Close() {
+	t.ticker.Stop()
 }

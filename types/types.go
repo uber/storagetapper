@@ -20,12 +20,15 @@
 
 package types
 
+import "time"
+
 /*RowMessage is used to pass message to the local streamer */
 type RowMessage struct {
-	Type  int
-	Key   string
-	Data  *[]interface{}
-	SeqNo uint64
+	Type      int
+	Key       string
+	Data      *[]interface{}
+	SeqNo     uint64
+	Timestamp time.Time
 }
 
 /*TableLoc - table location */

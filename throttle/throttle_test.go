@@ -55,7 +55,7 @@ func testStep(n int64, target int64, iops int64, interval int64, samples int64, 
 }
 
 func TestThrottleBasic(t *testing.T) {
-	t.Skip("Sleep based test is unstable in Travis")
+	t.Skip("Flaky")
 	for i := int64(1); i <= 128; i *= 2 {
 		for j := int64(1); j <= 128; j *= 2 {
 			testStep(1024*i, i, j, 200, 5, t)
@@ -64,6 +64,7 @@ func TestThrottleBasic(t *testing.T) {
 }
 
 func TestZeroThrottleBasic(t *testing.T) {
+	t.Skip("Flaky")
 	for j := int64(1); j <= 128; j *= 2 {
 		h := New(0, 200, 5)
 		s := h.Advice(j)

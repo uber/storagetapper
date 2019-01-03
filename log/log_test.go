@@ -58,7 +58,6 @@ func TestBasic(t *testing.T) {
 	l.Infof("msg with empty fields")
 	l.Warnf("msg with empty fields")
 	l.Errorf("msg with empty fields")
-
 }
 
 func TestWrongLogger(t *testing.T) {

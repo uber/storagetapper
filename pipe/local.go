@@ -29,54 +29,64 @@ import (
 	"golang.org/x/net/context" //"context"
 )
 
-//LocalPipe pipe based on channels
-type LocalPipe struct {
-	mutex     sync.Mutex
-	c         map[string](chan interface{})
-	ctx       context.Context
-	batchSize int
+//localPipe pipe based on channels
+type localPipe struct {
+	mutex sync.Mutex
+	ch    map[string](chan interface{})
+	cfg   config.PipeConfig
 }
 
 //localProducerConsumer implements both producer and consumer
 type localProducerConsumer struct {
-	ch      chan interface{}
-	ctx     context.Context
-	msg     interface{}
-	closeCh chan bool
+	ch     chan interface{}
+	ctx    context.Context
+	cancel context.CancelFunc
+	msg    interface{}
 }
 
 func init() {
 	registerPlugin("local", initLocalPipe)
 }
 
-func initLocalPipe(pctx context.Context, batchSize int, cfg *config.AppConfig, db *sql.DB) (Pipe, error) {
-	return &LocalPipe{c: make(map[string](chan interface{})), ctx: pctx, batchSize: batchSize}, nil
+func initLocalPipe(cfg *config.PipeConfig, db *sql.DB) (Pipe, error) {
+	return &localPipe{ch: make(map[string](chan interface{})), cfg: *cfg}, nil
 }
 
 //Type returns type of the type
-func (p *LocalPipe) Type() string {
+func (p *localPipe) Type() string {
 	return "local"
 }
 
-func (p *LocalPipe) registerProducerConsumer(ctx context.Context, key string) (*localProducerConsumer, error) {
+// Config returns pipe configuration
+func (p *localPipe) Config() *config.PipeConfig {
+	return &p.cfg
+}
+
+// Close releases resources associated with the pipe
+func (p *localPipe) Close() error {
+	return nil
+}
+
+func (p *localPipe) registerProducerConsumer(key string) (*localProducerConsumer, error) {
 	p.mutex.Lock()
-	ch := p.c[key]
+	ch := p.ch[key]
 	if ch == nil {
-		ch = make(chan interface{}, p.batchSize)
-		p.c[key] = ch
+		ch = make(chan interface{}, p.cfg.MaxBatchSize)
+		p.ch[key] = ch
 	}
 	p.mutex.Unlock()
-	return &localProducerConsumer{ch, ctx, nil, make(chan bool)}, nil
+	ctx, cancel := context.WithCancel(context.Background())
+	return &localProducerConsumer{ch, ctx, cancel, nil}, nil
 }
 
 //NewConsumer registers consumer with the given pipe name
-func (p *LocalPipe) NewConsumer(key string) (Consumer, error) {
-	return p.registerProducerConsumer(p.ctx, key)
+func (p *localPipe) NewConsumer(key string) (Consumer, error) {
+	return p.registerProducerConsumer(key)
 }
 
 //NewProducer registers producer with the given pipe name
-func (p *LocalPipe) NewProducer(key string) (Producer, error) {
-	return p.registerProducerConsumer(p.ctx, key)
+func (p *localPipe) NewProducer(key string) (Producer, error) {
+	return p.registerProducerConsumer(key)
 }
 
 func (p *localProducerConsumer) pushLow(b interface{}) error {
@@ -84,9 +94,8 @@ func (p *localProducerConsumer) pushLow(b interface{}) error {
 	case p.ch <- b:
 		return nil
 	case <-p.ctx.Done():
-	case <-p.closeCh:
 	}
-	return fmt.Errorf("Context canceled")
+	return fmt.Errorf("context canceled")
 }
 
 //Push pushes the given message to pipe
@@ -120,7 +129,6 @@ func (p *localProducerConsumer) FetchNext() bool {
 		}
 		return true
 	case <-p.ctx.Done():
-	case <-p.closeCh:
 	}
 	return false
 }
@@ -137,7 +145,7 @@ func (p *localProducerConsumer) PushK(key string, b interface{}) error {
 
 //Close producer/consumer
 func (p *localProducerConsumer) close(graceful bool) error {
-	close(p.closeCh)
+	p.cancel()
 	return nil
 }
 

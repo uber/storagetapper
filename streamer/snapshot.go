@@ -32,51 +32,68 @@ import (
 	"github.com/uber/storagetapper/throttle"
 )
 
-var numRetries = 5
-var cancelCheckInterval = 60 * time.Second
+const numRetries = 5
 
-func (s *Streamer) streamBatch(snReader snapshot.Reader, outProducer pipe.Producer, batchSize int, snapshotMetrics *metrics.Snapshot) (bool, int64, int64, error) {
+var cancelCheckInterval = 180 * time.Second
+
+//The function may skip producing last fetched message, because of the partition
+//key change, so we need to return it and use as a first message on subsequent
+//call to streamBatch
+func (s *Streamer) streamBatch(snReader snapshot.Reader, outProducer pipe.Producer, key string, pKey string, outMsg []byte, snapshotMetrics *metrics.Snapshot) (bool, int64, int64, string, string, []byte, error) {
 	var i, b int
-	for i < batchSize && snReader.HasNext() {
-		key, outMsg, err := snReader.GetNext()
-		if log.EL(s.log, err) {
-			return false, 0, 0, err
+	var prevKey string
+	var err error
+	defer snapshotMetrics.ReadLatency.Start().Stop()
+	cfg := s.outPipe.Config()
+	for outMsg != nil || snReader.FetchNext() { //use last message from prev batch or fetch next one
+		if outMsg == nil {
+			key, pKey, outMsg, err = snReader.Pop()
+			if log.EL(s.log, err) {
+				return false, 0, 0, "", "", nil, err
+			}
 		}
 
+		//Commit when batch full and partition key different from previous is fetched
+		//This means that batch can be a little bigger than MaxBatchSize
+		if (i >= cfg.MaxBatchSize || b >= cfg.MaxBatchSizeBytes) && pKey != prevKey {
+			break
+		}
+
+		if len(outMsg) == 0 {
+			outMsg = nil
+			continue
+		}
 		b += len(outMsg)
 
 		key = outProducer.PartitionKey("snapshot", key)
 		err = outProducer.PushBatch(key, outMsg)
 
 		if log.EL(s.log, err) {
-			return false, 0, 0, err
+			return false, 0, 0, "", "", nil, err
 		}
 
 		i++
+		outMsg = nil
+		prevKey = pKey
 	}
 
-	snapshotMetrics.BatchSize.Record(time.Duration(i * 1000000))
+	snapshotMetrics.BatchSize.Record(time.Duration(i) * time.Millisecond)
 
 	if i == 0 {
-		return false, 0, 0, nil
+		return false, 0, 0, "", "", nil, nil
 	}
 
-	snapshotMetrics.BytesRead.Inc(int64(b))
 	snapshotMetrics.BytesWritten.Inc(int64(b))
-	snapshotMetrics.EventsRead.Inc(int64(i))
 	snapshotMetrics.EventsWritten.Inc(int64(i))
 
-	return true, int64(b), int64(i), nil
+	return true, int64(b), int64(i), key, pKey, outMsg, nil
 }
 
-func (s *Streamer) commitWithRetry(snapshotMetrics *metrics.Snapshot) bool {
+func (s *Streamer) commitWithRetry(outProducer pipe.Producer, snapshotMetrics *metrics.Snapshot) bool {
 	var err error
+	defer snapshotMetrics.ProduceLatency.Start().Stop()
 	for i := 0; i < numRetries; i++ {
-		w := snapshotMetrics.ProduceLatency
-		w.Start()
-		err = s.outProducer.PushBatchCommit()
-		w.Stop()
-		if err == nil {
+		if err = outProducer.PushBatchCommit(); err == nil {
 			return true
 		}
 		log.Warnf("Retrying...Attempt %v", i+1)
@@ -85,7 +102,7 @@ func (s *Streamer) commitWithRetry(snapshotMetrics *metrics.Snapshot) bool {
 	return false
 }
 
-func (s *Streamer) pushSchema() bool {
+func (s *Streamer) pushSchema(outProducer pipe.Producer) bool {
 	outMsg, err := s.outEncoder.EncodeSchema(0)
 	if log.EL(s.log, err) {
 		return false
@@ -93,89 +110,136 @@ func (s *Streamer) pushSchema() bool {
 	if outMsg == nil {
 		return true
 	}
-	key := s.outProducer.PartitionKey("snapshot", "schema")
-	err = s.outProducer.PushSchema(key, outMsg)
+	key := outProducer.PartitionKey("snapshot", "schema")
+	err = outProducer.PushSchema(key, outMsg)
 	return !log.EL(s.log, err)
 }
 
-func yield(iops *throttle.Throttle, mb *throttle.Throttle, nEvents int64, nBytes int64) {
-	c := iops.Advice(nEvents)
-	m := mb.Advice(nBytes)
-	if m > c {
-		c = m
+func (s *Streamer) snapshotTickHandler(snReader snapshot.Reader) bool {
+	reg, _ := state.TableRegisteredInState(s.row.ID)
+	if !reg {
+		s.log.Warnf("Table removed from ingestion. Snapshot cancelled.")
+		return false
 	}
 
-	if c != 0 {
-		time.Sleep(time.Microsecond * time.Duration(c))
+	if !state.RefreshTableLock(s.row.ID, s.workerID) {
+		s.log.Warnf("Lost the table lock. Snapshot cancelled.")
+		return false
 	}
+	if !s.clusterLock.Refresh() {
+		s.log.Warnf("Lost the cluster lock. Snapshot cancelled.")
+		return false
+	}
+	return true
 }
 
-// StreamFromConsistentSnapshot initializes and pulls event from the Snapshot reader, serializes
-// them in Avro format and publishes to output Kafka topic.
-func (s *Streamer) streamFromConsistentSnapshot(throttleMB int64, throttleIOPS int64) bool {
-	snReader, err := snapshot.InitReader(s.input)
-	if log.EL(s.log, err) {
-		return false
-	}
-	snapshotMetrics := metrics.GetSnapshotMetrics(s.getTag())
+func (s *Streamer) streamLoop(snReader snapshot.Reader, outProducer pipe.Producer, iopsThrottler, mbThrottler *throttle.Throttle, ticker *time.Ticker, snapshotMetrics *metrics.Snapshot) bool {
+	var err error
+	var next bool
+	var nBytes, nEvents int64
+	var key, pKey string
+	var outMsg []byte
 
-	outProducer := s.outProducer
-
-	s.log.Infof("Starting consistent snapshot streamer for: %v, %v", s.topic, s.outEncoder.Type())
-
-	//For JSON format push schema as a first message of the stream
-	if !s.pushSchema() {
-		return false
-	}
-
-	_, err = snReader.Start(s.cluster, s.svc, s.db, s.table, s.outEncoder)
-	if log.EL(s.log, err) {
-		return false
-	}
-	defer snReader.End()
-
-	snapshotMetrics.NumWorkers.Inc()
-	defer snapshotMetrics.NumWorkers.Dec()
-
-	iopsThrottler := throttle.New(throttleIOPS, 1000000, 3)
-	mbThrottler := throttle.New(throttleMB*1024*1024, 1000000, 3)
-
-	if throttleIOPS != 0 || throttleMB != 0 {
-		s.log.Debugf("Snapshot throttle enabled: %v IOPS, %v MBs", throttleIOPS, throttleMB)
-	}
-
-	tickChan := time.NewTicker(cancelCheckInterval).C
 	for !shutdown.Initiated() {
-		next, nBytes, nEvents, err1 := s.streamBatch(snReader, outProducer, s.batchSize, snapshotMetrics)
-
-		if err1 != nil {
+		next, nBytes, nEvents, key, pKey, outMsg, err = s.streamBatch(snReader, outProducer, key, pKey, outMsg, snapshotMetrics)
+		if err != nil {
 			return false
 		}
 		if !next {
 			break
 		}
 
-		if !s.commitWithRetry(snapshotMetrics) {
+		if !s.commitWithRetry(outProducer, snapshotMetrics) {
 			return false
 		}
 
-		yield(iopsThrottler, mbThrottler, nEvents, nBytes)
+		c := iopsThrottler.Advice(nEvents)
+		m := mbThrottler.Advice(nBytes)
+		if m > c {
+			c = m
+		}
+
+		if c != 0 {
+			time.Sleep(time.Microsecond * time.Duration(c))
+			snapshotMetrics.ThrottledUs.Inc(c)
+		}
 
 		select {
-		case <-tickChan:
-			reg, _ := state.TableRegistered(s.id)
-			if !reg {
-				s.log.Warnf("Table removed from ingestion. Snapshot cancelled.")
+		case <-ticker.C:
+			if !s.snapshotTickHandler(snReader) {
 				return false
 			}
 		default:
 		}
 	}
 
+	return true
+}
+
+// StreamFromConsistentSnapshot initializes and pulls event from the Snapshot reader, serializes
+// them in Avro format and publishes to output.
+func (s *Streamer) streamFromConsistentSnapshot(throttleMB int64, throttleIOPS int64) bool {
+	success := false
+	snapshotMetrics := metrics.NewSnapshotMetrics("", s.getTag())
+
+	snapshotMetrics.NumWorkers.Inc()
+	startTime := time.Now()
+
+	outProducer, err := s.outPipe.NewProducer(s.topic)
+	if log.E(err) {
+		return false
+	}
+	outProducer.SetFormat(s.row.OutputFormat)
+
+	defer func() {
+		if !success {
+			snapshotMetrics.Errors.Inc(1)
+			log.EL(s.log, outProducer.CloseOnFailure())
+		}
+		snapshotMetrics.NumWorkers.Dec()
+	}()
+
+	s.log.Infof("Starting consistent snapshot streamer for: %v, %v", s.topic, s.outEncoder.Type())
+
+	//For JSON format push schema as a first message of the stream
+	if !s.pushSchema(outProducer) {
+		return false
+	}
+
+	snReader, err := snapshot.Start(s.row.Input, s.row.Service, s.row.Cluster, s.row.Db, s.row.Table, s.outEncoder, snapshotMetrics)
+	if log.EL(s.log, err) {
+		return false
+	}
+	defer snReader.End()
+
+	iopsThrottler := throttle.New(throttleIOPS, 1000000, 3)
+	defer iopsThrottler.Close()
+	mbThrottler := throttle.New(throttleMB*1024*1024, 1000000, 3)
+	defer mbThrottler.Close()
+	if throttleIOPS != 0 || throttleMB != 0 {
+		s.log.Debugf("Snapshot throttle enabled: %v IOPS, %v MBs", throttleIOPS, throttleMB)
+	}
+
+	ticker := time.NewTicker(cancelCheckInterval)
+	defer ticker.Stop()
+
+	if !s.streamLoop(snReader, outProducer, iopsThrottler, mbThrottler, ticker, snapshotMetrics) {
+		return false
+	}
+
 	if shutdown.Initiated() {
 		return false
 	}
 
-	err = state.SetTableNewFlag(s.svc, s.cluster, s.db, s.table, s.input, s.output, s.version, false)
+	if err = outProducer.Close(); err == nil {
+		err = state.ClearNeedSnapshot(s.row.ID, s.row.SnapshottedAt)
+		snapshotMetrics.Duration.Record(time.Since(startTime))
+		snapshotMetrics.SizeRead.Set(snapshotMetrics.BytesRead.Get())
+		snapshotMetrics.SizeWritten.Set(snapshotMetrics.BytesWritten.Get())
+		if err == nil {
+			success = true
+		}
+	}
+
 	return !log.EL(s.log, err)
 }

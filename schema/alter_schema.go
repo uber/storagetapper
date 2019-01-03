@@ -23,90 +23,45 @@ package schema
 import (
 	"database/sql"
 	"fmt"
-	"math/rand"
-	"strings"
 
-	"github.com/satori/go.uuid"
-	"github.com/uber/storagetapper/db"
+	"github.com/gofrs/uuid"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/types"
 	"github.com/uber/storagetapper/util"
 )
 
-// GetAvroSchemaFromAlterTable is called by the schema change endpoint. It takes in an ALTER TABLE
-// statement as an input along with db and table name and creates the new resultant schema and
-// returns it in Avro format
-func GetAvroSchemaFromAlterTable(dbl *db.Loc, tblName string, typ string,
-	alterTblStmt string) ([]byte, error) {
+// MutateTable perform alter schema for the given table, using temporary table
+// and return structured and raw schema
+func MutateTable(sdb *sql.DB, svc string, dbName string, tableName string, alter string, ts *types.TableSchema, rawSchema *string) bool {
 
-	CreateTempTable := "CREATE TEMPORARY TABLE %s LIKE %s"
-	DropTempTable := "DROP TEMPORARY TABLE %s"
-
-	conn, err := db.OpenService(dbl, "")
-	if err != nil {
-		return nil, err
-	}
-	defer func() { log.E(conn.Close()) }()
-	currTbl := fmt.Sprintf("%s.%s", dbl.Name, tblName)
-	tempTbl := fmt.Sprintf("%s.%s", dbl.Name, fmt.Sprintf("tmptbl_%d", rand.Intn(100000)))
-
-	//Create a temp table using the existing table
-	_, err = conn.Exec(fmt.Sprintf(CreateTempTable, tempTbl, currTbl))
-	if err != nil {
-		log.Errorf("Error creating temp table for handling Schema change using ALTER TABLE: %v", err)
-		return nil, err
-	}
-
-	//Assuming the ALTER TABLE statement will have the table name in the <db>.<table> format,
-	// modify the alter table statement to be executed on this temp table
-	alterTblStmt = strings.Replace(alterTblStmt, currTbl, tempTbl, 1)
-
-	//Execute the ALTER TABLE statement
-	err = util.ExecSQL(conn, alterTblStmt)
-	if err != nil {
-		log.Errorf("Error executing ALTER TABLE on clone temp table: %v", err)
-		return nil, err
-	}
-
-	//If ALTER TABLE succeeds, get the Avro schema of the corresponding MySQL schema of temp table
-	avroSchema, err := ConvertToAvro(dbl, tblName, typ)
-	if log.E(err) {
-		return nil, err
-	}
-
-	// Drop the temp table. error not handled as it would be eventually dropped anyways.
-	err = util.ExecSQL(conn, fmt.Sprintf(DropTempTable, tempTbl))
-
-	return avroSchema, err
-}
-
-//MutateTable perform alter schema for the given table, using temporary table
-//and return structured and raw schema
-func MutateTable(db *sql.DB, svc string, dbName string, tableName string, alter string, ts *types.TableSchema, rawSchema *string) bool {
 	//TODO: Wrap below SQL calls in a transaction
-	tn := uuid.NewV4().String()
-	ftn := "`" + types.MyDbName + "`.`" + tn + "`"
+	tn, err := uuid.NewV4()
+	if log.E(err) {
+		return false
+	}
+
+	ftn := "`" + types.MyDbName + "`.`" + tn.String() + "`"
 	c := fmt.Sprintf("%s_%s_%s", svc, dbName, tableName)
 
-	if log.E(util.ExecSQL(db, "CREATE TABLE "+ftn+*rawSchema+" COMMENT='"+c+"'")) {
+	if log.E(util.ExecSQL(sdb, "CREATE TABLE "+ftn+*rawSchema+" COMMENT='"+c+"'")) {
 		return false
 	}
 
-	if log.E(util.ExecSQL(db, "ALTER TABLE "+ftn+" "+alter)) {
+	if log.E(util.ExecSQL(sdb, "ALTER TABLE "+ftn+" "+alter)) {
 		return false
 	}
 
-	ct, err := getRawLow(db, ftn)
+	ct, err := getRawLow(sdb, ftn)
 	if log.E(err) {
 		return false
 	}
 
-	tsn, err := GetColumns(db, types.MyDbName, tn, "information_schema.columns", "")
+	tsn, err := GetColumns(sdb, types.MyDbName, tn.String())
 	if log.E(err) {
 		return false
 	}
 
-	if log.E(util.ExecSQL(db, "DROP TABLE "+ftn)) {
+	if log.E(util.ExecSQL(sdb, "DROP TABLE "+ftn)) {
 		return false
 	}
 

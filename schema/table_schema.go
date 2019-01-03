@@ -22,22 +22,15 @@ package schema
 
 import (
 	"database/sql"
-
-	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/types"
 )
-
-//ErrNoTable thrown when table doesn't exist
-type ErrNoTable struct {
-	s string
-}
-
-func (e *ErrNoTable) Error() string { return e.s }
 
 //HasPrimaryKey checks if given table has primary key
 func HasPrimaryKey(s *types.TableSchema) bool {
@@ -49,12 +42,19 @@ func HasPrimaryKey(s *types.TableSchema) bool {
 	return false
 }
 
-func getRawLow(db *sql.DB, ftn string) (string, error) {
+func getRawLow(db *sql.DB, fullTable string) (string, error) {
 	var ct, unused string
 	/*FIXME: Can I pass nil here? */
-	if err := db.QueryRow("SHOW CREATE TABLE "+ftn).Scan(&unused, &ct); err != nil {
+	if err := db.QueryRow("SHOW CREATE TABLE "+fullTable).Scan(&unused, &ct); err != nil {
 		return "", err
 	}
+
+	//Cut CONSTRAINTS
+	var re = regexp.MustCompile(`(?im)^\s*CONSTRAINT.*\n`)
+	ct = re.ReplaceAllString(ct, ``)
+	var re1 = regexp.MustCompile(`,\n\)`) // Cut possible remaining comma at the end
+	ct = re1.ReplaceAllString(ct, `
+)`) //FIXME: Is there a better way to insert \n
 
 	i := strings.Index(ct, "(")
 	if i == -1 {
@@ -64,52 +64,40 @@ func getRawLow(db *sql.DB, ftn string) (string, error) {
 	return ct[i:], nil
 }
 
-/*GetRaw returns output of SHOW CREATE TABLE after the
-  "CREATE TABLE xyz ("
-  So called "raw" schema */
-func GetRaw(dbl *db.Loc, ftn string) (string, error) {
-	conn, err := db.OpenService(dbl, "")
+// GetRaw returns output of SHOW CREATE TABLE after the "CREATE TABLE xyz ("
+// So called "raw" schema
+func GetRaw(dbl *db.Loc, fullTable string, inputType string) (string, error) {
+	conn, err := db.OpenService(dbl, "", inputType)
 	if err != nil {
 		return "", err
 	}
 	defer func() { log.E(conn.Close()) }()
-	return getRawLow(conn, ftn)
+	return getRawLow(conn, fullTable)
 }
 
-/*Get loads structured schema for "table", from master DB, identified by dbl */
-func Get(dbl *db.Loc, table string) (*types.TableSchema, error) {
-	conn, err := db.OpenService(dbl, "information_schema")
+// Get loads structured schema for "table", from master DB, identified by dbl
+func Get(dbl *db.Loc, table string, inputType string) (*types.TableSchema, error) {
+	conn, err := db.OpenService(dbl, "information_schema", inputType)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { log.E(conn.Close()) }()
-	return GetColumns(conn, dbl.Name, table, "columns", "")
+	return GetColumns(conn, dbl.Name, table)
 }
 
-/*GetColumns reads structured schema for table from given connection and table */
-func GetColumns(conn *sql.DB, dbName string, tableName string, fromtable string, cond string) (*types.TableSchema, error) {
-	tableSchema := types.TableSchema{DBName: dbName, TableName: tableName, Columns: []types.ColumnSchema{}}
-	query := "SELECT COLUMN_NAME, ORDINAL_POSITION, IS_NULLABLE, DATA_TYPE, " +
-		"CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, COLUMN_TYPE, " +
-		"COLUMN_KEY FROM " + fromtable + " WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? " + cond +
-		" ORDER BY ORDINAL_POSITION"
-	log.Debugf("%v %v %v", query, dbName, tableName)
-	rows, err := conn.Query(query, dbName, tableName)
-	if err != nil {
-		log.Errorf("Error fetching table schema for %s.%s : %v", dbName, tableName, err)
-		return nil, err
-	}
-	rowsCount := 0
-	defer func() { log.E(rows.Close()) }()
+// ParseColumnInfo reads parses column information into table schema
+func ParseColumnInfo(rows *sql.Rows, dbName, table string) (*types.TableSchema, error) {
+	tableSchema := types.TableSchema{DBName: dbName, TableName: table, Columns: []types.ColumnSchema{}}
 
+	rowsCount := 0
 	for rows.Next() {
 		cs := types.ColumnSchema{}
 		err := rows.Scan(&cs.Name, &cs.OrdinalPosition, &cs.IsNullable,
 			&cs.DataType, &cs.CharacterMaximumLength, &cs.NumericPrecision,
 			&cs.NumericScale, &cs.Type, &cs.Key)
 		if err != nil {
-			log.Errorf("Error scanning table schema query result for %s.%s : %v",
-				dbName, tableName, err)
+			log.E(errors.Wrap(err, fmt.Sprintf("Error scanning table schema query result for %s.%s",
+				dbName, table)))
 			return nil, err
 		}
 		tableSchema.Columns = append(tableSchema.Columns, cs)
@@ -119,10 +107,27 @@ func GetColumns(conn *sql.DB, dbName string, tableName string, fromtable string,
 		log.F(err)
 	}
 	if rowsCount == 0 {
-		errStr := ErrNoTable{fmt.Sprintf("Table %s.%s for which schema was requested for, does not exist!", dbName, tableName)}
-		return &tableSchema, &errStr
+		return &tableSchema, fmt.Errorf("no schema columns for table %s.%s. check grants", dbName, table)
 	}
 
-	log.Debugf("Got schema from '%v' for '%v.%v' = '%+v'", fromtable, dbName, tableName, tableSchema)
+	log.Debugf("Got schema from state for '%v.%v' = '%+v'", dbName, table, tableSchema)
 	return &tableSchema, nil
+}
+
+// GetColumns reads structured schema from information_schema for table from given connection
+func GetColumns(conn *sql.DB, dbName string, tableName string) (*types.TableSchema, error) {
+	query := "SELECT COLUMN_NAME, ORDINAL_POSITION, IS_NULLABLE, DATA_TYPE, " +
+		"CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, COLUMN_TYPE, " +
+		"COLUMN_KEY FROM information_schema.columns WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? " +
+		"ORDER BY ORDINAL_POSITION"
+
+	log.Debugf("%v %v %v", query, dbName, tableName)
+
+	rows, err := conn.Query(query, dbName, tableName)
+	if log.E(errors.Wrap(err, fmt.Sprintf("Error fetching table schema for %s.%s", dbName, tableName))) {
+		return nil, err
+	}
+	defer func() { log.E(rows.Close()) }()
+
+	return ParseColumnInfo(rows, dbName, tableName)
 }

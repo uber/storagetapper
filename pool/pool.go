@@ -44,8 +44,7 @@ type poolImpl struct {
 
 /*Create helps to hide poolImpl in the package, but not really required */
 func Create() Thread {
-	p := &poolImpl{}
-	return p
+	return &poolImpl{}
 }
 
 /*Start instantiates a pool of size of 'm' of 'f' goroutines */

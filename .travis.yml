@@ -1,11 +1,11 @@
-dist: trusty
+dist: bionic
 sudo: required
 language: go
 go:
     - 1.11.x
 before_install:
 - /bin/sh scripts/install_deps.sh
-script: make test
+script: travis_wait make test
 after_success:
 - bash <(curl -s https://codecov.io/bash)
 notifications:

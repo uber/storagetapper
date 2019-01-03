@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 var testFile = `
@@ -33,6 +34,8 @@ var testFile = `
         kafka: "topic.{{.Service}}.db.{{.Db}}.table.{{.Table}}{{if .Version}}.v{{.Version}}{{end}}"
         file: "{{.Service}}/{{.Db}}/{{.Table}}/{{.Version}}/"
         hdfs: "no-parameters"
+    mysqlts:
+        hdfs: 'topic.{{.Service}}.db.{{.Db}}.table.{{.Table}}{{if .Version}}.v{{.Version}}{{end}}.{{.Timestamp.Format "20060102150405"}}'
     fail_execute:
         fail_execute: "{{.no_such_field}}"
     file:
@@ -47,13 +50,11 @@ func checkFail(t *testing.T, err error) {
 	}
 }
 
-func prepare(t *testing.T, typ string, content string, replace string) (func(svc string, db string, tbl string, input string, output string, ver int) (string, error), error) {
-	def = &stdConfig{}
-
+func prepare(t *testing.T, typ string, content string, replace string) (func(svc string, db string, tbl string, input string, output string, ver int, ts time.Time) (string, error), error) {
 	c := strings.Replace(content, "{test_replace}", replace, -1)
-	loadFile = func(_ string) ([]byte, error) {
+	resetStdLoader(func(_ interface{}, file string) ([]byte, error) {
 		return []byte(c), nil
-	}
+	})
 
 	err := Load()
 	if err != nil {
@@ -74,14 +75,17 @@ func testTopicNameFormat(t *testing.T, typ string) {
 	getName, err := prepare(t, typ, testFile, typ)
 	checkFail(t, err)
 
-	res, err := getName("svc1", "db1", "t1", "mysql", "kafka", 1)
+	ts, err := time.Parse("Jan 2 15:04:05 2006", "Jul 27 22:08:10 2018")
+	checkFail(t, err)
+
+	res, err := getName("svc1", "db1", "t1", "mysql", "kafka", 1, ts)
 	checkFail(t, err)
 	expected := "topic.svc1.db.db1.table.t1.v1"
 	if res != expected {
 		t.Fatalf("got %v, expected %v", res, expected)
 	}
 
-	res, err = getName("svc1", "db1", "t1", "mysql", "kafka", 0)
+	res, err = getName("svc1", "db1", "t1", "mysql", "kafka", 0, ts)
 	checkFail(t, err)
 	expected = "topic.svc1.db.db1.table.t1"
 	if res != expected {
@@ -89,14 +93,14 @@ func testTopicNameFormat(t *testing.T, typ string) {
 	}
 
 	//Test default template
-	res, err = getName("svc2", "db2", "t2", "not_in_input_map", "file", 1)
+	res, err = getName("svc2", "db2", "t2", "not_in_input_map", "file", 1, ts)
 	checkFail(t, err)
 	expected = "default.svc2.db.db2.table.t2"
 	if res != expected {
 		t.Fatalf("got %v, expected: %v", res, expected)
 	}
 
-	res, err = getName("svc2", "db2", "t2", "mysql", "not_in_output_map", 1)
+	res, err = getName("svc2", "db2", "t2", "mysql", "not_in_output_map", 1, ts)
 	checkFail(t, err)
 	expected = "default.svc2.db.db2.table.t2"
 	if res != expected {
@@ -104,7 +108,7 @@ func testTopicNameFormat(t *testing.T, typ string) {
 	}
 
 	//Test empty input map
-	res, err = getName("svc2", "db2", "t2", "file", "file", 1)
+	res, err = getName("svc2", "db2", "t2", "file", "file", 1, ts)
 	checkFail(t, err)
 	expected = "default.svc2.db.db2.table.t2"
 	if res != expected {
@@ -112,17 +116,25 @@ func testTopicNameFormat(t *testing.T, typ string) {
 	}
 
 	//Test no parameters
-	res, err = getName("svc2", "db2", "t2", "mysql", "hdfs", 1)
+	res, err = getName("svc2", "db2", "t2", "mysql", "hdfs", 1, ts)
 	checkFail(t, err)
 	expected = "no-parameters"
 	if res != expected {
 		t.Fatalf("got %v, expected: %v", res, expected)
 	}
 
-	_, err = getName("na", "na", "na", "fail_execute", "fail_execute", 0)
+	_, err = getName("na", "na", "na", "fail_execute", "fail_execute", 0, ts)
 	if err == nil {
 		t.Fatalf("should fail execute template with unknown field in it")
 	}
+
+	res, err = getName("svc1", "db1", "t1", "mysqlts", "hdfs", 0, ts)
+	checkFail(t, err)
+	expected = "topic.svc1.db.db1.table.t1.20180727220810"
+	if res != expected {
+		t.Fatalf("got %v, expected: %v", res, expected)
+	}
+
 }
 
 func TestChangelogTopicNameFormat(t *testing.T) {

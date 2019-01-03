@@ -16,7 +16,7 @@ type Reader interface {
 }
 
 //ReaderConstructor initializes logger plugin
-type ReaderConstructor func(ctx context.Context, cfg *config.AppConfig, bufPipe pipe.Pipe, outPipes *map[string]pipe.Pipe, t pool.Thread) (Reader, error)
+type ReaderConstructor func(ctx context.Context, cfg *config.AppConfig, bufPipe pipe.Pipe, t pool.Thread) (Reader, error)
 
 //Plugins contains registered binlog reader plugins
 var Plugins map[string]ReaderConstructor
@@ -29,9 +29,9 @@ func registerPlugin(name string, init ReaderConstructor) {
 }
 
 //Worker iterates over available workers and try start them
-func Worker(ctx context.Context, cfg *config.AppConfig, bufPipe pipe.Pipe, outPipes *map[string]pipe.Pipe, tp pool.Thread) bool {
+func Worker(ctx context.Context, cfg *config.AppConfig, bufPipe pipe.Pipe, tp pool.Thread) bool {
 	for n, init := range Plugins {
-		reader, err := init(ctx, cfg, bufPipe, outPipes, tp)
+		reader, err := init(ctx, cfg, bufPipe, tp)
 		if err != nil {
 			log.Errorf("Init failed for: %v", n)
 		}

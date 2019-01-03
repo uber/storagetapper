@@ -23,52 +23,53 @@ package lock
 import (
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/test"
-
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/uber/storagetapper/types"
 )
 
-var dbAddr = db.GetInfoForTest(&db.Loc{Name: ""}, 0)
+var dbAddr, _ = db.GetConnInfoForTest(&db.Loc{Name: ""}, db.Master, types.InputMySQL)
 
-func TestLockTickets(t *testing.T) {
+func TestLockShared(t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 
 	n := 7
 	lock := make([]Lock, n)
 
 	for i := 0; i < n; i++ {
-		lock[i] = Create(dbAddr, n)
+		lock[i] = Create(dbAddr)
 	}
 
 	for i := 0; i < n; i++ {
-		if !lock[i].TryLock("test_lock") {
+		if !lock[i].TryLockShared("test_lock", n) {
 			t.Fatalf("Should allow %v concurrent lock", n)
 		}
 	}
 
-	locknp1 := Create(dbAddr, n)
-	if locknp1.TryLock("test_lock") {
+	locknp1 := Create(dbAddr)
+	if locknp1.TryLockShared("test_lock", n) {
 		t.Fatalf("Should allow only %v concurrent locks", n)
 	}
 
 	for i := 0; i < n; i++ {
-		if !lock[i].Unlock() {
+		if !lock[i].Close() {
 			t.Fatalf("Unlock failure %v", i)
 		}
 	}
 
 	for i := 0; i < n; i++ {
-		if !lock[i].TryLock("test_lock") {
+		if !lock[i].TryLockShared("test_lock", n) {
 			t.Fatalf("Should allow %v concurrent lock", n)
 		}
 	}
 
 	for i := 0; i < n; i++ {
-		if !lock[i].Unlock() {
+		if !lock[i].Close() {
 			t.Fatalf("Unlock failure %v", i)
 		}
 	}
@@ -77,8 +78,8 @@ func TestLockTickets(t *testing.T) {
 func TestLockBasic(t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 
-	lock1 := Create(dbAddr, 1)
-	lock2 := Create(dbAddr, 1)
+	lock1 := Create(dbAddr)
+	lock2 := Create(dbAddr)
 
 	if res := lock1.TryLock("test_lock_1"); !res {
 		t.Fail()
@@ -92,8 +93,12 @@ func TestLockBasic(t *testing.T) {
 		t.Fail()
 	}
 
-	lock1.Unlock()
-	lock2.Unlock()
+	if ok := lock1.Unlock(); !ok {
+		t.Fail()
+	}
+	if ok := lock2.Unlock(); !ok {
+		t.Fail()
+	}
 
 	if res := lock2.TryLock("test_lock_1"); !res {
 		t.Fail()
@@ -103,11 +108,15 @@ func TestLockBasic(t *testing.T) {
 		t.Fail()
 	}
 
-	if lock1.Refresh() {
+	//Not locked lock refresh is NOOP, so always successful
+	if !lock1.Refresh() {
 		t.Fail()
 	}
 
 	var mylock2 = lock2.(*myLock)
+	if mylock2 == nil {
+		t.Fatal("unexpected nil pointer")
+	}
 	err := mylock2.conn.Close()
 	if err != nil {
 		t.Fatal(err)
@@ -117,20 +126,23 @@ func TestLockBasic(t *testing.T) {
 		t.Fail()
 	}
 
-	lock2.Unlock()
-	lock2.Unlock()
+	if ok := lock2.Unlock(); !ok {
+		t.Fail()
+	}
+
+	//The Unlock call is idempotent and return value indicate if lock was actually
+	//released
+	if ok := lock2.Unlock(); ok {
+		t.Fail()
+	}
 }
 
 func (m *myLock) killConn() error {
-	var id int64
-	if err := m.conn.QueryRow("SELECT connection_id()").Scan(&id); err != nil {
-		return err
-	}
 	conn, err := db.Open(&m.ci)
 	if err != nil {
 		return err
 	}
-	if _, err = conn.Exec(fmt.Sprintf("KILL %v", id)); err != nil {
+	if _, err = conn.Exec(fmt.Sprintf("KILL %v", m.connID)); err != nil {
 		return err
 	}
 	return nil
@@ -139,31 +151,29 @@ func (m *myLock) killConn() error {
 func TestFailRefresh(t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 
-	lock1 := Create(dbAddr, 1)
-	lock2 := Create(dbAddr, 1)
+	lock1 := Create(dbAddr)
+	lock2 := Create(dbAddr)
 
 	if res := lock1.TryLock("test_lock_1"); !res {
 		t.Fail()
 	}
 
-	var mylock1 = lock1.(*myLock)
-	if mylock1 == nil {
+	var myLock1 = lock1.(*myLock)
+	if myLock1 == nil {
 		t.Fatal("unexpected nil pointer")
 	}
-	if !mylock1.IsLockedByMe() {
+	if !myLock1.IsLockedByMe() {
 		t.Fail()
 	}
-	if err := mylock1.killConn(); err != nil {
+	if err := myLock1.killConn(); err != nil {
 		t.Fatal(err)
 	}
 
-	//There should be no error message in the log:
-	//IsLockedByMe: error: sql: Scan error on column index 0: converting driver.Value type <nil> ("<nil>") to a int64: invalid syntax
-	if !lock1.Refresh() {
+	if !myLock1.Refresh() {
 		t.Fail()
 	}
 
-	if err := mylock1.killConn(); err != nil {
+	if err := myLock1.killConn(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -171,66 +181,73 @@ func TestFailRefresh(t *testing.T) {
 		t.Fail()
 	}
 
-	if lock1.Refresh() {
+	if myLock1.Refresh() {
 		t.Fail()
 	}
 
-	lock2.Unlock()
+	lock2.Close()
+}
+
+func TestLockNegative(t *testing.T) {
+	test.SkipIfNoMySQLAvailable(t)
+
+	addr := *dbAddr
+	addr.Port = 55555
+
+	lock1 := Create(&addr)
+
+	if res := lock1.TryLock("test_lock_1"); res {
+		t.Fail()
+	}
 }
 
 func TestLockWait(t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 
-	lock1 := Create(dbAddr, 1)
-	lock2 := Create(dbAddr, 1)
+	lock1 := Create(dbAddr)
+	require.True(t, lock1.Lock("test_lock_1", 1*time.Second))
+	require.True(t, lock1.Refresh())
 
-	if res := lock1.Lock("test_lock_1", time.Second); !res {
-		t.Fail()
-	}
+	var wg sync.WaitGroup
+	ch := make(chan bool)
 
-	if res := lock2.Lock("test_lock_1", time.Second); res {
-		t.Fail()
-	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
 
-	if lock2.Unlock() {
-		t.Fatalf("shouldn't fail to unlock")
-	}
+		lock2 := Create(dbAddr)
+		require.False(t, lock2.Lock("test_lock_1", 1*time.Second))
 
-	if !lock1.Unlock() {
-		t.Fatalf("shouldn't fail to unlock")
-	}
+		<-ch
+		require.True(t, lock2.Lock("test_lock_1", 1*time.Second))
+		require.True(t, lock2.Unlock())
+	}()
+
+	ch <- true
+	lock1.Unlock()
+
+	wg.Wait()
 }
 
-func TestFailLock(t *testing.T) {
+func TestGetConnID(t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 
-	lock1 := Create(dbAddr, 1)
+	lock1 := Create(dbAddr)
+	require.True(t, lock1.Lock("test_lock_1", 1*time.Second))
 
-	if res := lock1.TryLock("test_lock_1"); !res {
-		t.Fail()
-	}
+	var myLock1 = lock1.(*myLock)
+	require.NotNil(t, myLock1)
 
-	var mylock1 = lock1.(*myLock)
-	if mylock1 == nil {
-		t.Fatal("unexpected nil pointer")
-	}
-
-	test.CheckFail(mylock1.conn.Close(), t)
-
-	if res := lock1.TryLock("test_lock_1"); res {
-		t.Fail()
-	}
-
-	if lock1.Unlock() {
-		t.Fatalf("shouldn't fail to unlock")
-	}
+	require.True(t, lock1.Close())
+	_, err := myLock1.getConnID()
+	require.Error(t, err)
 }
 
 func TestFailUnlock(t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 
-	lock1 := Create(dbAddr, 1)
-	lock2 := Create(dbAddr, 1)
+	lock1 := Create(dbAddr)
+	lock2 := Create(dbAddr)
 
 	if res := lock1.TryLock("test_lock_1"); !res {
 		t.Fail()
@@ -278,6 +295,11 @@ func TestFailUnlock(t *testing.T) {
 		t.Fatalf("shouldn't fail to close")
 	}
 
+	//Unlock after close
+	if lock2.Unlock() {
+		t.Fatalf("should fail to unlock")
+	}
+
 	//Test double close
 	if !lock2.Close() {
 		t.Fatalf("shouldn't fail to close")
@@ -285,19 +307,6 @@ func TestFailUnlock(t *testing.T) {
 
 	//Test IsLockedByMe after close
 	if mylock1.IsLockedByMe() {
-		t.Fail()
-	}
-}
-
-func TestLockNegative(t *testing.T) {
-	test.SkipIfNoMySQLAvailable(t)
-
-	addr := *dbAddr
-	addr.Port = 55555
-
-	lock1 := Create(&addr, 1)
-
-	if res := lock1.TryLock("test_lock_1"); res {
 		t.Fail()
 	}
 }

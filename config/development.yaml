@@ -1,16 +1,32 @@
 log_type: zap
 
-port: 7836
-
 logging:
   level: debug
 
-state_update_timeout: 10
-state_connect_url: "root@localhost"
-kafka_addresses:
-  - "localhost:9092"
-hadoop:
-  user: hadoop
-  addresses:
-    - "localhost:9000"
-  base_dir: "/user/hadoop/tmp/hdfs_pipe_test"
+state_update_interval: 10s
+worker_idle_interval: 1s
+state_connect_url: "storagetapper:storagetapper@localhost"
+
+pipe:
+    kafka:
+        addresses:
+            - "localhost:9091"
+            - "localhost:9092"
+            - "localhost:9093"
+    hadoop:
+        user: hadoop
+        addresses:
+            - "localhost:9000"
+        base_dir: "/user/hadoop/tmp/hdfs_pipe_test"
+    s3:
+        region: "us-east-1"
+        endpoint: "http://localhost:8000"
+        access_key_id: 'accessKey1'
+        secret_access_key: 'verySecretKey1'
+        bucket: "pipetestbucket"
+        base_dir: "/tmp/s3_pipe_test"
+
+output_topic_name_template:
+  mysql:
+    mysql:
+        "{{.Db}}.{{.Table}}"

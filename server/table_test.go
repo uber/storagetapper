@@ -23,25 +23,31 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"reflect"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/test"
-	"github.com/uber/storagetapper/types"
 	"github.com/uber/storagetapper/util"
 )
 
-func serverTableInit(t *testing.T) {
-	conn := state.ConnectLow(cfg, true)
-	if conn == nil {
-		t.Fatalf("failed to connect to db")
-	}
-	_, err := conn.Exec("TRUNCATE TABLE " + types.MyDbName + ".state")
-	test.CheckFail(err, t)
+func tableInit(t *testing.T) {
+	var err error
+
+	conn := state.GetDB()
+	require.NotNil(t, conn)
+
+	require.True(t, state.Reset())
 
 	for i := 0; i < 3; i++ {
 		err = util.ExecSQL(conn, `DROP DATABASE IF EXISTS st_table_http_test`+strconv.Itoa(i))
@@ -70,286 +76,231 @@ func serverTableInit(t *testing.T) {
 		)`)
 		test.CheckFail(err, t)
 	}
-
-	err = conn.Close()
-	test.CheckFail(err, t)
 }
 
-func tableRequest(cmd tableCmdReq, code int, t *testing.T) *httptest.ResponseRecorder {
+func tableJSONRequest(cmd tableCmdReq, code int, t *testing.T) *httptest.ResponseRecorder {
 	body, _ := json.Marshal(cmd)
 	req, err := http.NewRequest("POST", "/table", bytes.NewReader(body))
+	req.Header.Add("Content-Type", "application/json")
 	test.Assert(t, err == nil, "Failed: %v", err)
 	res := httptest.NewRecorder()
 	tableCmd(res, req)
 	test.Assert(t, res.Code == code, "Not OK")
+
+	switch cmd.Cmd {
+	case "del":
+		require.True(t, state.SyncDeregisteredTables())
+	case "add":
+		require.True(t, state.SyncRegisteredTables())
+	}
+
 	return res
 }
 
-func addTable(cluster string, service string, db string, table string, t *testing.T) {
-	err := util.ExecSQL(state.GetDB(), "INSERT INTO state(cluster, service, db, tableName, input, output, outputFormat, gtid, schemaGTID, rawSchema) VALUES (?, ?, ?, ?, '', 'kafka', 'json', '', '', '')", cluster, service, db, table)
-	test.CheckFail(err, t)
+func tableFormRequest(typ string, cmd tableCmdReq, code int, t *testing.T) *httptest.ResponseRecorder {
+	body := url.Values{}
+	body.Add("cmd", cmd.Cmd)
+	body.Add("cluster", cmd.Cluster)
+	body.Add("service", cmd.Service)
+	body.Add("db", cmd.Db)
+	body.Add("table", cmd.Table)
+	if cmd.Table != "" && cmd.Cmd != "list" {
+		body.Set("table", cmd.Table+"_"+typ)
+	}
+	body.Add("input", cmd.Input)
+	body.Add("output", cmd.Output)
+	body.Add("outputFormat", cmd.OutputFormat)
+	body.Add("version", fmt.Sprintf("%v", cmd.Version))
+	body.Add("offset", fmt.Sprintf("%v", cmd.Offset))
+	body.Add("limit", fmt.Sprintf("%v", cmd.Limit))
+	body.Add("filter", cmd.Filter)
+	req, err := http.NewRequest("GET", "/table?"+body.Encode(), nil)
+	if typ == "POST" {
+		req, err = http.NewRequest("POST", "/table", strings.NewReader(body.Encode()))
+	}
+	test.Assert(t, err == nil, "Failed: %v", err)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	res := httptest.NewRecorder()
+	tableCmd(res, req)
+	test.Assert(t, res.Code == code, "Not OK: code=%v", res.Code)
+
+	return res
 }
 
-func testServerTableListDelCommands(cmd string, t *testing.T) {
-	serverTableInit(t)
+func tableRequest(cmd tableCmdReq, code int, t *testing.T) {
+	tableJSONRequest(cmd, code, t)
+	tableFormRequest("GET", cmd, code, t)
+	tableFormRequest("POST", cmd, code, t)
+}
+
+func addTable(cluster string, service string, db string, table string, t *testing.T) {
+	var stateID int64
+
+	tx, err := state.GetDB().Begin()
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.Exec("INSERT INTO registrations(cluster,service,db,table_name,input, "+
+		"output,output_format,version) VALUES (?,?,?,?,?,?,?,?)", cluster, service, db, table, "mysql", "kafka", "json", 0)
+	require.NoError(t, err)
+	iid, err := res.LastInsertId()
+	require.NoError(t, err)
+	_, err = tx.Exec("INSERT INTO state(service,cluster,db,table_name,input,output,output_format,version,reg_id) "+
+		"VALUES (?,?,?,?,?,?,?,?,?)", service, cluster, db, table, "mysql", "kafka", "json", 0, iid)
+	require.NoError(t, err)
+	stateID, err = res.LastInsertId()
+	require.NoError(t, err)
+
+	_, err = tx.Exec("INSERT INTO raw_schema(state_id,schema_gtid,raw_schema) VALUES (?,'','')", stateID)
+	require.NoError(t, err)
+
+	_, err = tx.Exec("INSERT IGNORE INTO cluster_state(cluster,gtid) VALUES (?,'')", cluster)
+	require.NoError(t, err)
+
+	require.NoError(t, tx.Commit())
+	require.True(t, state.SyncRegisteredTables())
+}
+
+func compareResult(resp *bytes.Buffer, ref []tableListResponse, t *testing.T) {
+	dec := json.NewDecoder(resp)
+
+	for r := range ref {
+		var m tableListResponse
+		err := dec.Decode(&m)
+		test.CheckFail(err, t)
+		m.CreatedAt = time.Time{}
+		m.UpdatedAt = time.Time{}
+		log.Debugf("Matched: %v", m)
+		if !reflect.DeepEqual(r, m) {
+			test.CheckFail(err, t)
+		}
+	}
+
+	var m tableListResponse
+	err := dec.Decode(&m)
+	test.Assert(t, err == io.EOF)
+}
+
+func TestServerTableListCommands(t *testing.T) {
+	tableInit(t)
 
 	addTable("clst1", "svc1", "db1", "table1", t)
 	addTable("clst1", "svc1", "db1", "table2", t)
 	addTable("clst2", "svc1", "db2", "table2", t)
 	addTable("clst2", "svc1", "db3", "table3", t)
 	addTable("clst2", "svc1", "db4", "table3", t)
-	addTable("clst2", "svc2", "db1", "table4", t)
 	addTable("clst2", "svc2", "db2", "table5", t)
 
 	req := tableCmdReq{
-		Cmd:          cmd,
-		Cluster:      "clst2",
+		Cmd:          "list",
+		Cluster:      "*",
 		Service:      "svc1",
 		Db:           "db1",
 		Table:        "*",
+		Input:        "mysql",
 		Output:       "kafka",
 		OutputFormat: "json",
 	}
 
-	resp := tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != "" {
-		t.Fatalf("wrong response 1: '%v'", string(resp.Body.Bytes()))
+	resp := tableJSONRequest(req, http.StatusOK, t)
+
+	ref := []tableListResponse{
+		{Cluster: "clst1", Service: "svc1", Db: "db1", Table: "table1", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
+		{Cluster: "clst1", Service: "svc1", Db: "db1", Table: "table2", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
 	}
 
-	req.Cluster = "*"
-	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-` {
-		t.Fatalf("wrong response 2: '%v'", string(resp.Body.Bytes()))
-	}
-
-	req.Service = "*"
-	log.Debugf("ref %+v", req)
-	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-` {
-		t.Fatalf("wrong response 3: '%v'", string(resp.Body.Bytes()))
-	}
-
-	req.Cluster = "clst2"
-	req.Db = "*"
-	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-` {
-		t.Fatalf("wrong response 4: '%v'", string(resp.Body.Bytes()))
-	}
-
-	req.Service = "*"
-	req.Cluster = "*"
-	req.Db = "*"
-	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-` {
-		t.Fatalf("wrong response 5: '%v'", string(resp.Body.Bytes()))
-	}
+	compareResult(resp.Body, ref, t)
 }
 
-//Dry run del output is identical to output of list command
 func TestServerTableDelCommands(t *testing.T) {
-	testServerTableListDelCommands("del", t)
-}
-
-func TestServerTableListCommands(t *testing.T) {
-	testServerTableListDelCommands("list", t)
-}
-
-func TestServerTableDelApplyCommands(t *testing.T) {
-	serverTableInit(t)
+	tableInit(t)
 
 	addTable("clst1", "svc1", "db1", "table1", t)
 	addTable("clst1", "svc1", "db1", "table2", t)
-	addTable("clst2", "svc1", "db2", "table2", t)
-	addTable("clst2", "svc1", "db3", "table3", t)
-	addTable("clst2", "svc1", "db4", "table3", t)
+	addTable("clst2", "svc1", "db1", "table3", t)
 	addTable("clst2", "svc2", "db1", "table4", t)
-	addTable("clst2", "svc2", "db2", "table5", t)
-	addTable("clst3", "svc3", "db3", "table6", t)
 
 	req := tableCmdReq{
-		Cmd:     "del",
 		Cluster: "clst2",
 		Service: "svc1",
 		Db:      "db1",
 		Table:   "*",
+		Input:   "mysql",
 		Output:  "kafka",
-		Apply:   "yes",
 	}
 
-	resp := tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != "" {
-		t.Fatalf("wrong response 1: '%v'", string(resp.Body.Bytes()))
-	}
+	req.Cmd = "del"
+	resp := tableJSONRequest(req, http.StatusOK, t)
+	require.Equal(t, "", resp.Body.String())
+
+	reg, err := state.TableRegistered(req.Service, req.Cluster, req.Db, req.Table, req.Input, req.Output, req.Version, false)
+	require.NoError(t, err)
+	require.False(t, reg)
 
 	req.Cluster = "*"
-	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table1","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst1","Service":"svc1","Db":"db1","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-` {
-		t.Fatalf("wrong response 2: '%v'", string(resp.Body.Bytes()))
-	}
-
 	req.Service = "*"
-	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc2","Db":"db1","Table":"table4","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-` {
-		t.Fatalf("wrong response 3: '%v'", string(resp.Body.Bytes()))
+	req.Cmd = "list"
+	resp = tableJSONRequest(req, http.StatusOK, t)
+
+	ref := []tableListResponse{
+		{Cluster: "clst1", Service: "svc1", Db: "db1", Table: "table1", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
+		{Cluster: "clst1", Service: "svc1", Db: "db1", Table: "table2", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
+		{Cluster: "clst2", Service: "svc2", Db: "db1", Table: "table4", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
 	}
 
-	req.Cluster = "clst2"
-	req.Db = "*"
-	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst2","Service":"svc1","Db":"db2","Table":"table2","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst2","Service":"svc1","Db":"db3","Table":"table3","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst2","Service":"svc1","Db":"db4","Table":"table3","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-{"Cluster":"clst2","Service":"svc2","Db":"db2","Table":"table5","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-` {
-		t.Fatalf("wrong response 4: '%v'", string(resp.Body.Bytes()))
-	}
-
-	req.Service = "*"
-	req.Cluster = "*"
-	req.Db = "*"
-	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `{"Cluster":"clst3","Service":"svc3","Db":"db3","Table":"table6","Input":"","Output":"kafka","Version":0,"OutputFormat":"json"}
-` {
-		t.Fatalf("wrong response 5: '%v'", string(resp.Body.Bytes()))
-	}
-
-	resp = tableRequest(req, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `` {
-		t.Fatalf("wrong response 6: '%v'", string(resp.Body.Bytes()))
-	}
+	compareResult(resp.Body, ref, t)
 }
 
-func TestServerAddCommand(t *testing.T) {
-	serverTableInit(t)
+func TestServerTableAddDelListCommands(t *testing.T) {
+	tableInit(t)
 
 	listReq := tableCmdReq{
 		Cmd: "list",
 	}
 
-	var ref string
-	for i := 0; i < 3; i++ {
-		for j := 0; j < 3; j++ {
-			addReq := tableCmdReq{
-				Cmd:          "add",
-				Cluster:      "clst1",
-				Service:      "svc1",
-				Db:           "st_table_http_test" + strconv.Itoa(i),
-				Table:        "table_http_test" + strconv.Itoa(j),
-				Output:       "kafka",
-				OutputFormat: "json",
-			}
+	resp := tableJSONRequest(listReq, http.StatusOK, t)
+	require.Equal(t, ``, resp.Body.String())
 
-			tableRequest(addReq, http.StatusOK, t)
-
-			resp := tableRequest(listReq, http.StatusOK, t)
-
-			ref += `{"Cluster":"clst1","Service":"svc1","Db":"st_table_http_test` + strconv.Itoa(i) + `","Table":"table_http_test` + strconv.Itoa(j) + `","Input":"mysql","Output":"kafka","Version":0,"OutputFormat":"json"}
-`
-			log.Debugf("ref %+v", ref)
-
-			if string(resp.Body.Bytes()) != ref {
-				t.Fatalf("wrong response: '%v'", string(resp.Body.Bytes()))
-			}
-		}
-	}
-
-	delAllReq := tableCmdReq{
-		Cmd:     "del",
-		Cluster: "*",
-		Service: "*",
-		Db:      "*",
-		Table:   "*",
-		Output:  "kafka",
-		Apply:   "yes",
-	}
-	tableRequest(delAllReq, http.StatusOK, t)
-	resp := tableRequest(listReq, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `` {
-		t.Fatalf("wrong response1: '%v'", string(resp.Body.Bytes()))
-	}
-
-	addReq := tableCmdReq{
-		Cmd:          "add",
-		Service:      "svc1",
-		Cluster:      "clst1",
-		Db:           "st_table_http_test%",
-		Table:        "table_http_test%",
-		Output:       "kafka",
-		OutputFormat: "json",
-	}
-	tableRequest(addReq, http.StatusOK, t)
-
-	resp = tableRequest(listReq, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != ref {
-		t.Fatalf("wrong response: '%v'", string(resp.Body.Bytes()))
-	}
-
-	tableRequest(delAllReq, http.StatusOK, t)
-	resp = tableRequest(listReq, http.StatusOK, t)
-	if string(resp.Body.Bytes()) != `` {
-		t.Fatalf("wrong response1: '%v'", string(resp.Body.Bytes()))
-	}
-}
-
-func TestServerTableAddDelCommandsBasic(t *testing.T) {
-	serverTableInit(t)
-
-	add := tableCmdReq{
+	req := tableCmdReq{
 		Cmd:          "add",
 		Cluster:      "test_cluster_1",
 		Service:      "test_service_1",
 		Db:           "st_table_http_test0",
 		Table:        "table_http_test0",
+		Input:        "mysql",
 		Output:       "kafka",
 		OutputFormat: "json",
+		Params:       `{"Pipe":{"Compression":true}}`,
 	}
 
-	tableRequest(add, http.StatusOK, t)
-	tableRequest(add, http.StatusOK, t)
+	tableRequest(req, http.StatusOK, t)
 
-	reg, _ := state.TableRegistered(1)
-	test.Assert(t, reg, "Table should be registered")
+	//Remove *_GET, *_POST tables from previous request
+	tableInit(t)
 
-	del := tableCmdReq{
-		Cmd:          "del",
-		Cluster:      "test_cluster_1",
-		Service:      "test_service_1",
-		Db:           "st_table_http_test0",
-		Table:        "table_http_test0",
-		Output:       "kafka",
-		OutputFormat: "json",
-		Apply:        "yes",
-	}
+	tableJSONRequest(req, http.StatusOK, t)
 
-	tableRequest(del, http.StatusOK, t)
-	tableRequest(del, http.StatusOK, t)
+	reg, _ := state.TableRegisteredInState(1)
+	require.True(t, reg, "Table st_table_http_test0.table_http_test0 should be registered")
 
-	reg, _ = state.TableRegistered(1)
-	test.Assert(t, !reg, "Table should not be registered")
+	resp = tableJSONRequest(listReq, http.StatusOK, t)
+
+	ref := []tableListResponse{{Cluster: "test_cluster_1", Service: "test_service_1", Db: "st_table_http_test0", Table: "table_http_test0", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json", Params: "{\"Pipe\":{\"Compression\":true}}"}}
+
+	compareResult(resp.Body, ref, t)
+
+	req.Cmd = "del"
+	tableRequest(req, http.StatusOK, t)
+
+	reg, _ = state.TableRegisteredInState(1)
+	require.False(t, reg, "Table should not be registered")
+
+	resp = tableJSONRequest(listReq, http.StatusOK, t)
+	require.Equal(t, ``, resp.Body.String())
 }
 
-func TestServerTableNegative(t *testing.T) {
-	serverTableInit(t)
+func TestServerTableCmdIncorrectParams(t *testing.T) {
+	tableInit(t)
 	add := tableCmdReq{
 		Cmd:     "add",
 		Cluster: "test_cluster_1",
@@ -382,6 +333,7 @@ func TestServerTableNegative(t *testing.T) {
 
 	req, err := http.NewRequest("POST", "/table", bytes.NewReader([]byte("this is supposed to be garbage formatted json")))
 	test.Assert(t, err == nil, "Failed: %v", err)
+	req.Header.Add("Content-Type", "application/json")
 	res := httptest.NewRecorder()
 	tableCmd(res, req)
 	test.Assert(t, res.Code == http.StatusInternalServerError, "Not OK")

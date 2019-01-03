@@ -25,7 +25,7 @@ Options
       * **json**
       * **avro**
   * **concurrent_bootstrap** -- Stream initial snapshot for the table concurrently with log events. It's a must with **local** reader pipe, but not enforced currently
-  * **output_topic_name_format** - Allows to vary the output topic name format. Default: hp-%s-%s-%s (Placeholder are for: service name, database name, table name)
+  * **output_topic_name_format** - Allows to vary the output topic name format. Default: hp-tap-%s-%s-%s (Placeholder are for: service name, database name, table name)
   * **buffer_topic_name_format** - Allow to vary intermediate buffer topic name format. Default: storagetapper.service.%s.db.%s.table.%s
   * **pipe_batch_size** - Maximum number of messages to push to the pipe at once
   * **output_pipe_concurrency** - Allow multiple streamers for the same table

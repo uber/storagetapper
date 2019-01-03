@@ -1,0 +1,32 @@
+FROM debian:stretch
+
+RUN apt-get update && apt-get install -y apt-transport-https
+
+RUN echo "deb http://deb.debian.org/debian stretch main contrib\n \
+deb http://deb.debian.org/debian-security stretch/updates main" > /etc/apt/sources.list && apt-get update && apt-get -y --force-yes dist-upgrade
+
+RUN DEBIAN_FRONTEND="noninteractive" apt-get install -y --force-yes lsb-release wget default-jre sudo vim openssh-server curl netcat build-essential
+
+COPY scripts/install_deps.sh /
+RUN chmod +x /install_deps.sh
+
+COPY scripts/install_kafka.sh /scripts/
+COPY scripts/start_kafka.sh /scripts/
+RUN mkdir /kafka
+
+COPY scripts/install_hadoop.sh /scripts/
+COPY scripts/install_sql.sh /scripts/
+COPY scripts/install_hive.sh /scripts/
+
+RUN GOPATH=$HOME/gopath PATH=$HOME/gopath/bin:$PATH DOCKER_BUILD=1 /install_deps.sh
+
+COPY scripts/prepare_test_env.sh /scripts/
+
+COPY scripts/docker_test_entry.sh /
+RUN chmod +x /docker_test_entry.sh
+
+WORKDIR /storagetapper
+
+ENV USER=root
+
+CMD /bin/bash -l

@@ -22,23 +22,22 @@ package main
 
 import (
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/Shopify/sarama"
+	"github.com/uber/storagetapper/changelog"
 
+	"github.com/Shopify/sarama"
+	"github.com/stretchr/testify/require"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/encoder"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/pipe"
-	"github.com/uber/storagetapper/schema"
 	"github.com/uber/storagetapper/shutdown"
 	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/test"
@@ -46,78 +45,103 @@ import (
 	"github.com/uber/storagetapper/util"
 )
 
+var inserts = []string{
+	"INSERT INTO e2e_test_table1(f1) VALUES (?)",
+	"INSERT INTO e2e_test_table1(f1,f2) VALUES (?, CONCAT('bbb', ?))",
+	"INSERT INTO e2e_test_table2(f1) VALUES (?)",
+	"INSERT INTO e2e_test_table1(f1) VALUES (?)",
+}
+
+var insertsResultJSON = []string{
+	`{"Type":"insert","Key":[%d],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":%d},{"Name":"f3","Value":0},{"Name":"f4","Value":null}]}`,
+	`{"Type":"insert","Key":[%d],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":%d},{"Name":"f3","Value":0},{"Name":"f4","Value":null},{"Name":"f2","Value":"bbb%d"}]}`,
+	`{"Type":"insert","Key":[%d],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":%d},{"Name":"f3","Value":0},{"Name":"f4","Value":null}]}`,
+	`{"Type":"insert","Key":[%d],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":%d},{"Name":"f3","Value":0},{"Name":"f4","Value":null}]}`,
+}
+
 /*SQL command and expected test result, both for Avro and JSON formats*/
-var resfmt = [][]string{
-	{ //Insert some data before start the service, it'll be snapshotted
-		"INSERT INTO e2e_test_table1(f1) VALUES (?)",
-		`{"Type":"insert","Key":[%d],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":%d},{"Name":"f3","Value":0},{"Name":"f4","Value":null}]}`,
-		`{"Name":"hp.e2e_test_db1-e2e_test_table1","Fields":[{"Name":"hp.f1","Datum":%d},{"Name":"hp.f3","Datum":0},{"Name":"hp.f4","Datum":null},{"Name":"hp.ref_key","Datum":%d},{"Name":"hp.row_key","Datum":"%s"},{"Name":"hp.is_deleted","Datum":false}]}`,
-	},
-	{ //Some basic inserts to be processed by binlog
-		"INSERT INTO e2e_test_table1(f1) VALUES (?)",
-		`{"Type":"insert","Key":[%d],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":%d},{"Name":"f3","Value":0},{"Name":"f4","Value":null}]}`,
-		`{"Name":"hp.e2e_test_db1-e2e_test_table1","Fields":[{"Name":"hp.f1","Datum":%d},{"Name":"hp.f3","Datum":0},{"Name":"hp.f4","Datum":null},{"Name":"hp.ref_key","Datum":%d},{"Name":"hp.row_key","Datum":"%s"},{"Name":"hp.is_deleted","Datum":false}]}`,
-	},
-	{ //Test schema change by adding f2 field
-		"INSERT INTO e2e_test_table1(f1,f2) VALUES (?, CONCAT('bbb', ?))",
-		`{"Type":"insert","Key":[%d],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":%d},{"Name":"f3","Value":0},{"Name":"f4","Value":null},{"Name":"f2","Value":"bbb%d"}]}`,
-		/*FIXME: There is no way to notify streamer to update schema currently, so
-		* testing only case which fits initial schema*/
-		`{"Name":"hp.e2e_test_db1-e2e_test_table1","Fields":[{"Name":"hp.f1","Datum":%d},{"Name":"hp.f3","Datum":0},{"Name":"hp.f4","Datum":null},{"Name":"hp.ref_key","Datum":%d},{"Name":"hp.row_key","Datum":"%s"},{"Name":"hp.is_deleted","Datum":false}]}`,
-	},
-
-	{ //Test updates, which generated records pair: delete/insert
-		"UPDATE e2e_test_table1 SET f3=f3+20 WHERE f1>? AND f1<?",
-		`{"Type":"delete","Key":[%d],"SeqNo":%d,"Timestamp":0}`,
-		`{"Type":"insert","Key":[%d],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":%d},{"Name":"f3","Value":20},{"Name":"f4","Value":null}]}`,
-	},
-
-	{ //This is continuation for the above update
-		"",
-		`{"Name":"hp.e2e_test_db1-e2e_test_table1","Fields":[{"Name":"hp.f1","Datum":null},{"Name":"hp.f3","Datum":null},{"Name":"hp.f4","Datum":null},{"Name":"hp.ref_key","Datum":%d},{"Name":"hp.row_key","Datum":"%s"},{"Name":"hp.is_deleted","Datum":true}]}`,
-		`{"Name":"hp.e2e_test_db1-e2e_test_table1","Fields":[{"Name":"hp.f1","Datum":%d},{"Name":"hp.f3","Datum":20},{"Name":"hp.f4","Datum":null},{"Name":"hp.ref_key","Datum":%d},{"Name":"hp.row_key","Datum":"%s"},{"Name":"hp.is_deleted","Datum":false}]}`,
-	},
-	{ //Insert some data before start the service, it'll be snapshotted
-		"INSERT INTO e2e_test_table1(f1) VALUES (?)",
-		`{"Type":"insert","Key":[%d],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":%d},{"Name":"f3","Value":0},{"Name":"f4","Value":null}]}`,
-		`{"Name":"hp.e2e_test_db1-e2e_test_table1","Fields":[{"Name":"hp.f1","Datum":%d},{"Name":"hp.f3","Datum":0},{"Name":"hp.f4","Datum":null},{"Name":"hp.ref_key","Datum":%d},{"Name":"hp.row_key","Datum":"%s"},{"Name":"hp.is_deleted","Datum":false}]}`,
-	},
+var insertsResultSQL = []string{
+	`INSERT INTO "e2e_test_table1" ("seqno","f1","f3","f4") VALUES (%d,%d,0,NULL);`,
+	`INSERT INTO "e2e_test_table1" ("seqno","f1","f3","f4","f2") VALUES (%d,%d,0,NULL,'bbb%d');`,
+	`INSERT INTO "e2e_test_table2" ("seqno","f1","f3","f4") VALUES (%d,%d,0,NULL);`,
+	`INSERT INTO "e2e_test_table1" ("seqno","f1","f3","f4") VALUES (%d,%d,0,NULL);`,
 }
 
-var resfmt2 = [][]string{
-	{ //Insert some data before start the service, it'll be snapshotted
-		"INSERT INTO e2e_test_table2(f1) VALUES (?)",
-		`{"Type":"insert","Key":[%d],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":%d},{"Name":"f3","Value":0},{"Name":"f4","Value":null}]}`,
-		`{"Name":"hp.e2e_test_db1-e2e_test_table2","Fields":[{"Name":"hp.f1","Datum":%d},{"Name":"hp.f3","Datum":0},{"Name":"hp.f4","Datum":null},{"Name":"hp.ref_key","Datum":%d},{"Name":"hp.row_key","Datum":"%s"},{"Name":"hp.is_deleted","Datum":false}]}`,
-	},
-	{ //Some basic inserts to be processed by binlog
-		"INSERT INTO e2e_test_table2(f1) VALUES (?)",
-		`{"Type":"insert","Key":[%d],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":%d},{"Name":"f3","Value":0},{"Name":"f4","Value":null}]}`,
-		`{"Name":"hp.e2e_test_db1-e2e_test_table2","Fields":[{"Name":"hp.f1","Datum":%d},{"Name":"hp.f3","Datum":0},{"Name":"hp.f4","Datum":null},{"Name":"hp.ref_key","Datum":%d},{"Name":"hp.row_key","Datum":"%s"},{"Name":"hp.is_deleted","Datum":false}]}`,
-	},
+var insertsResultSQLIdempotent = []string{
+	`INSERT INTO "e2e_test_table1" ("seqno","f1","f3","f4") VALUES (%d,%d,0,NULL) ON DUPLICATE KEY UPDATE "f3"= IF(seqno < VALUES(seqno), VALUES("f3"),"f3"),"f4"= IF(seqno < VALUES(seqno), VALUES("f4"),"f4"), seqno = IF(seqno < VALUES(seqno), VALUES(seqno), seqno);`,
+	`INSERT INTO "e2e_test_table1" ("seqno","f1","f3","f4","f2") VALUES (%d,%d,0,NULL,'bbb%d') ON DUPLICATE KEY UPDATE "f3"= IF(seqno < VALUES(seqno), VALUES("f3"),"f3"),"f4"= IF(seqno < VALUES(seqno), VALUES("f4"),"f4"),"f2"= IF(seqno < VALUES(seqno), VALUES("f2"),"f2"), seqno = IF(seqno < VALUES(seqno), VALUES(seqno), seqno);`,
+	`INSERT INTO "e2e_test_table2" ("seqno","f1","f3","f4") VALUES (%d,%d,0,NULL) ON DUPLICATE KEY UPDATE "f3"= IF(seqno < VALUES(seqno), VALUES("f3"),"f3"),"f4"= IF(seqno < VALUES(seqno), VALUES("f4"),"f4"), seqno = IF(seqno < VALUES(seqno), VALUES(seqno), seqno);`,
+	`INSERT INTO "e2e_test_table1" ("seqno","f1","f3","f4") VALUES (%d,%d,0,NULL) ON DUPLICATE KEY UPDATE "f3"= IF(seqno < VALUES(seqno), VALUES("f3"),"f3"),"f4"= IF(seqno < VALUES(seqno), VALUES("f4"),"f4"), seqno = IF(seqno < VALUES(seqno), VALUES(seqno), seqno);`,
 }
 
-func waitSnapshotToFinish(init bool, table string, t *testing.T) {
-	if !init {
-		return
+var insertsResult = map[string][]string{
+	"avro":               insertsResultJSON,
+	"json":               insertsResultJSON,
+	"msgpack":            insertsResultJSON,
+	"ansisql":            insertsResultSQL,
+	"mysql":              insertsResultSQL, //quotes replaced in the code
+	"ansisql_idempotent": insertsResultSQLIdempotent,
+	"mysql_idempotent":   insertsResultSQLIdempotent, //quotes replaced in the code
+}
+
+//Test updates, which generated records pair: delete/insert
+var updateStmt = []string{
+	"UPDATE e2e_test_table1 SET f3=f3+20 WHERE f1>=? AND f1<?",
+}
+
+var updateResultJSON = []string{
+	`{"Type":"delete","Key":[%v],"SeqNo":%d,"Timestamp":0}`,
+	`{"Type":"insert","Key":[%d],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":%d},{"Name":"f3","Value":20},{"Name":"f4","Value":null}]}`,
+}
+
+//Test updates, which generated records pair: delete/insert
+var updateResultSQL = []string{
+	`DELETE FROM "e2e_test_table1" WHERE "seqno"=%d AND "f1"=%d;`,
+	`INSERT INTO "e2e_test_table1" ("seqno","f1","f3","f4") VALUES (%d,%d,20,NULL);`,
+}
+
+var updateResultSQLIdempotent = []string{
+	`DELETE FROM "e2e_test_table1" WHERE "seqno"=%d AND "f1"=%d;`,
+	`INSERT INTO "e2e_test_table1" ("seqno","f1","f3","f4") VALUES (%d,%d,20,NULL) ON DUPLICATE KEY UPDATE "f3"= IF(seqno < VALUES(seqno), VALUES("f3"),"f3"),"f4"= IF(seqno < VALUES(seqno), VALUES("f4"),"f4"), seqno = IF(seqno < VALUES(seqno), VALUES(seqno), seqno);`,
+}
+
+var updateResult = map[string][]string{
+	"avro":               updateResultJSON,
+	"json":               updateResultJSON,
+	"msgpack":            updateResultJSON,
+	"mysql":              updateResultSQL,
+	"ansisql":            updateResultSQL,
+	"mysql_idempotent":   updateResultSQLIdempotent,
+	"ansisql_idempotent": updateResultSQLIdempotent,
+}
+
+func formatSQL(s string) bool {
+	return strings.HasPrefix(s, "ansisql") || strings.HasPrefix(s, "mysql")
+}
+
+func convertQuotes(s *[]string) {
+	for i := 0; i < len(*s); i++ {
+		(*s)[i] = strings.Replace((*s)[i], `"`, "`", -1)
 	}
+}
+
+func waitSnapshotToFinish(table string, output string, t *testing.T) {
 	for !shutdown.Initiated() {
-		n, err := state.GetTableNewFlag("e2e_test_svc1", "e2e_test_cluster1", "e2e_test_db1", table, "mysql", "kafka", 0)
+		row, err := state.GetTable("e2e_test_svc1", "e2e_test_cluster1", "e2e_test_db1", table, "mysql", output, 0)
 		test.CheckFail(err, t)
-		if !n {
+		if !row.SnapshottedAt.IsZero() && !row.NeedSnapshot {
 			break
 		}
-		time.Sleep(time.Millisecond * 1000)
+		time.Sleep(time.Millisecond * 50)
 	}
-	time.Sleep(time.Millisecond * 500)
+	time.Sleep(time.Millisecond * 50)
 
 	log.Debugf("Detected snapshot finished for %v", table)
 }
 
-func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResult []string, outEncoder encoder.Encoder, t *testing.T) {
-	result := jsonResult
-
+func consumeEvents(c pipe.Consumer, format string, result []string, outEncoder encoder.Encoder, tableNum string, t *testing.T) {
 	for _, v := range result {
+		log.Debugf("Waiting event: %+v", v)
 		//We can't notify "avro" encoder about schema changed by "ALTER"
 		//so remove new "f2" field "avro" encoded doesn't know of
 		if format == "avro" {
@@ -136,11 +160,13 @@ func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResu
 				}
 			}
 
-			if format == "avro" && r.Type == "delete" {
-				key := encoder.GetCommonFormatKey(&r)
-				r.Key = make([]interface{}, 0)
-				r.Key = append(r.Key, key)
-			}
+			/*
+				if format == "avro" && r.Type == "delete" {
+					key := encoder.GetCommonFormatKey(&r)
+					r.Key = make([]interface{}, 0)
+					r.Key = append(r.Key, key)
+				}
+			*/
 
 			b, err := json.Marshal(r)
 			v = string(b)
@@ -162,29 +188,25 @@ func consumeEvents(c pipe.Consumer, format string, avroResult []string, jsonResu
 			b = msg.([]byte)
 		}
 
-		//		log.Errorf("Received : %+v %v", string(b), len(b))
-		//		log.Errorf("Reference: %+v %v", v, len(v))
 		conv := string(b)
 		if v != conv {
 			log.Errorf("Received : %+v %v", conv, len(b))
 			log.Errorf("Reference: %+v %v", v, len(v))
 			t.FailNow()
 		}
+		log.Debugf("Successfully matched: %+v %v", conv, len(b))
 	}
 }
 
-var seqno int
-
 func waitMainInitialized() {
-	/*Wait while it initializes */
 	for shutdown.NumProcs() < 2 {
-		time.Sleep(time.Millisecond * 500)
+		time.Sleep(time.Millisecond * 50)
 	}
 }
 
 func waitAllEventsStreamed(format string, c pipe.Consumer, sseqno int, seqno int) int {
 	//Only json and msgpack push schema to stream, skip schema events for others
-	if format != "json" && format != "msgpack" {
+	if format != "json" && format != "msgpack" && !formatSQL(format) {
 		sseqno++
 	}
 
@@ -195,135 +217,185 @@ func waitAllEventsStreamed(format string, c pipe.Consumer, sseqno int, seqno int
 	return sseqno
 }
 
-func initTestDB(init bool, t *testing.T) {
-	if init {
+func initTestDB(t *testing.T) {
+	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: ""})
+	require.NoError(t, err)
+
+	test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS "+types.MyDbName)
+	test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS e2e_test_db1")
+	test.ExecSQL(conn, t, "RESET MASTER")
+
+	test.ExecSQL(conn, t, "CREATE DATABASE e2e_test_db1")
+	test.ExecSQL(conn, t, "CREATE TABLE e2e_test_db1.e2e_test_table1(f1 int not null primary key, f3 int not null default 0, f4 int)")
+
+	err = conn.Close()
+	require.NoError(t, err)
+}
+
+func addTable(format string, tableNum string, output string, t *testing.T) {
+	var err error
+
+	table := "e2e_test_table" + tableNum
+	log.Debugf("Adding table: %v, output: %v, format: %v", table, output, format)
+
+	//Insert some test cluster connection info
+	if tableNum == "1" {
+		err := util.HTTPPostJSON("http://localhost:7836/cluster",
+			`{"cmd" : "add", "name" : "e2e_test_cluster1", "host" : "localhost", "port" : 3306,
+				"user" : "`+types.TestMySQLUser+`", "pw" : "`+types.TestMySQLPassword+`"}`)
+		test.CheckFail(err, t)
+	}
+	//Insert output Avro schema
+	dst := `, "dst" : "state"`
+	err = util.HTTPPostJSON("http://localhost:7836/schema",
+		`{"cmd" : "register", "service" : "e2e_test_svc1", "inputtype": "mysql", "output":"`+output+`", "db" : "e2e_test_db1",
+				"type" : "`+format+`", "table" : "`+table+`"`+dst+` }`)
+	test.CheckFail(err, t)
+
+	if tableNum == "1" {
 		conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: ""})
 		test.CheckFail(err, t)
-
-		test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS "+types.MyDbName)
-		test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS e2e_test_db1")
-		test.ExecSQL(conn, t, "RESET MASTER")
-
-		test.ExecSQL(conn, t, "CREATE DATABASE e2e_test_db1")
-		test.ExecSQL(conn, t, "CREATE TABLE e2e_test_db1.e2e_test_table1(f1 int not null primary key, f3 int not null default 0, f4 int)")
-
+		test.ExecSQL(conn, t, "UPDATE "+types.MyDbName+".cluster_state SET seqno=0 WHERE cluster='e2e_test_cluster1'")
 		err = conn.Close()
 		test.CheckFail(err, t)
 	}
+
+	//Register test table for ingestion
+	err = util.HTTPPostJSON("http://localhost:7836/table",
+		`{"cmd": "add", "cluster": "e2e_test_cluster1", "service": "e2e_test_svc1", "db": "e2e_test_db1",
+			"table": "`+table+`", "input": "mysql", "output":"`+output+`","OutputFormat":"`+format+`"}`)
+	test.CheckFail(err, t)
+
+	//Force sync state with table registrations
+	require.True(t, state.SyncRegisteredTables())
 }
 
-func addTable(init bool, format string, tableNum string, output string, t *testing.T) {
-	table := "e2e_test_table" + tableNum
-
-	log.Debugf("aaaaa %v %v", output, format)
-	if init {
-		/*Insert some test cluster connection info */
-		if tableNum == "1" {
-			err := util.HTTPPostJSON("http://localhost:7836/cluster", `{"cmd" : "add", "name" : "e2e_test_cluster1", "host" : "localhost", "port" : 3306, "user" : "`+types.TestMySQLUser+`", "pw" : "`+types.TestMySQLPassword+`"}`)
-			test.CheckFail(err, t)
+func prepareReferenceArray(conn *sql.DB, format string, init bool, startingNum, seqno, numCols int, testQuery string, resfmt string, result *[]string, t *testing.T) int {
+	for i := startingNum; i < startingNum+10; i++ {
+		vals1 := make([]interface{}, numCols)
+		for j := 0; j < numCols; j++ {
+			vals1[j] = i
 		}
-		/*Register test table for ingestion */
-		err := util.HTTPPostJSON("http://localhost:7836/table", `{"cmd" : "add", "cluster" : "e2e_test_cluster1", "service" : "e2e_test_svc1", "db":"e2e_test_db1", "table":"`+table+`","output":"`+output+`","OutputFormat":"`+format+`"}`)
-		test.CheckFail(err, t)
 
-		/*Insert output Avro schema */
-		dst := `, "dst" : "local"`
-		err = util.HTTPPostJSON("http://localhost:7836/schema", `{"cmd" : "register", "service" : "e2e_test_svc1", "db" : "e2e_test_db1", "type" : "`+format+`", "table" : "`+table+`"`+dst+` }`)
-		test.CheckFail(err, t)
+		test.ExecSQL(conn, t, testQuery, vals1...)
 
-		if tableNum == "1" {
-			conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: ""})
-			test.CheckFail(err, t)
-			test.ExecSQL(conn, t, "UPDATE "+types.MyDbName+".state SET seqno=? WHERE tableName=?", seqno-1000000, table)
-			err = conn.Close()
-			test.CheckFail(err, t)
-		}
-	}
-}
-
-func prepareReferenceArray2(conn *sql.DB, keyShift int, resfmt []string, jsonResult2 *[]string, avroResult2 *[]string, t *testing.T) {
-	for i := 1 + keyShift; i < 10+keyShift; i++ {
-		test.ExecSQL(conn, t, resfmt[0], i)
-		seqno++
-		s := fmt.Sprintf(resfmt[1], i, seqno, i)
-		*jsonResult2 = append(*jsonResult2, s)
-		//Number before strconv is number of digits in i
-		keyLen := strconv.Itoa(len(strconv.Itoa(i)))
-		s = fmt.Sprintf(resfmt[2], i, seqno, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
-		*avroResult2 = append(*avroResult2, s)
-	}
-}
-
-func prepareReferenceArray(conn *sql.DB, init bool, keyShift int, resfmt []string, jsonResult *[]string, avroResult *[]string, t *testing.T) {
-	for i := 101 + keyShift; i < 110+keyShift; i++ {
-		test.ExecSQL(conn, t, resfmt[0], i)
-		sq := 0
+		sq := ^uint64(0)
 		if !init {
 			seqno++
-			sq = seqno
+			sq = uint64(seqno)
 		}
-		s := fmt.Sprintf(resfmt[1], i, sq, i)
-		*jsonResult = append(*jsonResult, s)
-		keyLen := strconv.Itoa(len(strconv.Itoa(i)))
-		s = fmt.Sprintf(resfmt[2], i, sq, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
-		*avroResult = append(*avroResult, s)
+
+		var vals2 []interface{}
+
+		if formatSQL(format) {
+			vals2 = []interface{}{sq}
+		} else {
+			vals2 = []interface{}{i, sq}
+		}
+		for j := 0; j < numCols; j++ {
+			vals2 = append(vals2, i)
+		}
+
+		if formatSQL(format) {
+			s := fmt.Sprintf(resfmt, vals2...)
+			*result = append(*result, s)
+		} else {
+			s := fmt.Sprintf(resfmt, vals2...)
+			*result = append(*result, s)
+		}
+	}
+
+	return seqno
+}
+
+func prepareUpdateReferenceArray(conn *sql.DB, format string, seqno int, result *[]string, t *testing.T) int {
+	test.ExecSQL(conn, t, updateStmt[0], 101, 111)
+	for i := 101; i < 111; i++ {
+		if !strings.HasSuffix(format, "_idempotent") {
+			seqno++
+			if format == "avro" {
+				s := fmt.Sprintf(updateResult[format][0], fmt.Sprintf("\"3%v\"", i), seqno)
+				*result = append(*result, s)
+			} else if formatSQL(format) {
+				s := fmt.Sprintf(updateResult[format][0], seqno, i)
+				*result = append(*result, s)
+			} else {
+				s := fmt.Sprintf(updateResult[format][0], i, seqno)
+				*result = append(*result, s)
+			}
+		}
+
+		seqno++
+		if formatSQL(format) {
+			s := fmt.Sprintf(updateResult[format][1], seqno, i)
+			*result = append(*result, s)
+		} else {
+			s := fmt.Sprintf(updateResult[format][1], i, seqno, i)
+			*result = append(*result, s)
+		}
+	}
+	return seqno
+}
+
+func prepareSchemaResult(format string, seqno int, tableNum int, f2 bool, result *[]string) {
+	var f2sql, f2json string
+	if f2 {
+		f2sql = `"f2" varchar(32), `
+		f2json = `,{"Name":"f2","Value":"varchar(32)"}`
+	}
+	if formatSQL(format) {
+		*result = append(*result, fmt.Sprintf(`CREATE TABLE "e2e_test_table%d" ("seqno" BIGINT NOT NULL, "f1" int(11) NOT NULL, "f3" int(11) NOT NULL, "f4" int(11), %sUNIQUE KEY("seqno"), PRIMARY KEY ("f1"));`, tableNum, f2sql))
+	} else if format != "avro" {
+		*result = append(*result, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}%s]}`, seqno, f2json))
 	}
 }
 
-func createSecondTable(init bool, conn *sql.DB, t *testing.T) {
-	if init {
-		test.ExecSQL(conn, t, "CREATE TABLE e2e_test_db1.e2e_test_table2(f1 int not null primary key, f3 int not null default 0, f4 int)")
-	}
-}
-
-func testStep(inPipeType string, bufferFormat string, outPipeType string, outPipeFormat string, init bool, keyShift int, t *testing.T) {
+func testStep(inPipeType string, bufferFormat string, outPipeType string, outPipeFormat string, t *testing.T) {
 	cfg := config.Get()
 
-	cfg.DataDir = "/tmp/storagetapper/main_test"
-	cfg.MaxFileSize = 1 // file per message
+	cfg.Pipe.BaseDir = "/tmp/storagetapper/main_test"
+	cfg.Pipe.MaxFileSize = 1 // file per message
+	cfg.Pipe.FileDelimited = true
 	cfg.ChangelogPipeType = inPipeType
 	cfg.InternalEncoding = bufferFormat
-	cfg.PipeFileDelimited = true
+
 	//json and msgpack pushes schema not wrapped into transport format, so
-	//streamer won't be able to decode it unless outPipeFormat =
-	//InternalEncoding = bufferFormat
+	//streamer won't be able to decode it unless outPipeFormat = InternalEncoding = bufferFormat
 	if outPipeFormat == "json" || outPipeFormat == "msgpack" {
 		cfg.InternalEncoding = outPipeFormat
 		var err error
-		encoder.Internal, err = encoder.InitEncoder(cfg.InternalEncoding, "", "", "")
-		test.CheckFail(err, t)
+		encoder.Internal, err = encoder.InitEncoder(cfg.InternalEncoding, "", "", "", "", "", 0)
+		require.NoError(t, err)
 	}
-	cfg.StateUpdateTimeout = 1
+
+	cfg.StateUpdateInterval = 50 * time.Millisecond
+	cfg.LockExpireTimeout = 10 * time.Second
+	cfg.WorkerIdleInterval = 1 * time.Second
 	cfg.MaxNumProcs = 3
-	//	cfg.PipeBatchSize = 1
-	schema.HeatpipeNamespace = "hp"
-	encoder.GenTime = func() int64 { return 0 }
 
 	log.Configure(cfg.LogType, cfg.LogLevel, false)
 
-	log.Debugf("STARTED STEP: %v, %v, %v, %v, %v, %v, seqno=%v", inPipeType, bufferFormat, outPipeType, outPipeFormat, init, keyShift, seqno)
+	var seqno, sseqno = changelog.SeqnoSaveInterval, changelog.SeqnoSaveInterval
+	var result = make([]string, 0)
+	var result2 = make([]string, 0)
 
-	var jsonResult, avroResult []string = make([]string, 0), make([]string, 0)
-	var jsonResult2, avroResult2 []string = make([]string, 0), make([]string, 0)
+	log.Debugf("STARTED STEP: inPipeType=%v, bufferFormat=%v, outPipeType=%v, outPipeFormat=%v, seqno=%v", inPipeType, bufferFormat, outPipeType, outPipeFormat, seqno)
 
-	trackingPipe, err := pipe.Create(shutdown.Context, outPipeType, cfg.PipeBatchSize, cfg, nil)
-	test.CheckFail(err, t)
+	trackingPipe, err := pipe.Create(outPipeType, &cfg.Pipe, nil)
+	require.NoError(t, err)
 	trackingConsumer, err := trackingPipe.NewConsumer("hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
-	test.CheckFail(err, t)
+	require.NoError(t, err)
 
-	initTestDB(init, t)
+	initTestDB(t)
 
-	seqno += 1000000
-	sseqno := seqno
+	//First message of non avro stream is schema
+	prepareSchemaResult(outPipeFormat, 0, 1, false, &result)
 
-	if init && outPipeFormat != "avro" {
-		jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}]}`, 0))
-	}
+	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser,
+		Pwd: types.TestMySQLPassword, Db: "e2e_test_db1"})
+	require.NoError(t, err)
 
-	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: "e2e_test_db1"})
-	test.CheckFail(err, t)
-
-	prepareReferenceArray(conn, init, keyShift, resfmt[0], &jsonResult, &avroResult, t)
+	seqno = prepareReferenceArray(conn, outPipeFormat, true, 101, seqno, 1, inserts[0], insertsResult[outPipeFormat][0], &result, t)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -336,162 +408,85 @@ func testStep(inPipeType string, bufferFormat string, outPipeType string, outPip
 
 	defer func() {
 		shutdown.Initiate()
-		shutdown.Wait() //There is no guarantee that this wait return after main's Wait that's why below wait for local wg
+		shutdown.Wait() //There is no guarantee that this wait returns after main's Wait that's why below wait for local wg
 		wg.Wait()
-		log.Debugf("FINISHED STEP: %v, %v, %v, %v", inPipeType, bufferFormat, outPipeType, outPipeFormat)
+		log.Debugf("FINISHED STEP: inPipeType=%v, bufferFormat=%v, outPipeType=%v, outPipeFormat=%v, seqno=%v", inPipeType, bufferFormat, outPipeType, outPipeFormat, seqno)
 	}()
 
-	/*New consumer sees only new events, so register it before any events
-	* produced */
-	p, err := pipe.Create(shutdown.Context, outPipeType, cfg.PipeBatchSize, cfg, nil)
-	test.CheckFail(err, t)
+	// New consumer sees only new events, so register it before any events produced
+	p, err := pipe.Create(outPipeType, &cfg.Pipe, nil)
+	require.NoError(t, err)
 	c, err := p.NewConsumer("hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
-	test.CheckFail(err, t)
+	require.NoError(t, err)
 	c2, err := p.NewConsumer("hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
-	test.CheckFail(err, t)
+	require.NoError(t, err)
 
-	addTable(init, outPipeFormat, "1", outPipeType, t)
+	addTable(outPipeFormat, "1", outPipeType, t)
 
-	outEncoder, err := encoder.Create(outPipeFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1")
-	test.CheckFail(err, t)
+	// Encoder/decoder for the table added above
+	outEncoder, err := encoder.Create(outPipeFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1", "mysql", outPipeType, 0)
+	require.NoError(t, err)
 
-	/*Wait snapshot to finish before sending more data otherwise everything
-	* even following events will be read from snapshot and we want them to be
-	* read from binlog */
-	waitSnapshotToFinish(init, "e2e_test_table1", t)
+	// Wait snapshot to finish before sending more data otherwise everything even following events will be read
+	// from snapshot and we want them to be read from binlog
+	waitSnapshotToFinish("e2e_test_table1", outPipeType, t)
 
-	for i := 1 + keyShift; i < 10+keyShift; i++ {
-		test.ExecSQL(conn, t, resfmt[1][0], i)
-		seqno++
-		s := fmt.Sprintf(resfmt[1][1], i, seqno, i)
-		jsonResult = append(jsonResult, s)
-		//Number before strconv is number of digits in i
-		keyLen := strconv.Itoa(len(strconv.Itoa(i)))
-		s = fmt.Sprintf(resfmt[1][2], i, seqno, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
-		avroResult = append(avroResult, s)
-	}
-
-	//This makes sure that both changelog reader and streamer has read old
-	//schema
+	// Let's insert more rows after the snapshot finishes and wait for all rows to be consumed
+	seqno = prepareReferenceArray(conn, outPipeFormat, false, 1, seqno, 1, inserts[0], insertsResult[outPipeFormat][0], &result, t)
 	sseqno = waitAllEventsStreamed(outPipeFormat, trackingConsumer, sseqno, seqno)
 
+	// Now let's test with a new column added to the test table
 	test.ExecSQL(conn, t, "ALTER TABLE e2e_test_table1 ADD f2 varchar(32)")
 	seqno++
-	if outPipeFormat != "avro" {
-		jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"},{"Name":"f2","Value":"varchar(32)"}]}`, seqno))
-	}
+	prepareSchemaResult(outPipeFormat, seqno, 1, true, &result)
 
-	for i := 11 + keyShift; i < 30+keyShift; i++ {
-		test.ExecSQL(conn, t, resfmt[2][0], i, i)
-		seqno++
-		s := fmt.Sprintf(resfmt[2][1], i, seqno, i, i)
-		jsonResult = append(jsonResult, s)
-		keyLen := strconv.Itoa(len(strconv.Itoa(i)))
-		s = fmt.Sprintf(resfmt[2][2], i, seqno, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
-		avroResult = append(avroResult, s)
-	}
+	seqno = prepareReferenceArray(conn, outPipeFormat, false, 11, seqno, 2, inserts[1], insertsResult[outPipeFormat][1], &result, t)
+	sseqno = waitAllEventsStreamed(outPipeFormat, trackingConsumer, sseqno, seqno)
 
-	waitAllEventsStreamed(outPipeFormat, trackingConsumer, sseqno, seqno)
-
+	// Now let's drop the new column that was added above
 	test.ExecSQL(conn, t, "ALTER TABLE e2e_test_table1 DROP f2")
 	seqno++
-	if outPipeFormat != "avro" {
-		jsonResult = append(jsonResult, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}]}`, seqno))
+	prepareSchemaResult(outPipeFormat, seqno, 1, false, &result)
+
+	// Now let's update rows and check for existence of delete+insert messages
+	seqno = prepareUpdateReferenceArray(conn, outPipeFormat, seqno, &result, t)
+
+	// Now let's create the second table and insert some data
+	test.ExecSQL(conn, t, "CREATE TABLE e2e_test_db1.e2e_test_table2(f1 int not null primary key, f3 int not null default 0, f4 int)")
+	prepareSchemaResult(outPipeFormat, 0, 2, false, &result2)
+
+	prepareReferenceArray(conn, outPipeFormat, true, 101, seqno, 1, inserts[2], insertsResult[outPipeFormat][2], &result2, t)
+
+	seqno = prepareReferenceArray(conn, outPipeFormat, false, 222, seqno, 1, inserts[3], insertsResult[outPipeFormat][3], &result, t)
+	//This also guarantees that inserts for t2 skipped by changelog reader
+	waitAllEventsStreamed(outPipeFormat, trackingConsumer, sseqno, seqno)
+
+	addTable(outPipeFormat, "2", outPipeType, t)
+
+	// Encoder/decoder for the table added above
+	outEncoder2, err := encoder.Create(outPipeFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2", "mysql", outPipeType, 0)
+	require.NoError(t, err)
+
+	// Wait snapshot to finish before sending more data otherwise everything even following events will be read
+	// from snapshot and we want them to be read from binlog
+	waitSnapshotToFinish("e2e_test_table2", outPipeType, t)
+
+	// Now let's insert some data in the second table
+	prepareReferenceArray(conn, outPipeFormat, false, 0, seqno, 1, inserts[2], insertsResult[outPipeFormat][2], &result2, t)
+
+	if strings.HasPrefix(outPipeFormat, "mysql") {
+		convertQuotes(&result)
+		convertQuotes(&result2)
 	}
-
-	test.ExecSQL(conn, t, resfmt[3][0], 100+keyShift, 111+keyShift)
-	for i := 101 + keyShift; i < 110+keyShift; i++ {
-		seqno++
-		s := fmt.Sprintf(resfmt[3][1], i, seqno)
-		jsonResult = append(jsonResult, s)
-		keyLen := strconv.Itoa(len(strconv.Itoa(i)))
-		s = fmt.Sprintf(resfmt[4][1], seqno, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
-		avroResult = append(avroResult, s)
-
-		seqno++
-		s = fmt.Sprintf(resfmt[3][2], i, seqno, i)
-		jsonResult = append(jsonResult, s)
-		keyLen = strconv.Itoa(len(strconv.Itoa(i)))
-		s = fmt.Sprintf(resfmt[4][2], i, seqno, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
-		avroResult = append(avroResult, s)
-	}
-
-	createSecondTable(init, conn, t)
-
-	if init && outPipeFormat != "avro" {
-		jsonResult2 = append(jsonResult2, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}]}`, 0))
-	}
-
-	prepareReferenceArray(conn, init, keyShift, resfmt2[0], &jsonResult2, &avroResult2, t)
-
-	/*Wait while binlog skips above inserts before registering table*/
-	for {
-		gtid, err1 := state.GetGTID(&db.Loc{Cluster: "e2e_test_cluster1", Service: "e2e_test_svc1", Name: "e2e_test_db1"})
-		test.CheckFail(err1, t)
-		log.Debugf("Binlog reader at %v, waiting after :1-75", gtid)
-		i := strings.LastIndex(gtid, "-")
-		if i == -1 {
-			t.FailNow()
-		}
-		j, err2 := strconv.ParseInt(gtid[i+1:], 10, 32)
-		test.CheckFail(err2, t)
-		if j > 75 {
-			break
-		}
-		time.Sleep(time.Millisecond * 50)
-	}
-
-	addTable(init, outPipeFormat, "2", outPipeType, t)
-
-	outEncoder2, err := encoder.Create(outPipeFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2")
-	test.CheckFail(err, t)
-
-	log.Debugf("Inserted second table")
-
-	st, err := state.Get()
-	test.CheckFail(err, t)
-	log.Debugf("%v", st)
-
-	/*Wait snapshot to finish before sending more data otherwise everything
-	* even following events will be read from snapshot and we want them to be
-	* read from binlog */
-	waitSnapshotToFinish(init, "e2e_test_table2", t)
-
-	prepareReferenceArray2(conn, keyShift, resfmt2[1], &jsonResult2, &avroResult2, t)
-	prepareReferenceArray2(conn, keyShift+1000, resfmt[5], &jsonResult, &avroResult, t)
-	/*
-		for i := 1 + keyShift; i < 10+keyShift; i++ {
-			test.ExecSQL(conn, t, resfmt2[1][0], i)
-			seqno++
-			s := fmt.Sprintf(resfmt2[1][1], i, seqno, i)
-			jsonResult2 = append(jsonResult2, s)
-			//Number before strconv is number of digits in i
-			keyLen := strconv.Itoa(len(strconv.Itoa(i)))
-			s = fmt.Sprintf(resfmt2[1][2], i, seqno, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i))))
-			avroResult2 = append(avroResult2, s)
-		}
-
-		for i := 1 + keyShift; i < 10+keyShift; i++ {
-			test.ExecSQL(conn, t, resfmt[5][0], i+1000)
-			seqno++
-			s := fmt.Sprintf(resfmt[5][1], i+1000, seqno, i+1000)
-			jsonResult = append(jsonResult, s)
-			//Number before strconv is number of digits in i
-			keyLen := strconv.Itoa(len(strconv.Itoa(i + 1000)))
-			s = fmt.Sprintf(resfmt[5][2], i+1000, seqno, base64.StdEncoding.EncodeToString([]byte(keyLen+strconv.Itoa(i+1000))))
-			avroResult = append(avroResult, s)
-		}
-	*/
-
-	time.Sleep(time.Millisecond * 1500) //Let binlog to see table deletion
 
 	log.Debugf("Start consuming events from %v", "hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table1")
-	consumeEvents(c, outPipeFormat, avroResult, jsonResult, outEncoder, t)
-	log.Debugf("Start consuming events from %v", "hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
-	consumeEvents(c2, outPipeFormat, avroResult2, jsonResult2, outEncoder2, t)
+	consumeEvents(c, outPipeFormat, result, outEncoder, "1", t)
 
-	test.CheckFail(c.Close(), t)
-	test.CheckFail(c2.Close(), t)
+	log.Debugf("Start consuming events from %v", "hp-tap-e2e_test_svc1-e2e_test_db1-e2e_test_table2")
+	consumeEvents(c2, outPipeFormat, result2, outEncoder2, "2", t)
+
+	require.NoError(t, c.Close())
+	require.NoError(t, c2.Close())
 
 	log.Debugf("FINISHING STEP: %v, %v, %v, %v", inPipeType, bufferFormat, outPipeType, outPipeFormat)
 }
@@ -502,24 +497,32 @@ func TestBasic(t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 	test.SkipIfNoKafkaAvailable(t)
 
-	//FIXME: Rewrite test so it doesn't require events to come out inorder
+	encoder.GenTime = func() int64 { return 0 }
+
+	//FIXME: Rewrite test so it doesn't require events to come out in order
+
 	//Configure producer so as everything will go to one partition
 	pipe.InitialOffset = pipe.OffsetNewest
 	pipe.KafkaConfig = sarama.NewConfig()
 	pipe.KafkaConfig.Producer.Partitioner = sarama.NewManualPartitioner
 	pipe.KafkaConfig.Producer.Return.Successes = true
-	pipe.KafkaConfig.Consumer.MaxWaitTime = 10 * time.Millisecond
+	pipe.KafkaConfig.Consumer.MaxWaitTime = 15 * time.Millisecond
+	pipe.KafkaConfig.Producer.RequiredAcks = sarama.WaitForAll
 
-	for _, o := range []string{"kafka"} {
-		//for o := range pipe.Pipes { //FIXME: file and hdfs fail some time
-		if o == "local" {
+	for _, out := range []string{"kafka"} {
+		//for out := range pipe.Pipes { //FIXME: file and hdfs fail some time
+		if out == "local" {
 			continue
 		}
-		for _, b := range []string{"local", "kafka"} {
-			for _, i := range []string{"json", "msgpack"} { //possible buffer formats
+		for _, in := range []string{"local", "kafka"} {
+			for _, buf := range []string{"json", "msgpack"} { //possible buffer formats
 				for _, enc := range encoder.Encoders() {
-					testStep(b, i, o, enc, true, 0, t)
-					testStep(b, i, o, enc, false, 100000, t)
+					t.Run("buf_"+in+"_buffmt_"+buf+"_out_"+out+"_fmt_"+enc, func(t *testing.T) {
+						if strings.Contains(enc, "sql") {
+							t.Skip("Skipping sql tests")
+						}
+						testStep(in, buf, out, enc, t)
+					})
 				}
 			}
 		}

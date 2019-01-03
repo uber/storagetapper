@@ -22,108 +22,164 @@ package snapshot
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
+	"strings"
+	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/encoder"
 	"github.com/uber/storagetapper/log"
+	"github.com/uber/storagetapper/metrics"
 	"github.com/uber/storagetapper/types"
+	"github.com/uber/storagetapper/util"
 )
 
-//MySQLmysqlReader is a snapshot reader structure
+const cancelCheckInterval = 180 * time.Second
+
+// mysqlReader is a snapshot reader structure
 type mysqlReader struct {
-	conn    *sql.DB
-	trx     *sql.Tx
-	rows    *sql.Rows
-	log     log.Logger
-	nrecs   uint64
-	ndone   uint64
-	encoder encoder.Encoder
-	outMsg  []byte
-	key     string
-	err     error
+	dbl       *db.Loc
+	connInfo  *db.Addr
+	connType  int
+	conn      *sql.DB
+	trx       *sql.Tx
+	rows      *sql.Rows
+	log       log.Logger
+	nrecs     uint64
+	ndone     uint64
+	encoder   encoder.Encoder
+	inputType string
+	outMsg    []byte
+	key       string
+	err       error
+	query     string
+	metrics   *metrics.Snapshot
+	sqlRow    []interface{}
+	row       []interface{}
+	schema    *types.TableSchema
+	ticker    *time.Ticker
+
+	partitionKey string
 }
 
 func init() {
 	registerPlugin("mysql", createMySQLReader)
 }
 
-func createMySQLReader() (Reader, error) {
-	return &mysqlReader{}, nil
+func createMySQLReader(svc string, cluster string, dbs string, table string, enc encoder.Encoder, m *metrics.Snapshot) (Reader, error) {
+	r := &mysqlReader{query: "SELECT * FROM `<table_name>` FORCE INDEX (primary)", inputType: types.InputMySQL, encoder: enc, connType: db.Slave, metrics: m}
+	_, err := r.start(svc, cluster, dbs, table)
+	return r, err
 }
 
-//PrepareFromTx starts snapshot from given tx
-func (s *mysqlReader) StartFromTx(svc string, dbs string, table string, enc encoder.Encoder, tx *sql.Tx) (lastGtid string, err error) {
+func (s *mysqlReader) startFromTx(svc string, _ string, dbs string, table string,
+	tx *sql.Tx) (string, error) {
+
+	var lastGtid string
+	var err error
+
 	s.log = log.WithFields(log.Fields{"service": svc, "db": dbs, "table": table})
 
-	s.encoder = enc
 	s.trx = tx
 
-	/* Get GTID which is earlier in time then any row we will read during
-	* snapshot */
+	// Get GTID which is earlier in time then any row we will read during snapshot
 	err = s.trx.QueryRow("SELECT @@global.gtid_executed").Scan(&lastGtid)
 	if log.EL(s.log, err) {
-		return
+		return lastGtid, err
 	}
-	/* Use approximate row count, so as it's for reporting progress only */
 
-	err = s.trx.QueryRow("SELECT table_rows FROM information_schema.tables WHERE table_schema=? AND table_name=?", dbs, table).Scan(&s.nrecs)
-	//	err = s.trx.QueryRow("SELECT COUNT(*) FROM `" + table + "`").Scan(&s.nrecs)
+	// Use approximate row count, so as it's for reporting progress only
+	err = s.trx.QueryRow("SELECT table_rows FROM information_schema.tables WHERE table_schema=? AND "+
+		"table_name=?", dbs, table).Scan(&s.nrecs)
 	if log.EL(s.log, err) {
-		return
+		return lastGtid, err
 	}
-	s.rows, err = s.trx.Query("SELECT * FROM `" + table + "`")
+
+	s.rows, err = s.trx.Query(strings.Replace(s.query, "<table_name>", table, -1))
+
 	if log.EL(s.log, err) {
-		return
+		return lastGtid, err
 	}
 
 	s.ndone = 0
-
 	s.log.Infof("Snapshot reader started, will stream %v records", s.nrecs)
 
-	return
+	var c []string
+	c, s.err = s.rows.Columns()
+	if log.EL(s.log, s.err) {
+		return "", s.err
+	}
+
+	s.schema = s.encoder.Schema()
+
+	if len(c) != len(s.schema.Columns) {
+		return "", fmt.Errorf("rows column count(%v) should be equal to schema's column count(%v)", len(c), len(s.schema.Columns))
+	}
+
+	s.sqlRow = make([]interface{}, len(c))
+	for i := 0; i < len(c); i++ {
+		s.sqlRow[i] = util.MySQLToDriverType(s.schema.Columns[i].DataType, s.schema.Columns[i].Type)
+	}
+	s.row = make([]interface{}, len(c))
+
+	s.ticker = time.NewTicker(cancelCheckInterval)
+
+	return lastGtid, err
 }
 
-//Prepare connects to the db and starts snapshot for the table
-func (s *mysqlReader) Start(cluster string, svc string, dbs string, table string, enc encoder.Encoder) (lastGtid string, err error) {
-	ci := db.GetInfo(&db.Loc{Cluster: cluster, Service: svc, Name: dbs}, db.Slave)
-	if ci == nil {
-		return "", errors.New("No db info received")
-	}
-
-	s.conn, err = db.Open(ci)
+func (s *mysqlReader) startLow(svc string, cluster string, dbs string, table string) error {
+	var err error
+	s.dbl = &db.Loc{Cluster: cluster, Service: svc, Name: dbs}
+	s.connInfo, err = db.GetConnInfo(s.dbl, s.connType, s.inputType)
 	if log.E(err) {
-		return
+		return err
 	}
 
-	/*Do we need a transaction at all? We can use seqno to separate snapshot and
-	* binlog data. Binlog is always newer. */
-	/* If we need it, we need to rely on MySQL instance transactioin isolation
-	* level or uncomment later if we have go1.8 */
-	/*BeginTx since go1.8 */
-	/*
-		s.trx, err = s.conn.BeginTx(shutdown.Context, sql.TxOptions{sql.LevelRepeatableRead, true})
-	*/
+	s.conn, err = db.Open(s.connInfo)
+	if log.E(err) {
+		return err
+	}
+
+	// Do we need a transaction at all? We can use seqno to separate snapshot and binlog data. Binlog is always newer.
+	// If we need it, we need to rely on MySQL instance transaction isolation level.
+	// Uncomment later if we have go1.8
+	// BeginTx since go1.8
+	// s.trx, err = s.conn.BeginTx(shutdown.Context, sql.TxOptions{sql.LevelRepeatableRead, true})
 	s.trx, err = s.conn.Begin()
 	if log.E(err) {
+		log.E(s.conn.Close())
+		return err
+	}
+
+	return nil
+}
+
+// start connects to the db and starts snapshot for the table
+func (s *mysqlReader) start(svc string, cluster string, dbs string, table string) (string, error) {
+	if err := s.startLow(svc, cluster, dbs, table); err != nil {
 		return "", err
 	}
 
-	return s.StartFromTx(svc, dbs, table, enc, s.trx)
+	g, err := s.startFromTx(svc, cluster, dbs, table, s.trx)
+	if err != nil {
+		log.E(s.trx.Rollback())
+		log.E(s.conn.Close())
+	}
+	return g, err
 }
 
-//EndFromTx deinitializes reader started by PrepareFromTx
-func (s *mysqlReader) EndFromTx() {
+func (s *mysqlReader) endFromTx() {
+	s.ticker.Stop()
+
 	if s.rows != nil {
 		log.EL(s.log, s.rows.Close())
 	}
-	s.log.Infof("Snapshot reader finished")
 }
 
-//End deinitializes snapshot reader
+// End uninitializes snapshot reader
 func (s *mysqlReader) End() {
-	s.EndFromTx()
+	s.endFromTx()
 
 	if s.trx != nil {
 		log.EL(s.log, s.trx.Rollback())
@@ -135,113 +191,118 @@ func (s *mysqlReader) End() {
 	s.log.Infof("Snapshot reader finished")
 }
 
-/*FIXME: Use sql.ColumnType.DatabaseType instead if this function if go1.8 is
-* used */
-func mySQLToDriverType(p *interface{}, mysql string) {
-	switch mysql {
-	case "int", "integer", "tinyint", "smallint", "mediumint":
-		*p = new(sql.NullInt64)
-	case "bigint", "bit", "year":
-		*p = new(sql.NullInt64)
-	case "float", "double", "decimal", "numeric":
-		*p = new(sql.NullFloat64)
-	case "char", "varchar":
-		*p = new(sql.NullString)
-	case "blob", "tinyblob", "mediumblob", "longblob":
-		*p = new(sql.RawBytes)
-	case "text", "tinytext", "mediumtext", "longtext", "date", "datetime", "timestamp", "time":
-		*p = new(sql.NullString)
-	default: // "binary", "varbinary" and others
-		*p = new(sql.RawBytes)
+// isValidConn checks the validity of the connection to the DB to make sure we are connected to the right DB
+func (s *mysqlReader) isValidConn() bool {
+	select {
+	case <-s.ticker.C:
+		if !db.IsValidConn(s.dbl, s.connType, s.connInfo, s.inputType) {
+			return false
+		}
+	default:
 	}
+	return true
 }
 
-func driverTypeToGoType(p []interface{}, schema *types.TableSchema) []interface{} {
-	v := make([]interface{}, len(p))
-
-	for i := 0; i < len(p); i++ {
-		v[i] = nil
-		switch f := p[i].(type) {
-		case *sql.NullInt64:
-			if f.Valid {
-				if schema.Columns[i].DataType != "bigint" {
-					v[i] = int32(f.Int64)
-				} else {
-					v[i] = f.Int64
-				}
-			}
-		case *sql.NullString:
-			if f.Valid {
-				v[i] = f.String
-			}
-		case *sql.NullFloat64:
-			if f.Valid {
-				if schema.Columns[i].DataType == "float" {
-					v[i] = float32(f.Float64)
-				} else {
-					v[i] = f.Float64
-				}
-			}
-		case *sql.RawBytes:
-			if f != nil {
-				v[i] = []byte(*f)
+func driverTypeToGoTypeLow(p interface{}, schema *types.ColumnSchema) (v interface{}, size int64) {
+	switch f := p.(type) {
+	case *sql.NullInt64:
+		if f.Valid {
+			if schema.DataType != "bigint" {
+				v = int32(f.Int64)
+				size = 4
+			} else {
+				v = f.Int64
+				size = 8
 			}
 		}
+	case *sql.NullBool:
+		if f.Valid {
+			v = f.Bool
+			size = int64(1)
+		}
+	case *sql.NullString:
+		if f.Valid {
+			v = f.String
+			size = int64(len(f.String))
+		}
+	case *mysql.NullTime:
+		if f.Valid {
+			v = f.Time
+			size = 20
+		}
+	case *sql.NullFloat64:
+		if f.Valid {
+			if schema.DataType == "float" {
+				v = float32(f.Float64)
+				size = 4
+			} else {
+				v = f.Float64
+				size = 8
+			}
+		}
+	case *sql.RawBytes:
+		if f != nil {
+			b := []byte(*f)
+			v = b
+			size = int64(len(b))
+		}
+	}
+	return
+}
+
+func driverTypeToGoType(v []interface{}, p []interface{}, schema *types.TableSchema) int64 {
+	var size, s int64
+
+	for i := 0; i < len(p); i++ {
+		v[i], s = driverTypeToGoTypeLow(p[i], &schema.Columns[i])
+		size += s
 	}
 
-	return v
+	return size
 }
 
-//GetNext pops record fetched by HasNext
-func (s *mysqlReader) GetNext() (string, []byte, error) {
-	return s.key, s.outMsg, s.err
+//Pop pops record fetched by FetchNext
+func (s *mysqlReader) Pop() (string, string, []byte, error) {
+	return s.key, s.partitionKey, s.outMsg, s.err
 }
 
-//HasNext fetches the record from MySQL and encodes using encoder provided when
-//reader created
-func (s *mysqlReader) HasNext() bool {
+func (s *mysqlReader) fetchRow() []interface{} {
+	if !s.isValidConn() {
+		s.err = fmt.Errorf("cluster topology has changed")
+		return nil
+	}
+
 	if !s.rows.Next() {
 		if s.err = s.rows.Err(); log.EL(s.log, s.err) {
-			return true
+			return nil
 		}
 		if s.ndone == s.nrecs {
 			s.log.Infof("Finished. Done %v(%v%%) of %v", s.ndone, 100, s.nrecs)
 		}
-		return false
+		return nil
 	}
 
-	var c []string
-	c, s.err = s.rows.Columns()
+	s.err = s.rows.Scan(s.sqlRow...)
 	if log.EL(s.log, s.err) {
-		return true
+		return nil
 	}
 
-	schema := s.encoder.Schema()
+	size := driverTypeToGoType(s.row, s.sqlRow, s.schema)
+	s.metrics.BytesRead.Inc(size)
+	s.metrics.EventsRead.Inc(1)
+	return s.row
+}
 
-	if len(c) != len(schema.Columns) {
-		s.err = fmt.Errorf("Rows column count(%v) should be equal to schema's column count(%v)", len(c), len(schema.Columns))
-		return true
-	}
-
-	p := make([]interface{}, len(c))
-	for i := 0; i < len(c); i++ {
-		mySQLToDriverType(&p[i], schema.Columns[i].DataType)
-	}
-
-	s.err = s.rows.Scan(p...)
+func (s *mysqlReader) encodeRow(v []interface{}) {
+	s.outMsg, s.err = s.encoder.Row(types.Insert, &v, ^uint64(0), time.Time{})
 	if log.EL(s.log, s.err) {
-		return true
+		return
 	}
-
-	v := driverTypeToGoType(p, schema)
-
-	s.outMsg, s.err = s.encoder.Row(types.Insert, &v, 0)
-	if log.EL(s.log, s.err) {
-		return true
-	}
-
 	s.key = encoder.GetRowKey(s.encoder.Schema(), &v)
+	s.partitionKey = s.key
+}
 
+func (s *mysqlReader) reportStat() {
 	//Statistics maybe inaccurate so we can have some rows even if we got 0 when
 	//read rows count
 	if s.nrecs == 0 {
@@ -253,9 +314,29 @@ func (s *mysqlReader) HasNext() bool {
 		o = 1
 	}
 	if s.ndone%(s.nrecs/10+o) == 0 {
-		s.log.Infof("Snapshotting... Done %v(%v%%) of %v", s.ndone, pctdone, s.nrecs)
+		s.log.Infof("Snapshot ... Done %v(%v%%) of %v", s.ndone, pctdone, s.nrecs)
 	}
 	s.ndone++
+}
+
+//FetchNext fetches the record from MySQL and encodes using encoder provided when
+//reader created
+func (s *mysqlReader) FetchNext() bool {
+	s.err = nil
+
+	v := s.fetchRow()
+
+	if s.err != nil {
+		return true
+	}
+
+	if v == nil {
+		return false
+	}
+
+	s.encodeRow(v)
+
+	s.reportStat()
 
 	return true
 }

@@ -22,35 +22,19 @@ package encoder
 
 import (
 	"encoding/json"
-	"fmt"
+	"time"
 
 	"github.com/linkedin/goavro"
+	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/types"
 	"github.com/uber/storagetapper/util"
-)
-
-const (
-	namespace  = types.MySvcName
-	websterURL = "http://localhost:14040/webster/api/v2/"
 )
 
 //GetLatestSchemaFunc is a type to implement schema resolver polymorphism
 type GetLatestSchemaFunc func(namespace string, schemaName string, typ string) (*types.AvroSchema, error)
 
 //GetLatestSchema is the pointer to schema resolver
-var GetLatestSchema GetLatestSchemaFunc = GetSchemaWebster
-
-// GetSchemaWebster makes a GET HTTP call to webster schema service to get the latest schema version
-// for a given namespace and schema name.
-func GetSchemaWebster(namespace string, schemaName string, typ string) (*types.AvroSchema, error) {
-	resp, err := util.HTTPGet(websterURL + fmt.Sprintf("%s/%s/", namespace, schemaName))
-	if err != nil {
-		return nil, err
-	}
-	a := &types.AvroSchema{}
-	err = json.Unmarshal(resp, a)
-	return a, err
-}
+var GetLatestSchema GetLatestSchemaFunc
 
 //SchemaCodecHelper gets Avro codec and Avro record setter from schema structure
 func SchemaCodecHelper(avroSchema *types.AvroSchema) (goavro.Codec, *goavro.RecordSetter, error) {
@@ -69,8 +53,12 @@ func SchemaCodecHelper(avroSchema *types.AvroSchema) (goavro.Codec, *goavro.Reco
 }
 
 //GetLatestSchemaCodec resolves schema and converts it to Avro codec and setter
-func GetLatestSchemaCodec(service string, db string, table string, typ string) (goavro.Codec, *goavro.RecordSetter, error) {
-	avroSchema, err := GetLatestSchema(namespace, GetOutputSchemaName(service, db, table), typ)
+func GetLatestSchemaCodec(service string, db string, table string, typ string, input string, output string, version int) (goavro.Codec, *goavro.RecordSetter, error) {
+	n, err := GetOutputSchemaName(service, db, table, input, output, version)
+	if err != nil {
+		return nil, nil, err
+	}
+	avroSchema, err := GetLatestSchema("production", n, typ)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -78,6 +66,6 @@ func GetLatestSchemaCodec(service string, db string, table string, typ string) (
 }
 
 //GetOutputSchemaName combines parameter into output topic name
-func GetOutputSchemaName(service string, db string, table string) string {
-	return fmt.Sprintf("hp-tap-%s-%s-%s", service, db, table)
+func GetOutputSchemaName(service string, db string, table string, input string, output string, version int) (string, error) {
+	return config.Get().GetOutputTopicName(service, db, table, input, output, version, time.Now())
 }

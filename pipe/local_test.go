@@ -24,27 +24,33 @@ import (
 	"bytes"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"testing"
 
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/shutdown"
+	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/test"
 )
 
 var cfg *config.AppConfig
 
-func localConsumer(p Pipe, key string, t *testing.T) {
+func localConsumer(p Pipe, key string, cerr *int64) {
 	defer wg.Done()
 	c, err := p.NewConsumer(key)
-	if err != nil {
-		t.FailNow()
+	if log.E(err) {
+		atomic.AddInt64(cerr, 1)
+		return
 	}
 	var i int
 	for c.FetchNext() {
 		in, err := c.Pop()
+		if log.E(err) {
+			atomic.AddInt64(cerr, 1)
+			return
+		}
 		b := in.([]byte)
-		test.CheckFail(err, t)
 		if len(b) == 0 {
 			break
 		}
@@ -56,56 +62,67 @@ func localConsumer(p Pipe, key string, t *testing.T) {
 		if s != key+"."+strconv.Itoa(i) {
 			log.Debugf("Received: %v", s)
 			log.Debugf("Expected: %v", key+"."+strconv.Itoa(i))
-			t.FailNow()
+			atomic.AddInt64(cerr, 1)
+			return
 		}
 		i++
 	}
 }
 
-func localProducer(p Pipe, key string, t *testing.T) {
+func localProducer(p Pipe, key string, cerr *int64) {
 	defer wg.Done()
 	c, err := p.NewProducer(key)
-	test.CheckFail(err, t)
+	if log.E(err) {
+		atomic.AddInt64(cerr, 1)
+		return
+	}
 	for i := 0; i < 1000; i++ {
 		msg := key + "." + strconv.Itoa(i)
 		b := []byte(msg)
 		err = c.Push(b)
-		test.CheckFail(err, t)
+		if log.E(err) {
+			atomic.AddInt64(cerr, 1)
+			return
+		}
 	}
 	err = c.Push(nil)
-	test.CheckFail(err, t)
+	if log.E(err) {
+		atomic.AddInt64(cerr, 1)
+		return
+	}
 }
 
 func TestLocalBasic(t *testing.T) {
-	shutdown.Setup()
-
-	p, err := Create(shutdown.Context, "local", 16, cfg, nil)
+	p, err := Create("local", &cfg.Pipe, nil)
 	test.CheckFail(err, t)
+
+	var cerr int64
 
 	wg.Add(16)
 	for i := 0; i < 16; i++ {
-		go localConsumer(p, "key"+strconv.Itoa(i), t)
+		go localConsumer(p, "key"+strconv.Itoa(i), &cerr)
 	}
 
 	wg.Add(16)
 	for i := 0; i < 16; i++ {
-		go localProducer(p, "key"+strconv.Itoa(i), t)
+		go localProducer(p, "key"+strconv.Itoa(i), &cerr)
 	}
 
 	wg.Wait()
 
-	shutdown.Initiate()
-	shutdown.Wait()
+	if atomic.LoadInt64(&cerr) != 0 {
+		t.FailNow()
+	}
 }
 
 func TestLocalType(t *testing.T) {
 	pt := "local"
-	p, _ := initLocalPipe(nil, 0, cfg, nil)
+	p, _ := initLocalPipe(&cfg.Pipe, nil)
 	test.Assert(t, p.Type() == pt, "type should be "+pt)
 }
 
 func TestLocalPartitionKey(t *testing.T) {
-	lp, _ := initLocalPipe(nil, 0, cfg, nil)
+	lp, _ := initLocalPipe(&cfg.Pipe, nil)
 	p, err := lp.NewProducer("partition-key-test-topic")
 	test.CheckFail(err, t)
 	key := "some key"
@@ -116,6 +133,18 @@ func TestLocalPartitionKey(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()
+
+	shutdown.Setup()
+	defer func() {
+		shutdown.Initiate()
+		shutdown.Wait()
+	}()
+
+	if err := state.InitManager(shutdown.Context, cfg); err != nil {
+		log.Fatalf("Failed to init State")
+		os.Exit(1)
+	}
+	defer state.Close()
 
 	os.Exit(m.Run())
 }

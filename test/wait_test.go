@@ -22,12 +22,13 @@ package test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/uber/storagetapper/shutdown"
 )
 
 func TestWaitForNumProc(t *testing.T) {
-	if !WaitForNumProc(1, 200) {
+	if !WaitForNumProc(1, 200*time.Millisecond) {
 		t.Fatalf("There should be 0 threads")
 	}
 
@@ -41,19 +42,51 @@ func TestWaitForNumProc(t *testing.T) {
 	go a()
 	go a()
 
-	if WaitForNumProc(1, 200) {
+	if WaitForNumProc(1, 200*time.Millisecond) {
 		t.Fatalf("Should timeout because there is 2 threads")
 	}
 
 	ch <- true
 
-	if !WaitForNumProc(1, 200) {
+	if !WaitForNumProc(1, 200*time.Millisecond) {
 		t.Fatalf("Should succeed so as we signaled one proc to finish %v", shutdown.NumProcs())
 	}
 
 	ch <- true
 
-	if !WaitForNumProc(0, 200) {
+	if !WaitForNumProc(0, 200*time.Millisecond) {
+		t.Fatalf("Should succeed so as we signaled second proc to finish")
+	}
+}
+
+func TestWaitForNumProcGreater(t *testing.T) {
+	if !WaitForNumProcGreater(0, 200*time.Millisecond) {
+		t.Fatalf("There should be 0 threads")
+	}
+
+	ch := make(chan bool)
+	a := func() {
+		defer shutdown.Done()
+		<-ch
+	}
+
+	shutdown.Register(2)
+	go a()
+	go a()
+
+	if WaitForNumProcGreater(3, 200*time.Millisecond) {
+		t.Fatalf("Should timeout because there is 2 threads")
+	}
+
+	ch <- true
+
+	if !WaitForNumProcGreater(1, 200*time.Millisecond) {
+		t.Fatalf("Should succeed so as we signaled one proc to finish %v", shutdown.NumProcs())
+	}
+
+	ch <- true
+
+	if !WaitForNumProcGreater(0, 200*time.Millisecond) {
 		t.Fatalf("Should succeed so as we signaled second proc to finish")
 	}
 }

@@ -20,12 +20,84 @@
 
 package db
 
-import "github.com/uber/storagetapper/types"
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 
-//GetInfoForTest return address of local MySQL used by tests
-func GetInfoForTest(dbl *Loc, tp int) *Addr {
+	"github.com/uber/storagetapper/log"
+	"github.com/uber/storagetapper/types"
+)
+
+// GetConnInfoForTest return address of local MySQL used by tests
+func GetConnInfoForTest(dbl *Loc, connType int, inputType string) (*Addr, error) {
+	log.Infof("Fetching connection info for tests: DB %v, connType %v, inputType %v", dbl.Name, connType, inputType)
+
 	if dbl.Cluster == "please_return_nil_db_addr" {
-		return nil
+		return nil, fmt.Errorf("here_you_are")
 	}
-	return &Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: dbl.Name}
+
+	return &Addr{
+		Host: "localhost",
+		Port: 3306,
+		User: types.TestMySQLUser,
+		Pwd:  types.TestMySQLPassword,
+		Db:   dbl.Name,
+	}, nil
+}
+
+// GetEnumeratorForTest return db location info enumerator used by tests
+func GetEnumeratorForTest(svc, cluster, sdb, table, inputType string) (Enumerator, error) {
+	log.Infof("Fetching enumerator for tests: svc %v, db %v, table %v inputType %v", svc, sdb, table,
+		inputType)
+
+	loc := &Loc{
+		Cluster: cluster,
+		Service: svc,
+		Name:    sdb,
+	}
+
+	return &BuiltinEnumerator{data: []*Loc{loc}, current: -1}, nil
+}
+
+// IsValidConnForTest is DB connection validator for tests
+func IsValidConnForTest(_ *Loc, _ int, _ *Addr, _ string) bool {
+	return true
+}
+
+// JSONServer starts a new server which serves json that's passed to it as an argument.
+// The string should be json with a map of url->response. If the response is "error" then
+// the server will return 500.
+func JSONServer(js string) (*httptest.Server, map[string]json.RawMessage) {
+	var out map[string]json.RawMessage
+	err := json.Unmarshal([]byte(js), &out)
+	if err != nil {
+		panic(err)
+	}
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		e, ok := out[r.URL.Path]
+		if !ok {
+			e, ok = out[r.URL.String()]
+		}
+		if !ok {
+			w.WriteHeader(404)
+			if _, err := w.Write([]byte("Not found")); err != nil {
+				panic(err)
+			}
+			return
+		}
+		b, err := e.MarshalJSON()
+		if err != nil {
+			panic(err)
+		}
+		if string(b) == "error" {
+			w.WriteHeader(500)
+		}
+		if _, err := w.Write(b); err != nil {
+			panic(err)
+		}
+	}))
+
+	return s, out
 }

@@ -31,30 +31,15 @@ type ProcessCounter struct {
 
 	Started  int64
 	Finished int64
-
-	name string
 }
 
 //ProcessCounterInit is the constructor for ProcessCounter
-func ProcessCounterInit(c metricsFactory, name string, tags map[string]string) *ProcessCounter {
+func ProcessCounterInit(c scope, name string) *ProcessCounter {
 	var p ProcessCounter
-	p.MStarted = CounterInit(c, name+"_started", tags)
-	p.MFinished = CounterInit(c, name+"_finished", tags)
-	p.MRunning = CounterInit(c, name+"_running", tags)
-	if tags != nil {
-		p.MStarted.Tag(tags)
-		p.MFinished.Tag(tags)
-		p.MRunning.Tag(tags)
-	}
-	p.name = name
+	p.MStarted = CounterInit(c, name+"_started")
+	p.MFinished = CounterInit(c, name+"_finished")
+	p.MRunning = CounterInit(c, name+"_running")
 	return &p
-}
-
-//Tag adds metric tags
-func (p *ProcessCounter) Tag(tags map[string]string) {
-	p.MStarted.Tag(tags)
-	p.MFinished.Tag(tags)
-	p.MRunning.Tag(tags)
 }
 
 //Inc increments number of processes started and reports metric for number of

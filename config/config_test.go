@@ -21,125 +21,127 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 
 	yaml "gopkg.in/yaml.v2"
 
+	"github.com/davecgh/go-spew/spew"
+	"github.com/stretchr/testify/require"
 	"github.com/uber/storagetapper/types"
 )
 
 /*This is just tests that nothing crashes*/
 //TODO: Functional tests
 func TestBasic(t *testing.T) {
-	def = &stdConfig{}
-	loadFile = func(file string) ([]byte, error) {
+	loaders = []configLoader{&std{loadFn: func(_ interface{}, file string) ([]byte, error) {
 		if file == "/etc/"+types.MySvcName+"/base.yaml" {
 			return yaml.Marshal(getDefaultConfig())
 		}
 		return nil, nil
-	}
+	}}}
 
-	d := getDefaultConfig()
-	c := Get()
+	def := getDefaultConfig()
+	loaded := Get()
 
-	var e AppConfigODS
-	err := LoadSection(&e)
+	var section AppConfigODS
+	err := LoadSection(&section)
 	checkFail(t, err)
 
-	if d.KafkaAddrs == nil {
-		d.KafkaAddrs = make([]string, 0)
+	if def.Pipe.Kafka.Addresses == nil {
+		def.Pipe.Kafka.Addresses = make([]string, 0)
 	}
-	if d.Hadoop.Addresses == nil {
-		d.Hadoop.Addresses = make([]string, 0)
+	if def.Pipe.Hadoop.Addresses == nil {
+		def.Pipe.Hadoop.Addresses = make([]string, 0)
 	}
-	if d.OutputTopicNameTemplate == nil {
-		d.OutputTopicNameTemplate = make(map[string]map[string]string)
+	if def.OutputTopicNameTemplate == nil {
+		def.OutputTopicNameTemplate = make(map[string]map[string]string)
 	}
-	if d.ChangelogTopicNameTemplate == nil {
-		d.ChangelogTopicNameTemplate = make(map[string]map[string]string)
+	if def.ChangelogTopicNameTemplate == nil {
+		def.ChangelogTopicNameTemplate = make(map[string]map[string]string)
+	}
+	if def.Filters == nil {
+		def.Filters = make(map[string]map[string]RowFilter)
 	}
 
-	if !reflect.DeepEqual(*d, c.AppConfigODS) {
-		t.Fatalf("loaded should be equal to default")
-	}
+	loaded.LockExpireTimeout = 0
+	section.LockExpireTimeout = 0
 
-	if !reflect.DeepEqual(*d, e) {
-		t.Fatalf("loaded should be equal to default")
+	spew.Dump(*def)
+	spew.Dump(loaded.AppConfigODS)
+
+	require.Equal(t, *def, loaded.AppConfigODS)
+	require.Equal(t, *def, section)
+}
+
+func resetStdLoader(fn func(interface{}, string) ([]byte, error)) {
+	cfg = atomic.Value{}
+	if fn == nil {
+		fn = stdReadFile
 	}
+	loaders = []configLoader{&std{loadFn: fn}}
 }
 
 func TestConfigEnvironment(t *testing.T) {
-	def = &stdConfig{}
+	resetStdLoader(nil)
 	err := os.Setenv(strings.ToUpper(types.MySvcName)+"_ENVIRONMENT", "production")
 	checkFail(t, err)
-	if !EnvProduction() {
-		t.Fatalf("env should be set to production")
-	}
+	require.True(t, Environment() == EnvProduction)
 
 	err = os.Setenv(strings.ToUpper(types.MySvcName)+"_ENVIRONMENT", "development")
 	checkFail(t, err)
-	if !EnvProduction() {
-		t.Fatalf("env should be same as previously set")
-	}
+	require.True(t, Environment() == EnvProduction)
 
 	//stdConfig caches env, so need to create fresh instance
-	def = &stdConfig{}
+	resetStdLoader(nil)
 	err = os.Setenv(strings.ToUpper(types.MySvcName)+"_ENVIRONMENT", "development")
 	checkFail(t, err)
-	if EnvProduction() {
-		t.Fatalf("env should be set to development")
-	}
+	require.True(t, Environment() != EnvProduction)
 
-	def = &stdConfig{}
+	resetStdLoader(nil)
 	err = os.Setenv(strings.ToUpper(types.MySvcName)+"_ENVIRONMENT", "something")
 	checkFail(t, err)
-	if !EnvProduction() {
-		t.Fatalf("by default should be set to production")
-	}
+	require.True(t, Environment() == EnvProduction)
 }
 
 func TestConfigNeg(t *testing.T) {
 	//fail on first file fail (base.yaml)
-	def = &stdConfig{}
-	loadFile = func(file string) ([]byte, error) {
+	resetStdLoader(func(_ interface{}, file string) ([]byte, error) {
 		return nil, fmt.Errorf("simulate error")
-	}
+	})
 	err := Load()
 	if err == nil {
 		t.Fatalf("should return error")
 	}
 
 	//Return error on second file read. (development.yaml)
-	def = &stdConfig{}
-	loadFile = func(file string) ([]byte, error) {
+	resetStdLoader(func(_ interface{}, file string) ([]byte, error) {
 		if !strings.HasSuffix(file, "base.yaml") {
 			return nil, fmt.Errorf("simulate error")
 		}
 		return []byte{}, nil
-	}
+	})
 	err = Load()
 	if err == nil {
 		t.Fatalf("should return error")
 	}
 
-	def = &stdConfig{}
-	loadFile = func(file string) ([]byte, error) {
+	resetStdLoader(func(_ interface{}, file string) ([]byte, error) {
 		return []byte("ill formatted yaml"), nil
-	}
+	})
 	err = Load()
 	if err == nil {
 		t.Fatalf("should return error")
 	}
 
-	def = &stdConfig{}
-	loadFile = func(file string) ([]byte, error) {
+	resetStdLoader(func(_ interface{}, file string) ([]byte, error) {
 		return nil, syscall.ENOENT
-	}
+	})
 	err = Load()
 	if err != nil {
 		t.Fatalf("file not exists, shouldn't produce error")
@@ -151,12 +153,42 @@ func TestConfigNeg(t *testing.T) {
 		called = true
 	}
 
-	def = &stdConfig{}
-	loadFile = func(file string) ([]byte, error) {
+	resetStdLoader(func(_ interface{}, file string) ([]byte, error) {
 		return nil, fmt.Errorf("some error")
-	}
+	})
 	_ = Get()
 	if !called {
 		t.Fatalf("error should exit the program")
+	}
+}
+
+func TestTableParamsMerge(t *testing.T) {
+	var tests = []struct {
+		original     TableParams
+		originalCopy TableParams
+		merge        string
+		result       TableParams
+	}{
+		//Existing compound structures should be replaced
+		{TableParams{Pipe: PipeConfig{Compression: true, Kafka: KafkaConfig{Addresses: []string{"kaddr1"}}, Hadoop: HadoopConfig{Addresses: []string{"haddr1", "haddr2"}}}}, TableParams{Pipe: PipeConfig{Compression: true, Kafka: KafkaConfig{Addresses: []string{"kaddr1"}}, Hadoop: HadoopConfig{Addresses: []string{"haddr1", "haddr2"}}}}, `{"Pipe" : {"Kafka": {"Addresses" : [ "kaddr3", "kaddr4"]}, "Hadoop": {"Addresses" : [ "haddr3"]}}}`, TableParams{Pipe: PipeConfig{Compression: true, Kafka: KafkaConfig{Addresses: []string{"kaddr3", "kaddr4"}}, Hadoop: HadoopConfig{Addresses: []string{"haddr3"}}}}},
+		//Existing should stay untouched
+		{TableParams{Pipe: PipeConfig{Kafka: KafkaConfig{Addresses: []string{"kaddr1"}}, Hadoop: HadoopConfig{Addresses: []string{"haddr1", "haddr2"}}}}, TableParams{Pipe: PipeConfig{Kafka: KafkaConfig{Addresses: []string{"kaddr1"}}, Hadoop: HadoopConfig{Addresses: []string{"haddr1", "haddr2"}}}}, `{"Pipe" : {"Compression":true}}`, TableParams{Pipe: PipeConfig{Compression: true, Kafka: KafkaConfig{Addresses: []string{"kaddr1"}}, Hadoop: HadoopConfig{Addresses: []string{"haddr1", "haddr2"}}}}},
+		//Simple key should be set to false
+		{TableParams{Pipe: PipeConfig{Compression: true, Kafka: KafkaConfig{Addresses: []string{"kaddr1"}}, Hadoop: HadoopConfig{Addresses: []string{"haddr1", "haddr2"}}}}, TableParams{Pipe: PipeConfig{Compression: true, Kafka: KafkaConfig{Addresses: []string{"kaddr1"}}, Hadoop: HadoopConfig{Addresses: []string{"haddr1", "haddr2"}}}}, `{"Pipe" : {"Compression":false}}`, TableParams{Pipe: PipeConfig{Kafka: KafkaConfig{Addresses: []string{"kaddr1"}}, Hadoop: HadoopConfig{Addresses: []string{"haddr1", "haddr2"}}}}},
+		//Empty compound should be replaced
+		{TableParams{Pipe: PipeConfig{Compression: true}}, TableParams{Pipe: PipeConfig{Compression: true}}, `{"Pipe" : {"Kafka": {"Addresses" : [ "kaddr3", "kaddr4"]}, "Hadoop": {"Addresses" : [ "haddr3"]}}}`, TableParams{Pipe: PipeConfig{Compression: true, Kafka: KafkaConfig{Addresses: []string{"kaddr3", "kaddr4"}}, Hadoop: HadoopConfig{Addresses: []string{"haddr3"}}}}},
+		//Empty stays empty
+		{TableParams{Pipe: PipeConfig{Compression: true}}, TableParams{Pipe: PipeConfig{Compression: true}}, `{}`, TableParams{Pipe: PipeConfig{Compression: true}}},
+	}
+
+	for _, v := range tests {
+		i := v.original.CopyForMerge()
+		if err := json.Unmarshal([]byte(v.merge), i); err != nil {
+			require.NoError(t, err)
+		}
+		i.MergeCompound(&v.original)
+		require.Equal(t, i, &v.result)
+		//Unmarshal shouldn't modify original
+		require.Equal(t, &v.original, &v.originalCopy)
 	}
 }

@@ -21,13 +21,19 @@
 package types
 
 //MyDbName is a database name this service will use to save state to
-const MyDbName = "storagetapper"
+var MyDbName = "storagetapper"
 
 //MySvcName is a name of this service
 const MySvcName = "storagetapper"
 
 //TestMySQLUser is MySQL user used to connect to MySQL in test
-var TestMySQLUser = "root"
+var TestMySQLUser = "storagetapper"
 
 //TestMySQLPassword is MySQL password used to connect to MySQL in test
-var TestMySQLPassword = ""
+var TestMySQLPassword = "storagetapper"
+
+//MySQLBoolean represents MySQL equivalent of boolean type
+const MySQLBoolean = "tinyint(1)"
+
+//MyClusterName is a cluster name this service will use to save state to
+var MyClusterName = "storagetapper"

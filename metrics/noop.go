@@ -31,14 +31,20 @@ func (n *noopMetrics) InitTimer(name string) timer {
 }
 
 func (n *noopMetrics) InitCounter(name string) counter {
-	var t noopCounter
-	return &t
+	return &noopCounter{}
 }
 
-func noopMetricsInit(m *Metrics) error {
+func (n *noopMetrics) SubScope(name string) scope {
+	return n
+}
+
+func (n *noopMetrics) Tagged(tags map[string]string) scope {
+	return n
+}
+
+func noopMetricsInit() (scope, error) {
 	var n noopMetrics
-	m.factory = &n
-	return nil
+	return &n, nil
 }
 
 type noopCounter struct {
@@ -48,6 +54,10 @@ func (u *noopCounter) Update(value int64) {
 }
 
 func (u *noopCounter) Tag(tags map[string]string) {
+}
+
+func (u *noopCounter) Tagged(tags map[string]string) counter {
+	return &noopCounter{}
 }
 
 type noopTimer struct {

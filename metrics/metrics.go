@@ -24,32 +24,45 @@ import "time"
 
 type counter interface {
 	Update(value int64)
-	Tag(tags map[string]string)
 }
 
 type timer interface {
 	Start()
 	Stop()
 	Record(time.Duration)
-	Tag(tags map[string]string)
 }
 
-type metricsFactory interface {
+type scope interface {
 	InitCounter(name string) counter
 	InitTimer(name string) timer
+	SubScope(name string) scope
+	Tagged(tags map[string]string) scope
 }
 
-type metricsConstructor func(*Metrics) error
+type metricsConstructor func() (scope, error)
 
 var metricsInit metricsConstructor = noopMetricsInit
+var _ metricsConstructor = tallyMetricsInit
 
-// Metrics contains statistical variables we report for monitoring
-type Metrics struct {
-	factory metricsFactory
+//IdleWorkers count idle workers
+var IdleWorkers *ProcessCounter
 
-	NumTablesRegistered *Counter // +
-	IdleWorkers         *ProcessCounter
-	//TODO: ERRORS
+//TODO: ERRORS
+
+//State contains metrics related to state
+type State struct {
+	NumTablesRegistered *Counter
+
+	Sync         *ProcessCounter
+	SyncDuration *Timer
+
+	TableReg         *ProcessCounter
+	TableRegDuration *Timer
+
+	TableDereg         *ProcessCounter
+	TableDeregDuration *Timer
+
+	SyncErrors *Counter
 }
 
 //Events represents the common structure for event based metrics
@@ -68,87 +81,180 @@ type Events struct {
 //Snapshot contains metrics related to snapshot reader
 type Snapshot struct {
 	Events
+	Errors      *Counter
+	Duration    *Timer
+	SizeRead    *Counter
+	SizeWritten *Counter
+	ThrottledUs *Counter
 }
 
 //Streamer contains metrics related to event streamer
 type Streamer struct {
 	Events
 	TimeInBuffer *Timer
+	Errors       *Counter
+	LockLost     *Counter
 }
 
-//BinlogReader contains metrics related to binlog reader
-type BinlogReader struct {
+//ChangelogReader contains metrics related to changelog reader
+type ChangelogReader struct {
 	Events
 
-	BinlogRowEventsWritten   *Counter
-	BinlogQueryEventsWritten *Counter
-	BinlogUnhandledEvents    *Counter
+	ChangelogRowEventsWritten   *Counter
+	ChangelogAlterTableEvents   *Counter
+	ChangelogQueryEventsWritten *Counter
+	ChangelogUnhandledEvents    *Counter
 
 	TimeToEncounter *Timer
 
 	NumTablesIngesting *Counter
+
+	Errors *Counter
+
+	LockLost *Counter
 }
 
-//getEventsMetrics returns the Events metrics object for a given process (BinlogReader, Snapshot or Streamer)
-func getEventsMetrics(process string, tags map[string]string) Events {
-	c := GetGlobal()
+//Validation contains metrics related to validation
+type Validation struct {
+	NumValidations           *ProcessCounter
+	ValidationRowsProcessed  *Counter
+	ValidatedInsertEvents    *Counter
+	ValidatedDeleteEvents    *Counter
+	ValidatedSchemaEvents    *Counter
+	ValidationFailed         *Counter
+	ValidationSuccess        *Counter
+	ValidationSuccessBatch   *Counter
+	ValidationSchemaErrors   *Counter
+	ValidationEventTypeError *Counter
+	SnapshotBase             *Snapshot
+	SnapshotRef              *Snapshot
+}
+
+//FilePipeMetrics ...
+type FilePipeMetrics struct {
+	BytesWritten *Counter
+	BytesRead    *Counter
+	FilesCreated *Counter
+	FilesOpened  *Counter
+	FilesClosed  *Counter // == FilesCreated
+}
+
+//getEventsMetrics returns the Events metrics object for a given process (ChangelogReader, Snapshot or Streamer)
+func getEventsMetrics(s scope, process string) Events {
 	return Events{
-		NumWorkers:     ProcessCounterInit(c.factory, "num_"+process+"_workers", tags),
-		EventsRead:     CounterInit(c.factory, process+"_events_read", tags),
-		EventsWritten:  CounterInit(c.factory, process+"_events_written", tags),
-		BytesRead:      CounterInit(c.factory, process+"_bytes_read", tags),
-		BytesWritten:   CounterInit(c.factory, process+"_bytes_written", tags),
-		BatchSize:      TimerInit(c.factory, process+"_batch_size", tags),
-		ReadLatency:    TimerInit(c.factory, process+"_read_latency", tags),
-		ProduceLatency: TimerInit(c.factory, process+"_produce_latency", tags),
+		NumWorkers:     ProcessCounterInit(s, "num_"+process+"_workers"),
+		EventsRead:     CounterInit(s, process+"_events_read"),
+		EventsWritten:  CounterInit(s, process+"_events_written"),
+		BytesRead:      CounterInit(s, process+"_bytes_read"),
+		BytesWritten:   CounterInit(s, process+"_bytes_written"),
+		BatchSize:      TimerInit(s, process+"_batch_size"),
+		ReadLatency:    TimerInit(s, process+"_read_latency"),
+		ProduceLatency: TimerInit(s, process+"_produce_latency"),
 	}
 }
 
-//GetBinlogReaderMetrics initializes and returns a Binlog metrics object
-func GetBinlogReaderMetrics(tags map[string]string) *BinlogReader {
-	c := GetGlobal()
-	return &BinlogReader{
-		Events: getEventsMetrics("binlog", tags),
+//NewStateMetrics initializes and returns a State metrics object
+func NewStateMetrics() *State {
+	s := getGlobal()
+	return &State{
+		NumTablesRegistered: CounterInit(s, "num_tables_registered"),
 
-		BinlogRowEventsWritten:   CounterInit(c.factory, "binlog_row_events_written", tags),
-		BinlogQueryEventsWritten: CounterInit(c.factory, "binlog_query_events_written", tags),
-		BinlogUnhandledEvents:    CounterInit(c.factory, "binlog_unhandled_events", tags),
-		TimeToEncounter:          TimerInit(c.factory, "time_to_encounter", tags),
-		NumTablesIngesting:       CounterInit(c.factory, "num_tables_ingesting", tags),
+		Sync:         ProcessCounterInit(s, "state_sync"),
+		SyncDuration: TimerInit(s, "state_sync_duration"),
+
+		TableReg:         ProcessCounterInit(s, "state_sync_table_reg"),
+		TableRegDuration: TimerInit(s, "state_sync_table_reg_duration"),
+
+		TableDereg:         ProcessCounterInit(s, "state_sync_table_dereg"),
+		TableDeregDuration: TimerInit(s, "state_sync_table_dereg_duration"),
+
+		SyncErrors: CounterInit(s, "state_sync_errors"),
 	}
 }
 
-//GetStreamerMetrics initializes and returns a Streamer metrics object
-func GetStreamerMetrics(tags map[string]string) *Streamer {
-	c := GetGlobal()
+//NewChangelogReaderMetrics initializes and returns a Changelog metrics object
+func NewChangelogReaderMetrics(tags map[string]string) *ChangelogReader {
+	s := getGlobal().Tagged(tags)
+	return &ChangelogReader{
+		Events: getEventsMetrics(s, "changelog"),
+
+		ChangelogRowEventsWritten:   CounterInit(s, "changelog_row_events_written"),
+		ChangelogQueryEventsWritten: CounterInit(s, "changelog_query_events_written"),
+		ChangelogUnhandledEvents:    CounterInit(s, "changelog_unhandled_events"),
+		TimeToEncounter:             TimerInit(s, "time_to_encounter"),
+		NumTablesIngesting:          CounterInit(s, "num_tables_ingesting"),
+		Errors:                      CounterInit(s, "changelog_error"),
+		ChangelogAlterTableEvents:   CounterInit(s, "changelog_alter_table_events"),
+		LockLost:                    CounterInit(s, "changelog_lock_lost"),
+	}
+}
+
+//NewStreamerMetrics initializes and returns a Streamer metrics object
+func NewStreamerMetrics(tags map[string]string) *Streamer {
+	s := getGlobal().Tagged(tags)
 	return &Streamer{
-		Events:       getEventsMetrics("streamer", tags),
-		TimeInBuffer: TimerInit(c.factory, "time_in_buffer", tags),
+		Events:       getEventsMetrics(s, "streamer"),
+		TimeInBuffer: TimerInit(s, "time_in_buffer"),
+		Errors:       CounterInit(s, "streamer_error"),
+		LockLost:     CounterInit(s, "streamer_lock_lost"),
 	}
 }
 
-//GetSnapshotMetrics initializes and returns a Snapshot metrics object
-func GetSnapshotMetrics(tags map[string]string) *Snapshot {
-	//ls := GetGlobal().LocalScope
+//NewSnapshotMetrics initializes and returns a Snapshot metrics object
+func NewSnapshotMetrics(prefix string, tags map[string]string) *Snapshot {
+	s := getGlobal().Tagged(tags)
 	return &Snapshot{
-		Events: getEventsMetrics("snapshot", tags),
+		Events:      getEventsMetrics(s, prefix+"snapshot"),
+		Errors:      CounterInit(s, prefix+"snapshot_error"),
+		Duration:    TimerInit(s, prefix+"snapshot_duration"),
+		SizeRead:    CounterInit(s, prefix+"snapshot_size_read"),
+		SizeWritten: CounterInit(s, prefix+"snapshot_size_written"),
+		ThrottledUs: CounterInit(s, prefix+"snapshot_throttled_us"),
 	}
 }
 
-var m *Metrics
+//NewValidationMetrics initializes and returns a Validation metrics object
+func NewValidationMetrics(tags map[string]string) *Validation {
+	s := getGlobal().Tagged(tags)
+	return &Validation{
+		NumValidations:           ProcessCounterInit(s, "num_validations"),
+		ValidationRowsProcessed:  CounterInit(s, "validation_rows_processed"),
+		ValidatedInsertEvents:    CounterInit(s, "validated_insert_events"),
+		ValidatedDeleteEvents:    CounterInit(s, "validated_delete_events"),
+		ValidatedSchemaEvents:    CounterInit(s, "validated_schema_events"),
+		ValidationFailed:         CounterInit(s, "validation_failed"),
+		ValidationSuccess:        CounterInit(s, "validation_success"),
+		ValidationSuccessBatch:   CounterInit(s, "validation_success_batch"),
+		ValidationEventTypeError: CounterInit(s, "validation_event_type_errors"),
+		SnapshotBase:             NewSnapshotMetrics("validation_", tags),
+		SnapshotRef:              NewSnapshotMetrics("validation_", tags),
+	}
+}
+
+//NewFilePipeMetrics initializes and returns a FilePipeMetrics object
+func NewFilePipeMetrics(prefix string, tags map[string]string) *FilePipeMetrics {
+	s := getGlobal().Tagged(tags)
+	return &FilePipeMetrics{
+		BytesWritten: CounterInit(s, prefix+"_bytes_written"),
+		BytesRead:    CounterInit(s, prefix+"_bytes_read"),
+		FilesOpened:  CounterInit(s, prefix+"_files_opened"),
+		FilesClosed:  CounterInit(s, prefix+"_files_closed"),
+	}
+}
+
+var m scope
 
 //Init initializes global metrics structure
 func Init() error {
-	m = new(Metrics)
-	if err := metricsInit(m); err != nil {
+	var err error
+	if m, err = metricsInit(); err != nil {
 		return err
 	}
-	m.IdleWorkers = ProcessCounterInit(m.factory, "idle", nil)
-	m.NumTablesRegistered = CounterInit(m.factory, "num_tables_registered", nil)
+	IdleWorkers = ProcessCounterInit(m, "idle")
 	return nil
 }
 
-//GetGlobal return singleton instance of metrics
-func GetGlobal() *Metrics {
+//getGlobal return global metrics scope
+func getGlobal() scope {
 	return m
 }

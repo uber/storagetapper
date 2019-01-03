@@ -21,14 +21,16 @@
 package encoder
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/uber/storagetapper/types"
 )
 
 //encoderConstructor initializes encoder plugin
-type encoderConstructor func(service string, db string, table string) (Encoder, error)
+type encoderConstructor func(service, db, table, input string, output string, version int) (Encoder, error)
 
 //plugins insert their constructors into this map
 var encoders map[string]encoderConstructor
@@ -46,7 +48,7 @@ func registerPlugin(name string, init encoderConstructor) {
 
 //Encoder is unified interface to encode data from transit formats(row, common)
 type Encoder interface {
-	Row(tp int, row *[]interface{}, seqNo uint64) ([]byte, error)
+	Row(tp int, row *[]interface{}, seqNo uint64, ts time.Time) ([]byte, error)
 	CommonFormat(cf *types.CommonFormatEvent) ([]byte, error)
 	EncodeSchema(seqNo uint64) ([]byte, error)
 	UpdateCodec() error
@@ -69,14 +71,14 @@ func Encoders() []string {
 }
 
 //InitEncoder constructs encoder without updating schema
-func InitEncoder(encType string, s string, d string, t string) (Encoder, error) {
+func InitEncoder(encType, svc, sdb, tbl, input string, output string, version int) (Encoder, error) {
 	init := encoders[strings.ToLower(encType)]
 
 	if init == nil {
-		return nil, fmt.Errorf("Unsupported encoder: %s", strings.ToLower(encType))
+		return nil, fmt.Errorf("unsupported encoder: %s", strings.ToLower(encType))
 	}
 
-	enc, err := init(s, d, t)
+	enc, err := init(svc, sdb, tbl, input, output, version)
 	if err != nil {
 		return nil, err
 	}
@@ -85,9 +87,9 @@ func InitEncoder(encType string, s string, d string, t string) (Encoder, error) 
 }
 
 //Create is a factory which create encoder of given type for given service, db,
-//table
-func Create(encType string, s string, d string, t string) (Encoder, error) {
-	enc, err := InitEncoder(encType, s, d, t)
+//table, input, output, version
+func Create(encType, svc, sdb, tbl, input string, output string, version int) (Encoder, error) {
+	enc, err := InitEncoder(encType, svc, sdb, tbl, input, output, version)
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +100,7 @@ func Create(encType string, s string, d string, t string) (Encoder, error) {
 //TODO: Should we encode into byte array instead?
 func GetRowKey(s *types.TableSchema, row *[]interface{}) string {
 	var key string
+
 	for i := 0; i < len(s.Columns); i++ {
 		if s.Columns[i].Key == "PRI" {
 			if row == nil {
@@ -128,4 +131,31 @@ func filteredField(filter []int, i int, j *int) bool {
 		return true
 	}
 	return false
+}
+
+//WrapEvent prepend provided payload with CommonFormat like event
+func WrapEvent(outputFormat string, key string, bd []byte, seqno uint64) ([]byte, error) {
+	akey := make([]interface{}, 1)
+	akey[0] = []byte(key)
+
+	cfw := types.CommonFormatEvent{
+		Type:      outputFormat,
+		Key:       akey,
+		SeqNo:     seqno,
+		Timestamp: time.Now().UnixNano(),
+		Fields:    nil,
+	}
+
+	cfb, err := Internal.CommonFormat(&cfw)
+	if err != nil {
+		return nil, err
+	}
+
+	buf := bytes.NewBuffer(cfb)
+	_, err = buf.Write(bd)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }

@@ -59,7 +59,17 @@ func (s *Streamer) encodeCommonFormat(outProducer pipe.Producer, data []byte) (k
 
 	//  log.Debugf("commont format received %v %v", cfEvent, cfEvent.Fields)
 
-	if cfEvent.Type == "insert" || cfEvent.Type == "delete" || cfEvent.Type == "schema" {
+	if cfEvent.Type == s.row.OutputFormat {
+		outMsg = payload
+		key = cfEvent.Key[0].(string)
+		if key == "" {
+			err = s.outEncoder.UpdateCodec()
+			if log.EL(s.log, err) {
+				return
+			}
+		}
+		//    log.Debugf("Data in final format already. Forwarding. Key=%v, SeqNo=%v", key, cfEvent.SeqNo)
+	} else if cfEvent.Type == "insert" || cfEvent.Type == "delete" || cfEvent.Type == "schema" {
 		outMsg, err = s.outEncoder.CommonFormat(cfEvent)
 		if log.EL(s.log, err) {
 			return
@@ -76,16 +86,6 @@ func (s *Streamer) encodeCommonFormat(outProducer pipe.Producer, data []byte) (k
 			outMsg = nil
 			return
 		}
-	} else if cfEvent.Type == s.row.OutputFormat {
-		outMsg = payload
-		key = cfEvent.Key[0].(string)
-		if key == "" {
-			err = s.outEncoder.UpdateCodec()
-			if log.EL(s.log, err) {
-				return
-			}
-		}
-		//    log.Debugf("Data in final format already. Forwarding. Key=%v, SeqNo=%v", key, cfEvent.SeqNo)
 	} else if cfEvent.Type == s.envEncoder.Type() {
 		var ev *types.CommonFormatEvent
 		ev, err = s.envEncoder.DecodeEvent(payload)

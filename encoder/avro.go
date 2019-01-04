@@ -40,21 +40,16 @@ func init() {
 
 //avroEncoder implements Encoder interface for Avro format
 type avroEncoder struct {
-	Service   string
-	Db        string
-	Table     string
-	Input     string
-	Output    string
-	Version   int
+	encoder
+
 	codec     goavro.Codec
 	setter    *goavro.RecordSetter
 	inSchema  *types.TableSchema
-	filter    []int
 	outSchema *types.AvroSchema
 }
 
-func initAvroEncoder(service, db, table, input string, output string, version int) (Encoder, error) {
-	return &avroEncoder{Service: service, Db: db, Table: table, Input: input, Output: output, Version: version}, nil
+func initAvroEncoder(service, db, table, input string, output string, version int, filtering bool) (Encoder, error) {
+	return &avroEncoder{encoder: encoder{Service: service, Db: db, Table: table, Input: input, Output: output, Version: version, filterEnabled: filtering}}, nil
 }
 
 //Type returns type of the encoder interface (faster then type assertion?)
@@ -125,8 +120,8 @@ func convertCommonFormatToAvroRecord(rs goavro.RecordSetter, cfEvent *types.Comm
 		return nil
 	}
 
-	for i, j := 0, 0; i < len(*cfEvent.Fields); i++ {
-		if filteredField(filter, i, &j) {
+	for i := 0; i < len(*cfEvent.Fields); i++ {
+		if filter[i] == -1 {
 			continue
 		}
 		field := (*cfEvent.Fields)[i]
@@ -181,18 +176,12 @@ func (e *avroEncoder) UpdateCodec() error {
 		return err
 	}
 
-	if len(e.inSchema.Columns)-(len(e.outSchema.Fields)-numMetadataFields) < 0 {
-		err = fmt.Errorf("input schema has less fields than output schema")
-		log.E(err)
-		return err
-	}
-
 	e.codec, e.setter, err = SchemaCodecHelper(e.outSchema)
 	if log.E(err) {
 		return err
 	}
 
-	e.filter = prepareFilter(e.inSchema, e.outSchema, numMetadataFields)
+	e.filter = prepareFilter(e.inSchema, e.outSchema, nil, e.filterEnabled)
 
 	log.Debugf("Schema codec (%v) updated", e.Type())
 
@@ -298,9 +287,9 @@ func fixAvroFieldType(i interface{}, dtype string, ftype string) (interface{}, e
 //TODO: Remove ability to encode schema, so as receiver should have schema to decode
 //the record, so no point in pushing schema into stream
 func fillAvroFields(r *goavro.Record, row *[]interface{}, s *types.TableSchema, filter []int) error {
-	for i, j := 0, 0; i < len(s.Columns); i++ {
+	for i := 0; i < len(s.Columns); i++ {
 		//Skip fields which are not present in output schema
-		if filteredField(filter, i, &j) {
+		if filter[i] == -1 {
 			continue
 		}
 		v, err := fixAvroFieldType((*row)[i], s.Columns[i].DataType, s.Columns[i].Type)
@@ -359,38 +348,6 @@ func convertRowToAvroFormat(tp int, row *[]interface{}, s *types.TableSchema, se
 	return nil
 }
 
-func prepareFilter(in *types.TableSchema, out *types.AvroSchema, numMetaFields int) []int {
-	if out == nil {
-		return nil
-	}
-
-	nfiltered := len(in.Columns)
-	if out.Fields != nil {
-		nfiltered = nfiltered - (len(out.Fields) - numMetaFields)
-	}
-	if nfiltered == 0 {
-		return nil
-	}
-
-	f := out.Fields
-	filter := make([]int, 0)
-	var j int
-	for i := 0; i < len(in.Columns); i++ {
-		//Primary key cannot be filtered
-		if (i-j) >= len(f) || in.Columns[i].Name != f[i-j].Name {
-			if in.Columns[i].Key != "PRI" {
-				log.Debugf("Field %v will be filtered", in.Columns[i].Name)
-				filter = append(filter, i)
-			}
-			j++
-		}
-	}
-
-	log.Debugf("len=%v, filtered fields (%v)", len(filter), filter)
-
-	return filter
-}
-
 func (e *avroEncoder) UnwrapEvent(data []byte, cfEvent *types.CommonFormatEvent) (payload []byte, err error) {
 	return nil, fmt.Errorf("avro encoder doesn't support wrapping")
 }
@@ -399,8 +356,8 @@ func (e *avroEncoder) decodeEventFields(c *types.CommonFormatEvent, r *goavro.Re
 	hasNonNil := false
 	c.Fields = new([]types.CommonFormatField)
 
-	for i, j := 0, 0; i < len(e.inSchema.Columns); i++ {
-		if filteredField(e.filter, i, &j) {
+	for i := 0; i < len(e.inSchema.Columns); i++ {
+		if e.filter[i] == -1 {
 			continue
 		}
 		n := e.inSchema.Columns[i].Name

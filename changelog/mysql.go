@@ -211,7 +211,7 @@ func (b *mysqlReader) createProducer(tn string, t *state.Row) (pipe.Producer, er
 
 func (b *mysqlReader) addNewTable(t *state.Row) bool {
 	b.log.Infof("Adding table to MySQL binlog reader (%v,%v,%v,%v,%v,%v)", t.Service, t.Db, t.Table, t.Output, t.Version, t.OutputFormat)
-	enc, err := encoder.Create(t.OutputFormat, t.Service, t.Db, t.Table, t.Input, t.Output, t.Version)
+	enc, err := encoder.Create(t.OutputFormat, t.Service, t.Db, t.Table, t.Input, t.Output, t.Version, true)
 	if log.EL(b.log, err) {
 		return false
 	}

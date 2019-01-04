@@ -193,6 +193,8 @@ func consumeEvents(c pipe.Consumer, format string, result []string, outEncoder e
 			log.Errorf("Received : %+v %v", conv, len(b))
 			log.Errorf("Reference: %+v %v", v, len(v))
 			t.FailNow()
+		} else {
+			log.Debugf("Successfully matched : %+v %v", conv, len(b))
 		}
 		log.Debugf("Successfully matched: %+v %v", conv, len(b))
 	}
@@ -213,6 +215,8 @@ func waitAllEventsStreamed(format string, c pipe.Consumer, sseqno int, seqno int
 	for ; sseqno < seqno; sseqno++ {
 		_ = c.FetchNext()
 	}
+
+	log.Debugf("Events streamed upto seqno=%v", sseqno)
 
 	return sseqno
 }
@@ -364,7 +368,7 @@ func testStep(inPipeType string, bufferFormat string, outPipeType string, outPip
 	if outPipeFormat == "json" || outPipeFormat == "msgpack" {
 		cfg.InternalEncoding = outPipeFormat
 		var err error
-		encoder.Internal, err = encoder.InitEncoder(cfg.InternalEncoding, "", "", "", "", "", 0)
+		encoder.Internal, err = encoder.InitEncoder(cfg.InternalEncoding, "", "", "", "", "", 0, true)
 		require.NoError(t, err)
 	}
 
@@ -424,7 +428,7 @@ func testStep(inPipeType string, bufferFormat string, outPipeType string, outPip
 	addTable(outPipeFormat, "1", outPipeType, t)
 
 	// Encoder/decoder for the table added above
-	outEncoder, err := encoder.Create(outPipeFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1", "mysql", outPipeType, 0)
+	outEncoder, err := encoder.Create(outPipeFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table1", "mysql", outPipeType, 0, true)
 	require.NoError(t, err)
 
 	// Wait snapshot to finish before sending more data otherwise everything even following events will be read
@@ -464,7 +468,7 @@ func testStep(inPipeType string, bufferFormat string, outPipeType string, outPip
 	addTable(outPipeFormat, "2", outPipeType, t)
 
 	// Encoder/decoder for the table added above
-	outEncoder2, err := encoder.Create(outPipeFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2", "mysql", outPipeType, 0)
+	outEncoder2, err := encoder.Create(outPipeFormat, "e2e_test_svc1", "e2e_test_db1", "e2e_test_table2", "mysql", outPipeType, 0, true)
 	require.NoError(t, err)
 
 	// Wait snapshot to finish before sending more data otherwise everything even following events will be read

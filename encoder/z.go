@@ -36,7 +36,7 @@ import (
 
 func init() {
 	var err error
-	Internal, err = InitEncoder(config.Get().InternalEncoding, "", "", "", "", "", 0)
+	Internal, err = InitEncoder(config.Get().InternalEncoding, "", "", "", "", "", 0, true)
 	if err != nil {
 		panic(fmt.Sprintf("Set InternalEncoding to json. Error: %s", err.Error()))
 	}

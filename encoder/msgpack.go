@@ -38,8 +38,8 @@ type msgPackEncoder struct {
 	jsonEncoder
 }
 
-func initMsgPackEncoder(service, db, table, input string, output string, version int) (Encoder, error) {
-	return &msgPackEncoder{jsonEncoder{Service: service, Db: db, Table: table, Input: input, Output: output, Version: version}}, nil
+func initMsgPackEncoder(service, db, table, input string, output string, version int, filtering bool) (Encoder, error) {
+	return &msgPackEncoder{jsonEncoder{encoder: encoder{Service: service, Db: db, Table: table, Input: input, Output: output, Version: version, filterEnabled: filtering}}}, nil
 }
 
 //Row encodes row into CommonFormat
@@ -61,7 +61,11 @@ func (e *msgPackEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, erro
 			return nil, err
 		}
 	}
-	cf = filterCommonFormat(e.filter, cf)
+	var err error
+	cf, err = filterCommonFormat(e.filter, cf)
+	if err != nil {
+		return nil, err
+	}
 	return cf.MarshalMsg(nil)
 }
 
@@ -104,12 +108,12 @@ func (e *msgPackEncoder) fixFieldTypes(cf *types.CommonFormatEvent) (err error) 
 	//Restore field types according to schema
 	//MsgPack doesn't preserve int type size, so fix it
 	if e.inSchema != nil && cf.Type != "schema" {
-		for i, j := 0, 0; i < len(e.inSchema.Columns); i++ {
-			if filteredField(e.filter, i, &j) {
+		for i := 0; i < len(e.inSchema.Columns); i++ {
+			if e.filter[i] == -1 {
 				continue
 			}
-			if cf.Fields != nil && i-j < len(*cf.Fields) {
-				f := &(*cf.Fields)[i-j]
+			if cf.Fields != nil {
+				f := &(*cf.Fields)[e.filter[i]]
 				f.Value = e.fixFieldType(e.inSchema.Columns[i].DataType, f.Value)
 			}
 

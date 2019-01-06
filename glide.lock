@@ -71,7 +71,7 @@ imports:
 - name: github.com/Sirupsen/logrus
   version: 5e5dc898656f695e2a086b8e12559febbfc01562
 - name: github.com/tinylib/msgp
-  version: 1cce05a45012c07001dbfb1679c2f25ac0c189e6
+  version: af6442a0fcf6e2a1b824f70dd0c734f01e817751
   subpackages:
   - msgp
 - name: github.com/uber-common/bark

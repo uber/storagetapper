@@ -2,7 +2,7 @@ dist: trusty
 sudo: required
 language: go
 go:
-    - 1.8.x
+    - 1.11.x
 before_install:
 - /bin/sh scripts/install_deps.sh
 script: make test

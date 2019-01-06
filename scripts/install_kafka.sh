@@ -3,15 +3,16 @@
 set -ex
 
 DIR=/home/kafka
+VERSION=0.11.0.3
 
 sudo apt-get install default-jre
 sudo useradd kafka -m || [ $? -eq 9 ]
 sudo -u kafka mkdir -p $DIR/config
 cd $DIR
 #echo 'ruok' | telnet localhost 2181
-[ -f kafka_2.11-0.11.0.2.tgz ] || sudo -u kafka wget "http://mirror.metrocast.net/apache/kafka/0.11.0.2/kafka_2.11-0.11.0.2.tgz" -O kafka_2.11-0.11.0.2.tgz && \
-	echo "0169DED7E551476FF3F1CE70D76C518D31116ACC1AE43B15E89BEA4B072FA8727239E51E84C2306DFD668EFFFC26DBC83C9598ACBD355C283F650C64C4788188 kafka_2.11-0.11.0.2.tgz" |sha512sum -c
-sudo -u kafka tar -xzf kafka_2.11-0.11.0.2.tgz --strip 1
+[ -f kafka_2.11-$VERSION.tgz ] || sudo -u kafka wget "http://mirror.metrocast.net/apache/kafka/$VERSION/kafka_2.11-$VERSION.tgz" -O kafka_2.11-$VERSION.tgz && \
+	echo "d38caaa80f43d02dcc8bc453fbf71e8d609249731583556fdd991dcb09ff342d0ec855896ff76875cea48a471cc95bda9174bf3f3507696f243e72e5e456c584 kafka_2.11-$VERSION.tgz" |sha512sum -c
+sudo -u kafka tar -xzf kafka_2.11-$VERSION.tgz --strip 1
 sudo /bin/bash -c "echo -e \"\ndelete.topic.enable = true\nnum.partitions=8\n\" >> $DIR/config/server.properties"
 
 

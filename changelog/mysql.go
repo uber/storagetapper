@@ -55,16 +55,17 @@ const eventsBatchSize = 16
 
 type table struct {
 	id           int64
-	dead         bool
 	producer     pipe.Producer
 	rawSchema    string
 	schemaGtid   string
 	service      string
 	encoder      encoder.Encoder
 	output       string
-	version      int
 	outputFormat string
 	params       string
+	version      int
+	noDeletes    bool
+	dead         bool
 
 	snapshottedAt time.Time
 }
@@ -235,7 +236,7 @@ func (b *mysqlReader) addNewTable(t *state.Row) bool {
 		return false
 	}
 
-	nt := &table{t.ID, false, p, t.RawSchema, t.SchemaGtid, t.Service, enc, t.Output, t.Version, t.OutputFormat, t.ParamsRaw, t.SnapshottedAt}
+	nt := &table{t.ID, p, t.RawSchema, t.SchemaGtid, t.Service, enc, t.Output, t.OutputFormat, t.ParamsRaw, t.Version, t.Params.NoDeleteOnUpdate, false, t.SnapshottedAt}
 
 	if b.tables[t.DB][t.Table][t.Service] == nil {
 		b.tables[t.DB][t.Table][t.Service] = make([]*table, 0)
@@ -528,7 +529,7 @@ func (b *mysqlReader) handleRowsEventLow(ev *replication.BinlogEvent, t *table) 
 		}
 	case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
 		for i := 0; i < len(re.Rows) && err == nil; i += 2 {
-			if !strings.HasSuffix(t.outputFormat, "_idempotent") {
+			if !t.noDeletes && !strings.HasSuffix(t.outputFormat, "_idempotent") {
 				err = b.produceRow(types.Delete, t, ts, &re.Rows[i])
 			}
 			if err == nil {

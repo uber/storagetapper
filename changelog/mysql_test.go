@@ -431,6 +431,23 @@ var testShutdownPrepare = []string{
 	)`,
 }
 
+var testNoDeletesOnUpdate = []string{
+	"insert into db1.t1(f1) value (1)",
+	"insert into db1.t1(f1) value (2)",
+	"update db1.t1 set f1=f1+10 where f1=2",
+	"delete from db1.t1 where f1=1",
+	"insert into db1.t1(f1) value (3)",
+}
+
+var testNoDeletesOnUpdateResult = []types.CommonFormatEvent{
+	/* Test basic insert, update, delete */
+	{Type: "insert", Key: []interface{}{int64(1)}, SeqNo: 1, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(1)}}},
+	{Type: "insert", Key: []interface{}{int64(2)}, SeqNo: 2, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(2)}}},
+	{Type: "insert", Key: []interface{}{int64(12)}, SeqNo: 3, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(12)}}},
+	{Type: "delete", Key: []interface{}{int64(1)}, SeqNo: 4, Timestamp: 0, Fields: nil},
+	{Type: "insert", Key: []interface{}{int64(3)}, SeqNo: 5, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(3)}}},
+}
+
 func worker(cfg *config.AppConfig, bp pipe.Pipe, tpool pool.Thread) {
 	defer shutdown.Done()
 
@@ -506,7 +523,7 @@ func startWorker(p1 pipe.Pipe, t *testing.T) {
 	}
 }
 
-func Prepare(pipeType string, create []string, encoding string, init bool, t *testing.T) (*sql.DB, pipe.Pipe, pipe.Pipe) {
+func Prepare(pipeType string, params string, create []string, encoding string, init bool, t *testing.T) (*sql.DB, pipe.Pipe, pipe.Pipe) {
 	shutdown.Setup()
 
 	if strings.HasSuffix(t.Name(), "multi_table") {
@@ -545,7 +562,7 @@ func Prepare(pipeType string, create []string, encoding string, init bool, t *te
 		}
 
 		loc.Name = "db1"
-		if !state.RegisterTableInState(loc, "t1", "mysql", pipeType, 0, encoding, "", 0) {
+		if !state.RegisterTableInState(loc, "t1", "mysql", pipeType, 0, encoding, params, 0) {
 			t.FailNow()
 		}
 	} else {
@@ -713,13 +730,13 @@ func checkPoolControl(pipeType string, t *testing.T) {
 	}
 }
 
-func CheckQueries(pipeType string, prepare []string, queries []string, result []types.CommonFormatEvent, encoding string, init bool, t *testing.T) {
+func CheckQueries(pipeType string, params string, prepare []string, queries []string, result []types.CommonFormatEvent, encoding string, init bool, t *testing.T) {
 	test.SkipIfNoMySQLAvailable(t)
 	if pipeType == "kafka" {
 		test.SkipIfNoKafkaAvailable(t)
 	}
 
-	dbc, p1, p2 := Prepare(pipeType, prepare, encoding, init, t)
+	dbc, p1, p2 := Prepare(pipeType, params, prepare, encoding, init, t)
 	defer func() { test.CheckFail(state.Close(), t) }()
 	defer func() { test.CheckFail(dbc.Close(), t) }()
 
@@ -835,7 +852,7 @@ func runTests(pipeType string, format string, t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			CheckQueries(pipeType, tt.prepare, tt.test, tt.result, format, true, t)
+			CheckQueries(pipeType, "", tt.prepare, tt.test, tt.result, format, true, t)
 		})
 	}
 }
@@ -857,14 +874,14 @@ func TestKafka(t *testing.T) {
 }
 
 func TestGracefulRestart(t *testing.T) {
-	CheckQueries("local", testBasicPrepare, testBasic, testBasicResult, "json", true, t)
-	CheckQueries("local", nil, testRestart, testRestartResult, "json", false, t)
+	CheckQueries("local", "", testBasicPrepare, testBasic, testBasicResult, "json", true, t)
+	CheckQueries("local", "", nil, testRestart, testRestartResult, "json", false, t)
 }
 
 func TestAlterFailureRestart(t *testing.T) {
 	injectAlterFailure = true
 
-	dbc, _, _ := Prepare("local", testBasicPrepare, "json", true, t)
+	dbc, _, _ := Prepare("local", "", testBasicPrepare, "json", true, t)
 
 	for _, s := range testAlterFailure {
 		execSQL(dbc, t, s)
@@ -881,7 +898,11 @@ func TestAlterFailureRestart(t *testing.T) {
 	test.CheckFail(state.Close(), t)
 
 	injectAlterFailure = false
-	CheckQueries("local", nil, testAlterFailureRestarted, testAlterFailureResult, "json", false, t)
+	CheckQueries("local", "", nil, testAlterFailureRestarted, testAlterFailureResult, "json", false, t)
+}
+
+func TestNoDeleteOnUpdate(t *testing.T) {
+	CheckQueries("local", "{\"NoDeleteOnUpdate\":true}", testBasicPrepare, testNoDeletesOnUpdate, testNoDeletesOnUpdateResult, "json", true, t)
 }
 
 func inVersionArray(a []*table, output string, version int) bool {
@@ -909,7 +930,7 @@ func TestMultiVersions_multi_table(t *testing.T) {
 	saved := cfg.StateUpdateInterval
 	cfg.StateUpdateInterval = 1 * time.Second
 
-	dbc, _, _ := Prepare("local", testMultiTablePrepare, "json", true, t)
+	dbc, _, _ := Prepare("local", "", testMultiTablePrepare, "json", true, t)
 	defer func() { test.CheckFail(state.Close(), t) }()
 	defer func() { test.CheckFail(dbc.Close(), t) }()
 
@@ -986,13 +1007,13 @@ func TestDataTypes(t *testing.T) {
 	test.CheckFail(err, t)
 	(*testDataTypesResult[0].Fields)[15].Value, err = time.ParseInLocation("2006-01-02T15:04:05", (*testDataTypesResult[0].Fields)[15].Value.(string), time.UTC)
 	test.CheckFail(err, t)
-	CheckQueries("local", testDataTypesPrepare, testDataTypes, testDataTypesResult, "json", true, t)
+	CheckQueries("local", "", testDataTypesPrepare, testDataTypes, testDataTypesResult, "json", true, t)
 }
 
 func TestDirectOutput(t *testing.T) {
 	cfg.ChangelogBuffer = false
 	outputFormat = "msgpack" //set to different from "json" to check that reader output in final format and not in buffer format
-	CheckQueries("kafka", testBasicPrepare, testBasic, testBasicResult, "json", true, t)
+	CheckQueries("kafka", "", testBasicPrepare, testBasic, testBasicResult, "json", true, t)
 }
 
 func TestReaderShutdown(t *testing.T) {
@@ -1001,7 +1022,7 @@ func TestReaderShutdown(t *testing.T) {
 	saved := cfg.StateUpdateInterval
 	cfg.StateUpdateInterval = 1 * time.Second
 
-	dbc, _, _ := Prepare("local", testShutdownPrepare, "json", true, t)
+	dbc, _, _ := Prepare("local", "", testShutdownPrepare, "json", true, t)
 	defer func() { test.CheckFail(state.Close(), t) }()
 	defer func() { test.CheckFail(dbc.Close(), t) }()
 

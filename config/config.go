@@ -153,14 +153,18 @@ type TableParams struct {
 	ThrottleTargetMB   int64 `yaml:"throttle_target_mb"`
 	ThrottleTargetIOPS int64 `yaml:"throttle_target_iops"`
 
-	Pipe       PipeConfig
-	Schedule   ScheduleConfig
-	NoSnapshot bool `yaml:"no_snapshot"`
+	Pipe     PipeConfig
+	Schedule ScheduleConfig
 
 	RowFilter  RowFilter   `yaml:"row_filter"`
 	RowFilters []RowFilter `yaml:"row_filters"` // only used in table params
 
 	ForceIndex string `yaml:"force_index"`
+
+	NoSnapshot bool `yaml:"no_snapshot"`
+
+	// Produce just insert event on update
+	NoDeleteOnUpdate bool `yaml:"no_delete_on_update"`
 }
 
 // RowFilter has the condition, column name & values on which filter will be applied

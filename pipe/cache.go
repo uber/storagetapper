@@ -12,7 +12,12 @@ import (
 	"github.com/uber/storagetapper/log"
 )
 
-var cache map[string]Pipe
+type cacheEntry struct {
+	pipe Pipe
+	cfg  config.PipeConfig
+}
+
+var cache map[string]cacheEntry
 var lock sync.Mutex
 
 // CacheGet returns an instance of pipe with specified config from cache or
@@ -22,7 +27,7 @@ func CacheGet(pipeType string, cfg *config.PipeConfig, db *sql.DB) (Pipe, error)
 	defer lock.Unlock()
 
 	if cache == nil {
-		cache = make(map[string]Pipe)
+		cache = make(map[string]cacheEntry)
 	}
 
 	b, err := json.Marshal(cfg)
@@ -35,23 +40,23 @@ func CacheGet(pipeType string, cfg *config.PipeConfig, db *sql.DB) (Pipe, error)
 	_, _ = h.Write(b)
 	hs := fmt.Sprintf("%0x", h.Sum(nil))
 
-	p := cache[hs]
-	if p != nil && reflect.DeepEqual(cfg, p.Config()) {
-		return p, nil
+	p, ok := cache[hs]
+	if ok && reflect.DeepEqual(cfg, &p.cfg) {
+		return p.pipe, nil
 	}
 
 	//FIXME: Implement proper collisions handling
 
-	p, err = Create(pipeType, cfg, db)
+	np, err := Create(pipeType, cfg, db)
 	if err != nil {
 		return nil, err
 	}
 
-	cache[hs] = p
+	cache[hs] = cacheEntry{np, *cfg}
 
 	log.Debugf("Created and cached new '%v' pipe (hash %v) with config: %+v. Cache size %v", pipeType, hs, *cfg, len(cache))
 
-	return p, nil
+	return np, nil
 }
 
 // CacheDestroy releases all resources associated with cached pipes
@@ -60,8 +65,8 @@ func CacheDestroy() {
 	defer lock.Unlock()
 
 	for h, p := range cache {
-		log.Debugf("Closing %v pipe (hash %v) with config %+v", p.Type(), h, p.Config())
-		log.E(p.Close())
+		log.Debugf("Closing %v pipe (hash %v) with config %+v", p.pipe.Type(), h, p.cfg)
+		log.E(p.pipe.Close())
 	}
 
 	cache = nil

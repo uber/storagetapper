@@ -1,10 +1,23 @@
 package pipe
 
 import (
+	"database/sql"
 	"testing"
 
+	"github.com/uber/storagetapper/config"
+	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/test"
 )
+
+var count int
+
+func testPipeInit(cfg *config.PipeConfig, db *sql.DB) (Pipe, error) {
+	log.Debugf("testPipeInit %v", count)
+	count++
+	c := *cfg
+	c.EndOfStreamMark = true
+	return &localPipe{cfg: c}, nil
+}
 
 func TestPipeCacheBasic(t *testing.T) {
 	pcfg := cfg.Pipe
@@ -36,6 +49,13 @@ func TestPipeCacheBasic(t *testing.T) {
 	test.CheckFail(err, t)
 	test.Assert(t, p.Type() == "file", "should be file type")
 	test.Assert(t, p.Config().BaseDir != "/tmp/somedir", "check that we can still get pipe with original config")
+
+	Pipes["testpipe"] = testPipeInit
+	for i := 0; i < 5; i++ {
+		_, _ = CacheGet("testpipe", &pcfg, nil)
+	}
+	log.Debugf("%v", count)
+	test.Assert(t, count == 1, "testPipe should be created just once")
 
 	CacheDestroy()
 

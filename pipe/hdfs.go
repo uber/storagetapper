@@ -56,12 +56,16 @@ func (p *hdfsClient) OpenRead(name string, offset int64) (io.ReadCloser, error) 
 	return f, nil
 }
 
-func (p *hdfsClient) OpenWrite(name string) (flushWriteCloser, io.Seeker, error) {
+func (p *hdfsClient) openWriteLow(name string) (flushWriteCloser, io.Seeker, error) {
 	f, err := p.Client.Append(name)
 	if err != nil {
 		f, err = p.Client.Create(name)
 	}
 	return &hdfsWriter{f}, nil, err
+}
+
+func (p *hdfsClient) OpenWrite(name string) (fc flushWriteCloser, sc io.Seeker, err error) {
+	return fc, sc, withRetry(func() error { fc, sc, err = p.openWriteLow(name); return err })
 }
 
 var retryTimeout = 10 //seconds

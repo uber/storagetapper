@@ -504,8 +504,14 @@ func (p *fileProducer) getFile(key string) (*file, error) {
 }
 
 func (p *fileProducer) cancel(f *file) {
-	log.E(p.fs.Remove(strings.TrimSuffix(f.name, ".open")))
-	log.E(p.fs.Remove(f.name))
+	err := p.fs.Remove(strings.TrimSuffix(f.name, ".open"))
+	if err != nil && !os.IsNotExist(err) {
+		log.E(err)
+	}
+	err = p.fs.Remove(f.name)
+	if err != nil && !os.IsNotExist(err) {
+		log.E(err)
+	}
 	log.E(p.fs.Cancel(f.file))
 }
 

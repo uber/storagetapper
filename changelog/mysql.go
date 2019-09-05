@@ -387,10 +387,6 @@ func (b *mysqlReader) nextSeqNo() uint64 {
 func (b *mysqlReader) updateState(inc bool) bool {
 	log.Debugf("Updating state")
 
-	if !db.IsValidConn(&b.dbl, db.Slave, b.masterCI, b.inputType) {
-		return false
-	}
-
 	if !state.RefreshClusterLock(b.dbl.Cluster, b.workerID) {
 		return false
 	}
@@ -405,6 +401,10 @@ func (b *mysqlReader) updateState(inc bool) bool {
 	}
 
 	if log.E(state.SaveBinlogState(b.dbl.Cluster, util.SortedGTIDString(b.gtidSet), b.seqNo)) {
+		return false
+	}
+
+	if !db.IsValidConn(&b.dbl, db.Slave, b.masterCI, b.inputType) {
 		return false
 	}
 

@@ -205,7 +205,9 @@ func (m *Mgr) create() bool {
 
 		UNIQUE KEY(service, db, table_name, input, output, version, cluster),
 		KEY(cluster),
-		KEY(locked_at)
+		KEY(locked_at),
+		KEY(input),
+		KEY(snapshotted_at)
 	) ENGINE=INNODB`)
 	if err != nil {
 		log.Errorf("state table create failed %v. db: %v ", err, types.MyDbName)

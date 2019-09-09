@@ -21,6 +21,7 @@
 package streamer
 
 import (
+	"os"
 	"time"
 
 	"github.com/uber/storagetapper/log"
@@ -183,10 +184,22 @@ func (s *Streamer) streamFromConsistentSnapshot(throttleMB int64, throttleIOPS i
 	snapshotMetrics := metrics.NewSnapshotMetrics("", s.getTag())
 
 	snapshotMetrics.NumWorkers.Inc()
+	defer func() {
+		snapshotMetrics.NumWorkers.Dec()
+	}()
 	startTime := time.Now()
 
 	outProducer, err := s.outPipe.NewProducer(s.topic)
-	if log.E(err) {
+	if err != nil {
+		if os.IsExist(err) {
+			s.log.Infof("Snapshot already exists")
+			err = state.ClearNeedSnapshot(s.row.ID, s.row.SnapshottedAt)
+			if err == nil {
+				return true
+			}
+		}
+		log.EL(s.log, err)
+		snapshotMetrics.Errors.Inc(1)
 		return false
 	}
 	outProducer.SetFormat(s.row.OutputFormat)
@@ -196,7 +209,6 @@ func (s *Streamer) streamFromConsistentSnapshot(throttleMB int64, throttleIOPS i
 			snapshotMetrics.Errors.Inc(1)
 			log.EL(s.log, outProducer.CloseOnFailure())
 		}
-		snapshotMetrics.NumWorkers.Dec()
 	}()
 
 	s.log.Infof("Starting consistent snapshot streamer for: %v, %v", s.topic, s.outEncoder.Type())

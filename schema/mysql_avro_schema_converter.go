@@ -79,7 +79,7 @@ var MySQLToAvroType = map[string]types.AvroPrimitiveType{
 // ConvertToAvroFromSchema converts a MySQL schema to an Avro schema
 func ConvertToAvroFromSchema(tblSchema *types.TableSchema, formatType string) ([]byte, error) {
 	avroSchema := &types.AvroSchema{
-		Name:      fmt.Sprintf("%s_%s", tblSchema.DBName, tblSchema.TableName),
+		Name:      fmt.Sprintf("%s_%s", strings.Replace(tblSchema.DBName, "-", "__", -1), strings.Replace(tblSchema.TableName, "-", "__", -1)),
 		Type:      types.AvroRECORD,
 		Namespace: namespace,
 		Fields:    []types.AvroField{},

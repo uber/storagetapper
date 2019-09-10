@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/encoder"
 	"github.com/uber/storagetapper/log"
@@ -64,11 +65,13 @@ type mysqlReader struct {
 }
 
 func init() {
-	registerPlugin("mysql", createMySQLReader)
+	registerPlugin(types.InputMySQL, createMySQLReader)
 }
 
-func createMySQLReader(svc string, cluster string, dbs string, table string, enc encoder.Encoder, m *metrics.Snapshot) (Reader, error) {
-	r := &mysqlReader{query: "SELECT * FROM `<table_name>` FORCE INDEX (primary)", inputType: types.InputMySQL, encoder: enc, connType: db.Slave, metrics: m}
+func createMySQLReader(svc string, cluster string, dbs string, table string, params *config.TableParams, enc encoder.Encoder, m *metrics.Snapshot) (Reader, error) {
+	query := "SELECT * FROM `<table_name>` <filter> FORCE INDEX (primary)"
+	query = strings.Replace(query, "<filter>", FilterRow(types.InputMySQL, svc+"."+table, params), -1)
+	r := &mysqlReader{query: query, inputType: types.InputMySQL, encoder: enc, connType: db.Slave, metrics: m}
 	_, err := r.start(svc, cluster, dbs, table)
 	return r, err
 }

@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
@@ -39,6 +40,7 @@ import (
 	"github.com/uber/storagetapper/test"
 	"github.com/uber/storagetapper/types"
 	"github.com/uber/storagetapper/util"
+	"gopkg.in/yaml.v2"
 )
 
 var cfg *config.AppConfig
@@ -148,7 +150,7 @@ func TestNonExistentTable(t *testing.T) {
 	conn := createDB(t)
 	defer func() { test.CheckFail(conn.Close(), t) }()
 
-	_, err := Start("mysql", "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "non_existent_table", nil, nil)
+	_, err := Start("mysql", "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "non_existent_table", nil, nil, nil)
 	test.Assert(t, err != nil, "non existent table should fail")
 }
 
@@ -158,7 +160,7 @@ func TestNonExistentDb(t *testing.T) {
 	conn := createDB(t)
 	defer func() { test.CheckFail(conn.Close(), t) }()
 
-	_, err := Start("mysql", "snap_test_svc1", "snap_test_cluster1", "non_existent_db", "snap_test_t1", nil, nil)
+	_, err := Start("mysql", "snap_test_svc1", "snap_test_cluster1", "non_existent_db", "snap_test_t1", nil, nil, nil)
 	test.Assert(t, err != nil, "non existent db should fail")
 }
 
@@ -171,7 +173,7 @@ func TestEmptyTable(t *testing.T) {
 	enc, err := encoder.Create(encoder.Internal.Type(), "snap_test_svc1", "snap_test_db1", "snap_test_t1", types.InputMySQL, "kafka", 0)
 	test.CheckFail(err, t)
 
-	s, err := Start("mysql", "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", enc, nil)
+	s, err := Start("mysql", "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", nil, enc, nil)
 	test.CheckFail(err, t)
 	defer s.End()
 
@@ -181,6 +183,85 @@ func TestEmptyTable(t *testing.T) {
 			test.CheckFail(err, t)
 		}
 	}
+}
+
+func TestFilters(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		output string
+	}{
+		{"no_filter", "", ""},
+		{"noValues", `
+tInput:
+   tTable:
+     column: "tKey1"
+     condition: "!="`, ""},
+		{"noColumn", `
+tInput:
+   tTable:
+     values: ["tVal1"]
+     condition: "!="`, ""},
+		{"noCondition", `
+tInput:
+   tTable:
+     column: "tKey1"
+     values: ["tVal1"]`, ""},
+		{"oneField", `
+tInput:
+   tTable:
+     column: "tKey1"
+     values: ["tVal1"]
+     condition: "!="`, "WHERE `tKey1` != 'tVal1'"},
+		{"multiField", `
+tInput:
+   tTable:
+     column: "tKey1"
+     values: ["tVal1", "tVal2"]
+     condition: "!="`, "WHERE `tKey1` != 'tVal1' AND `tKey1` != 'tVal2'"},
+		{"testCond", `
+tInput:
+   tTable:
+     column: "tKey1"
+     values: ["tVal1", "tVal2"]
+     condition: "=="`, "WHERE `tKey1` == 'tVal1' AND `tKey1` == 'tVal2'"},
+		{"testOP", `
+tInput:
+   tTable:
+     column: "tKey1"
+     values: ["tVal1", "tVal2"]
+     operator: "OR"
+     condition: "=="`, "WHERE `tKey1` == 'tVal1' OR `tKey1` == 'tVal2'"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var f map[string]map[string]config.RowFilter
+			err := yaml.Unmarshal([]byte(tt.input), &f)
+			require.NoError(t, err)
+			config.Get().Filters = f
+			assert.Equal(t, tt.output, FilterRow("tInput", "tTable", nil))
+		})
+	}
+}
+
+func TestDynamicRowFilters(t *testing.T) {
+	input := `
+tInput:
+   tTable:
+     column: "tKey1"
+     values: ["tVal1", "tVal2"]
+     condition: "=="`
+	output := "WHERE `tKey1` == 'tVal1' AND `tKey1` == 'tVal2'"
+	var f map[string]map[string]config.RowFilter
+	err := yaml.Unmarshal([]byte(input), &f)
+	require.NoError(t, err)
+	config.Get().Filters = f
+	assert.Equal(t, output, FilterRow("tInput", "tTable", nil))
+
+	params := config.TableParams{RowFilter: config.RowFilter{Column: "tKey2", Condition: "!=", Values: []string{"tVal3"}}}
+	output1 := "WHERE `tKey2` != 'tVal3'"
+	assert.Equal(t, output1, FilterRow("tInput", "tTable", &params))
 }
 
 func testBasic(input string, t *testing.T) {
@@ -208,7 +289,7 @@ func testBasic(input string, t *testing.T) {
 
 	test.CheckFail(err, t)
 
-	s, err := Start(input, "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", enc, metrics.NewSnapshotMetrics("", nil))
+	s, err := Start(input, "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", nil, enc, metrics.NewSnapshotMetrics("", nil))
 	test.CheckFail(err, t)
 	defer s.End()
 
@@ -320,7 +401,7 @@ func TestMoreFieldTypes(t *testing.T) {
 	enc, err := encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1", "mysql", "", 1)
 	test.CheckFail(err, t)
 
-	s, err := Start("mysql", "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", enc, metrics.NewSnapshotMetrics("", nil))
+	s, err := Start("mysql", "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", nil, enc, metrics.NewSnapshotMetrics("", nil))
 	test.CheckFail(err, t)
 	defer s.End()
 
@@ -342,7 +423,7 @@ func TestMoreFieldTypes(t *testing.T) {
 
 	execSQL(conn, t, "ALTER TABLE snap_test_t1 drop f15")
 
-	_, err = Start("mysql", "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", enc, metrics.NewSnapshotMetrics("", nil))
+	_, err = Start("mysql", "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", nil, enc, metrics.NewSnapshotMetrics("", nil))
 	test.Assert(t, err != nil, "encoder has old schema")
 }
 
@@ -364,7 +445,7 @@ func TestSnapshotConsistency(t *testing.T) {
 
 	test.CheckFail(err, t)
 
-	s, err := Start("mysql", "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", enc, metrics.NewSnapshotMetrics("", nil))
+	s, err := Start("mysql", "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", nil, enc, metrics.NewSnapshotMetrics("", nil))
 	test.CheckFail(err, t)
 
 	var i int64
@@ -422,7 +503,7 @@ func TestSnapshotNilConnection(t *testing.T) {
 
 	test.CheckFail(err, t)
 
-	_, err = Start("mysql", "snap_test_svc1", "please_return_nil_db_addr", "snap_test_db1", "snap_test_t1", enc, nil)
+	_, err = Start("mysql", "snap_test_svc1", "please_return_nil_db_addr", "snap_test_db1", "snap_test_t1", nil, enc, nil)
 	test.Assert(t, err != nil, "get connection should return nil")
 }
 
@@ -440,7 +521,7 @@ func prepareBench(t *testing.T) (Reader, encoder.Encoder) {
 	enc, err := encoder.Create("msgpack", "snap_test_svc1", "snap_test_db1", "snap_test_t1", types.InputMySQL, "kafka", 0)
 	test.CheckFail(err, t)
 
-	s, err := Start(types.InputMySQL, "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", enc, metrics.NewSnapshotMetrics("", nil))
+	s, err := Start(types.InputMySQL, "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", nil, enc, metrics.NewSnapshotMetrics("", nil))
 	test.CheckFail(err, t)
 
 	return s, enc
@@ -464,7 +545,7 @@ func runBenchmarks() {
 					b.StopTimer()
 					s.End()
 					var err error
-					s, err = Start(types.InputMySQL, "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", enc, metrics.NewSnapshotMetrics("", nil))
+					s, err = Start(types.InputMySQL, "snap_test_svc1", "snap_test_cluster1", "snap_test_db1", "snap_test_t1", nil, enc, metrics.NewSnapshotMetrics("", nil))
 					test.CheckFail(err, t)
 					b.StartTimer()
 				}

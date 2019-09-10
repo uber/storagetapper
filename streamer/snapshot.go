@@ -206,7 +206,7 @@ func (s *Streamer) streamFromConsistentSnapshot(throttleMB int64, throttleIOPS i
 		return false
 	}
 
-	snReader, err := snapshot.Start(s.row.Input, s.row.Service, s.row.Cluster, s.row.Db, s.row.Table, s.outEncoder, snapshotMetrics)
+	snReader, err := snapshot.Start(s.row.Input, s.row.Service, s.row.Cluster, s.row.Db, s.row.Table, s.row.Params, s.outEncoder, snapshotMetrics)
 	if log.EL(s.log, err) {
 		return false
 	}

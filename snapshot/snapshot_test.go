@@ -31,7 +31,7 @@ import (
 )
 
 func TestCreateNonExistent(t *testing.T) {
-	_, err := Start("not_existent_plugin", "", "", "", "", nil, nil)
+	_, err := Start("not_existent_plugin", "", "", "", "", nil, nil, nil)
 	test.Assert(t, err != nil, "should return error")
 }
 

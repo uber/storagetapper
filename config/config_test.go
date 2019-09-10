@@ -68,6 +68,9 @@ func TestBasic(t *testing.T) {
 	if def.Filters == nil {
 		def.Filters = make(map[string]map[string]RowFilter)
 	}
+	if def.RowFilter.Values == nil {
+		def.RowFilter.Values = make([]string, 0)
+	}
 
 	loaded.LockExpireTimeout = 0
 	section.LockExpireTimeout = 0

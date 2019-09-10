@@ -44,7 +44,7 @@ type Reader interface {
 }
 
 //ReaderConstructor initializes logger plugin
-type ReaderConstructor func(string, string, string, string, encoder.Encoder, *metrics.Snapshot) (Reader, error)
+type ReaderConstructor func(string, string, string, string, *config.TableParams, encoder.Encoder, *metrics.Snapshot) (Reader, error)
 
 //Plugins contains registered snapshot reader plugins
 var Plugins map[string]ReaderConstructor
@@ -57,29 +57,46 @@ func registerPlugin(name string, init ReaderConstructor) {
 }
 
 //Start constructs new snapshot reader of specified type
-func Start(input string, svc string, cluster string, dbs string, table string, enc encoder.Encoder, m *metrics.Snapshot) (Reader, error) {
+func Start(input string, svc string, cluster string, dbs string, table string, params *config.TableParams, enc encoder.Encoder, m *metrics.Snapshot) (Reader, error) {
 	init := Plugins[strings.ToLower(input)]
 
 	if init == nil {
 		return nil, fmt.Errorf("unsupported snapshot input type: %s", strings.ToLower(input))
 	}
 
-	return init(svc, cluster, dbs, table, enc, m)
+	return init(svc, cluster, dbs, table, params, enc, m)
 }
 
 //FilterRow returns the Filter query based for specified input
-func FilterRow(input string, table string) string {
-	filter := ""
-	conf := config.Get()
-	if conf.Filters != nil && conf.Filters[input] != nil {
-		rowFilter, ok := conf.Filters[input][table]
-		if ok && len(rowFilter.Values) > 0 {
-			filter = "where"
-			for _, name := range rowFilter.Values {
-				filter = filter + fmt.Sprintf(" %s %s '%s' AND", rowFilter.Column, rowFilter.Condition, name)
-			}
-			filter = strings.TrimSuffix(filter, "AND")
+func FilterRow(input string, table string, params *config.TableParams) string {
+	var rowFilter *config.RowFilter
+
+	if params == nil || len(params.RowFilter.Values) == 0 || params.RowFilter.Condition == "" || params.RowFilter.Column == "" {
+		conf := config.Get()
+		if conf.Filters == nil || conf.Filters[input] == nil {
+			return ""
 		}
+		rf, ok := conf.Filters[input][table]
+		if !ok || len(rf.Values) == 0 || rf.Condition == "" || rf.Column == "" {
+			return ""
+		}
+		rowFilter = &rf
+	} else {
+		rowFilter = &params.RowFilter
 	}
+
+	op := rowFilter.Operator
+	if op == "" {
+		op = "AND"
+	}
+
+	filter := "WHERE"
+	for _, val := range rowFilter.Values {
+		if filter != "WHERE" {
+			filter += " " + op
+		}
+		filter = filter + fmt.Sprintf(" `%s` %s '%s'", rowFilter.Column, rowFilter.Condition, val)
+	}
+
 	return filter
 }

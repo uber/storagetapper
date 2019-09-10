@@ -156,6 +156,8 @@ type TableParams struct {
 	Pipe       PipeConfig
 	Schedule   ScheduleConfig
 	NoSnapshot bool `yaml:"no_snapshot"`
+
+	RowFilter `yaml:"row_filter"`
 }
 
 // RowFilter has the condition, column name & values on which filter will be applied
@@ -163,6 +165,7 @@ type RowFilter struct {
 	Column    string   `yaml:"column"`
 	Values    []string `yaml:"values"`
 	Condition string   `yaml:"condition"`
+	Operator  string   `yaml:"operator"`
 }
 
 // AppConfig is the config struct which the config gets loaded into

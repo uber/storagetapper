@@ -1,0 +1,14 @@
+name: Go
+on: [push]
+jobs:
+
+  build:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Install dependencies
+      run: ./scripts/install_deps.sh
+
+    - name: Run tests
+      run: make test

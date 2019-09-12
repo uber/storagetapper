@@ -5,12 +5,14 @@ import (
 	"crypto"
 	"io/ioutil"
 	"os"
+	"regexp"
 	"testing"
 
 	"golang.org/x/crypto/openpgp"
 	"golang.org/x/crypto/openpgp/armor"
 	"golang.org/x/crypto/openpgp/packet"
 
+	"github.com/stretchr/testify/require"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/test"
 )
@@ -367,4 +369,29 @@ func TestFilePartitionKey(t *testing.T) {
 	test.Assert(t, p.PartitionKey("log", key) == "log", "file pipe should return log for any key")
 	key = "other key"
 	test.Assert(t, p.PartitionKey("snapshot", key) == "snapshot", "file pipe should return snapshot for any key")
+}
+
+func TestFileDumpStat(t *testing.T) {
+	deleteTestTopics(t)
+
+	fp := initTestFilePipe(&cfg.Pipe, false, t)
+	fp.cfg.EndOfStreamMark = true
+	fp.cfg.MaxFileSize = 1
+
+	p, err := fp.NewProducer("header-test-topic/")
+	require.NoError(t, err)
+
+	msg := `{"Test" : "msg goes to first file"}`
+	require.NoError(t, p.Push([]byte(msg)))
+
+	msg = `{"Test" : "msg goes to second file"}`
+	require.NoError(t, p.Push([]byte(msg)))
+
+	require.NoError(t, p.Close())
+
+	b, err := ioutil.ReadFile(baseDir + "/header-test-topic/_DONE")
+	require.NoError(t, err)
+	re := regexp.MustCompile(`/(.\d+)\.`)
+	s := re.ReplaceAllString(string(b), "/1568094981.")
+	require.Equal(t, `[{"NumRecs":1,"Hash":"1659724ce4460a14d8ddb1d370191fc73efeac3ba7a0ce067998e25c35c2aab4","FileName":"/tmp/storagetapper/file_pipe_test/header-test-topic/1568094981.001.default"},{"NumRecs":1,"Hash":"cadc2e6510f196d15b82a777ca85cd639ab54002bf10bb90606fc2be0129358a","FileName":"/tmp/storagetapper/file_pipe_test/header-test-topic/1568094981.002.default"}]`, s)
 }

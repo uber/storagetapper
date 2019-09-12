@@ -25,8 +25,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"hash"
 	"io"
@@ -86,13 +88,21 @@ type file struct {
 	key    string
 	file   io.WriteCloser //this is only used to cancel s3 streams, see fs.Cancel()
 	seek   io.Seeker
+	hash   hash.Hash
 	offset int64
+	nRecs  int64
 	writer flushWriteCloser
 	//Open order dlist
 	prev *file
 	next *file
 
 	compressedSize int64
+}
+
+type stat struct {
+	NumRecs  int64
+	Hash     string
+	FileName string
 }
 
 // fileProducer synchronously pushes messages to File using topic specified during producer creation
@@ -111,6 +121,8 @@ type fileProducer struct {
 	text bool //Can be changed by SetFormat
 
 	metrics *metrics.FilePipeMetrics
+
+	stats map[string]*stat
 }
 
 // fileConsumer consumes messages from File using topic and partition specified during consumer creation
@@ -224,7 +236,7 @@ func (p *filePipe) Close() error {
 //NewProducer registers a new sync producer
 func (p *filePipe) NewProducer(topic string) (Producer, error) {
 	m := metrics.NewFilePipeMetrics("pipe_producer", map[string]string{"topic": topic, "pipeType": "file"})
-	return &fileProducer{filePipe: p, topic: topic, files: make(map[string]*file), fs: &fileFS{}, metrics: m}, nil
+	return &fileProducer{filePipe: p, topic: topic, files: make(map[string]*file), fs: &fileFS{}, metrics: m, stats: make(map[string]*stat)}, nil
 }
 
 func (p *filePipe) initConsumer(c *fileConsumer) (Consumer, error) {
@@ -461,7 +473,8 @@ func (p *fileProducer) newFile(key string) error {
 		}
 	}
 
-	hw := &hashWriter{w, nil, p.metrics, nil}
+	h := sha256.New()
+	hw := &hashWriter{w, h, p.metrics, nil}
 	var writer flushWriteCloser = hw
 
 	if p.cfg.Encryption.Enabled {
@@ -481,7 +494,7 @@ func (p *fileProducer) newFile(key string) error {
 
 	log.Debugf("Opened: %v, %v compression: %v", key, n, p.cfg.Compression)
 
-	f := &file{n, key, w, seeker, offset, writer, p.flast, nil, offset}
+	f := &file{n, key, w, seeker, h, offset, 0, writer, p.flast, nil, offset}
 	hw.f = f
 
 	listInsert(p, f)
@@ -531,11 +544,13 @@ func (p *fileProducer) closeFile(f *file, graceful bool) error {
 	if err := f.writer.Close(); log.E(err) {
 		rerr = err
 	}
+	fn := strings.TrimSuffix(f.name, ".open")
 	if graceful && rerr == nil {
-		if err := p.fs.Rename(f.name, strings.TrimSuffix(f.name, ".open")); log.E(err) {
+		if err := p.fs.Rename(f.name, fn); log.E(err) {
 			rerr = err
 		}
 	}
+	p.stats[fn] = &stat{NumRecs: f.nRecs, Hash: fmt.Sprintf("%x", f.hash.Sum(nil)), FileName: fn}
 	p.metrics.FilesClosed.Inc(1)
 	log.Debugf("Closed: %v", f.name)
 	return rerr
@@ -603,10 +618,11 @@ func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 
 	//In the case of text format apppend delimiter after the message
 	if err = p.writeTextMsgDelimiter(f); err != nil {
-		return nil
+		return err
 	}
 
 	f.offset += int64(len(bytes)) + 1
+	f.nRecs++
 
 	if !batch {
 		if err = f.writer.Flush(); err != nil {
@@ -683,6 +699,25 @@ func (p *fileProducer) close(graceful bool) (err error) {
 	return err
 }
 
+func (p *fileProducer) dumpStat(f io.Writer) error {
+	s := make([]*stat, 0)
+	for _, n := range p.stats {
+		s = append(s, n)
+	}
+
+	sort.Slice(s, func(i, j int) bool { return s[i].FileName < s[j].FileName })
+
+	l, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(l); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Close removes unfinished files
 func (p *fileProducer) Close() error {
 	err := p.close(true)
@@ -697,6 +732,9 @@ func (p *fileProducer) Close() error {
 		name := filepath.Dir(p.topicPath(p.topic)) + "/_DONE"
 		f, _, err := p.fs.OpenWrite(name)
 		if err != nil {
+			return err
+		}
+		if err := p.dumpStat(f); err != nil {
 			return err
 		}
 		f.Close()

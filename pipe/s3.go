@@ -258,7 +258,7 @@ func (p *s3Pipe) Type() string {
 //NewProducer registers a new Terrablob producer
 func (p *s3Pipe) NewProducer(topic string) (Producer, error) {
 	m := metrics.NewFilePipeMetrics("pipe_producer", map[string]string{"topic": topic, "pipeType": "s3"})
-	return &fileProducer{filePipe: &p.filePipe, topic: topic, files: make(map[string]*file), fs: p.client, metrics: m}, nil
+	return &fileProducer{filePipe: &p.filePipe, topic: topic, files: make(map[string]*file), fs: p.client, metrics: m, stats: make(map[string]*stat)}, nil
 }
 
 //NewConsumer registers a new Terrablob consumer

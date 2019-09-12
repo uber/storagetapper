@@ -168,7 +168,7 @@ func (p *hdfsPipe) Close() error {
 //NewProducer registers a new sync producer
 func (p *hdfsPipe) NewProducer(topic string) (Producer, error) {
 	m := metrics.NewFilePipeMetrics("pipe_producer", map[string]string{"topic": topic, "pipeType": "hdfs"})
-	return &fileProducer{filePipe: &p.filePipe, topic: topic, files: make(map[string]*file), fs: &hdfsClient{p.hdfs}, metrics: m}, nil
+	return &fileProducer{filePipe: &p.filePipe, topic: topic, files: make(map[string]*file), fs: &hdfsClient{p.hdfs}, metrics: m, stats: make(map[string]*stat)}, nil
 }
 
 //NewConsumer registers a new hdfs consumer with context

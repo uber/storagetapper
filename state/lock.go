@@ -120,7 +120,7 @@ func getClusterTask(input string, workerID string, lockTimeout time.Duration) (s
 	defer func() { _ = tx.Rollback() }()
 	var service, cluster, db, add string
 	if CheckMySQLVersion("8") {
-		add = " SKIP LOCKED"
+		add = " OF c SKIP LOCKED"
 	}
 	err = util.QueryTxRowSQL(tx, `SELECT DISTINCT s.service, c.cluster, s.db FROM cluster_state c join state s USING(cluster) WHERE s.deleted_at IS NULL AND s.input=? AND (c.locked_at IS NULL OR c.locked_at < NOW() - INTERVAL ? SECOND) LIMIT 1 FOR UPDATE`+add, input, lockTimeout/time.Second).Scan(&service, &cluster, &db)
 	if err != nil && err == sql.ErrNoRows {

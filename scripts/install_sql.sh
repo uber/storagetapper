@@ -13,4 +13,6 @@ sudo sed -i 's+<tcp_port>9000</tcp_port>+<tcp_port>9500</tcp_port>+g' /etc/click
 sudo apt-get install --force-yes -y postgresql
 
 #echo "host all postgres 127.0.0.1/32 trust" | sudo -H tee -a `find /etc/postgresql -name pg_hba.conf`
-sudo -H sed -i 's/md5/trust/g' `find /etc/postgresql -name pg_hba.conf`
+sudo -H sed -i -e 's/md5/trust/g' -e 's/peer/trust/g' `find /etc/postgresql -name pg_hba.conf`
+
+sudo /etc/init.d/postgresql restart

@@ -27,8 +27,14 @@ cat << 'EOF' | sudo -H -u $NAME tee $DIR/etc/hadoop/hdfs-site.xml
     <property>
         <name>dfs.replication</name>
         <value>1</value>
+    </property>
+    <property>
         <name>dfs.datanode.handler.count</name>
         <value>20</value>
+    </property>
+    <property>
+        <name>dfs.blocksize</name>
+        <value>1048576</value>
     </property>
 </configuration>
 EOF

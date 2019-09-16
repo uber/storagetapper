@@ -8,7 +8,7 @@ while ! /usr/bin/mysqladmin ping; do sleep 1; done
 /etc/init.d/postgresql start
 /etc/init.d/clickhouse-server start
 
-sudo -H -u kafka /bin/sh scripts/start_kafka.sh
+sudo -H -u kafka /bin/bash scripts/start_kafka.sh
 
 # Now startup Hadoop
 service ssh start

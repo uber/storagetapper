@@ -5,7 +5,7 @@ set -ex
 DIR=/home/kafka
 VERSION="2.3.0"
 
-sudo apt-get install default-jre
+sudo apt-get install default-jre netcat
 sudo useradd kafka -m || [ $? -eq 9 ]
 sudo -u kafka mkdir -p $DIR/config
 

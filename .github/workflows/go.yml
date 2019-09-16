@@ -7,8 +7,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+    - name: Check out code
+      uses: actions/checkout@v1
+
+    - name: Fix permissions
+      run: chmod +x ./scripts/install_deps.sh
+
     - name: Install dependencies
-      run: ./scripts/install_deps.sh
+      run: DOCKER_BUILD=1 /bin/sh scripts/install_deps.sh
+
+    - name: Prepare test environment
+      run: sudo /bin/sh scripts/prepare_test_env.sh
+
+    - name: Start S3 docker container
+      run: docker run --cidfile=/tmp/s3server.cid -d -p 8000:8000 scality/s3server
 
     - name: Run tests
-      run: make test
+      run: GOROOT="/usr/local/go" GOPATH="$HOME/gopath" PATH="/usr/local/go/bin:$GOPATH/bin:$PATH" make test

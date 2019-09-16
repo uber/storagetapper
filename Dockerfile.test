@@ -25,6 +25,8 @@ COPY scripts/prepare_test_env.sh /scripts/
 COPY scripts/docker_test_entry.sh /
 RUN chmod +x /docker_test_entry.sh
 
+RUN echo 'set -x;sh scripts/prepare_test_env.sh\nexport GOPATH=~/gopath;export PATH="$PATH:/usr/local/go/bin:$GOPATH/bin"\nexport STORAGETAPPER_ENVIRONMENT=test' >/root/.bashrc
+
 WORKDIR /storagetapper
 
 ENV USER=root

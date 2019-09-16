@@ -34,7 +34,7 @@ import (
 
 var cfg *config.AppConfig
 
-func connectInfoGetForTest(l *Loc, connType int) (*Addr, error) {
+func connectInfoGetForTest(l *Loc, connType ConnectionType) (*Addr, error) {
 	return &Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: l.Name}, nil
 }
 

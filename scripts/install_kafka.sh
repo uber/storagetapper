@@ -34,7 +34,7 @@ sudo -H -u kafka /bin/bash <<EOF
     sed -i -e "s#log.dirs=.*#log.dirs=$KAFKA_DATADIR#g" $DIR/kafka-$KAFKA_PORT/config/server.properties
 
     sed -i -e "s#dataDir=.*#dataDir=$ZK_DATADIR#g" -e "s/clientPort=.*/clientPort=$ZK_PORT/g" $DIR/kafka-$KAFKA_PORT/config/zookeeper.properties
-	echo -e "\\ninitLimit=10\\nsyncLimit=5\\nserver.1=localhost:2888:3888\\nserver.2=localhost:2888:3888\\nserver.3=localhost:2888:3888\\n" >>  $DIR/kafka-$KAFKA_PORT/config/zookeeper.properties
+	echo -e "\\ninitLimit=10\\nsyncLimit=5\\nserver.1=localhost:2888:3888\\nserver.2=localhost:2889:3889\\nserver.3=localhost:2890:3890\\n" >>  $DIR/kafka-$KAFKA_PORT/config/zookeeper.properties
 
     mkdir -p $ZK_DATADIR
 

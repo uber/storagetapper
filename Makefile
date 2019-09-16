@@ -7,7 +7,10 @@ SRCS := $(shell find . -name "*.go" -not -path './vendor')
 $(NAME): $(SRCS) types/format_gen.go vendor
 	go build -ldflags "-X main.revision=$(GIT_REVISION)"
 
-vendor:
+glide.lock: glide.yaml
+	glide update
+
+vendor: glide.lock
 	glide install
 
 install: $(NAME)
@@ -36,7 +39,7 @@ deb:
 clean:
 	rm -f $(NAME)
 
-docker-image:
+docker-image: vendor
 	docker build -f Dockerfile.test -t uber/storagetapper .
 
 docker-test: docker-image

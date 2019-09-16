@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/shutdown"
 	"github.com/uber/storagetapper/test"
@@ -34,8 +35,6 @@ import (
 )
 
 func TestPprofBasic(t *testing.T) {
-	cfg := test.LoadConfig()
-
 	test.SkipIfNoMySQLAvailable(t)
 
 	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword})
@@ -48,7 +47,7 @@ func TestPprofBasic(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-		mainLow(cfg)
+		mainLow(config.Get())
 		wg.Done()
 	}()
 

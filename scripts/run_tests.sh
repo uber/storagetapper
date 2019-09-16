@@ -1,7 +1,10 @@
 #!/bin/bash
 
 export STORAGETAPPER_CONFIG_DIR=$(pwd)/config
-export STORAGETAPPER_ENVIRONMENT=development
+
+if [ -z "$STORAGETAPPER_ENVIRONMENT" ]; then
+	export STORAGETAPPER_ENVIRONMENT=development
+fi
 
 TIMEOUT=600s
 

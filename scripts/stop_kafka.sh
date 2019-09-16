@@ -1,8 +1,8 @@
 #!/bin/bash
 
-set -ex
+set -x
 
-DIR=/home/kafa
+DIR=/home/kafka
 
 for i in 1 2 3; do
     KAFKA_PORT=`expr $i + 9090`
@@ -11,5 +11,5 @@ done
 
 for i in 1 2 3; do
     KAFKA_PORT=`expr $i + 9090`
-    ${DIR/kafka-${KAFKA_PORT/bin/zookeeper-server-stop.sh
+    $DIR/kafka-$KAFKA_PORT/bin/zookeeper-server-stop.sh
 done

@@ -24,6 +24,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -373,8 +374,6 @@ func testStep(inPipeType string, bufferFormat string, outPipeType string, outPip
 	cfg.WorkerIdleInterval = 1 * time.Second
 	cfg.MaxNumProcs = 3
 
-	log.Configure(cfg.LogType, cfg.LogLevel, false)
-
 	var seqno, sseqno = changelog.SeqnoSaveInterval, changelog.SeqnoSaveInterval
 	var result = make([]string, 0)
 	var result2 = make([]string, 0)
@@ -492,8 +491,6 @@ func testStep(inPipeType string, bufferFormat string, outPipeType string, outPip
 }
 
 func TestBasic(t *testing.T) {
-	_ = test.LoadConfig()
-
 	test.SkipIfNoMySQLAvailable(t)
 	test.SkipIfNoKafkaAvailable(t)
 
@@ -508,6 +505,8 @@ func TestBasic(t *testing.T) {
 	pipe.KafkaConfig.Producer.Return.Successes = true
 	pipe.KafkaConfig.Consumer.MaxWaitTime = 15 * time.Millisecond
 	pipe.KafkaConfig.Producer.RequiredAcks = sarama.WaitForAll
+	pipe.KafkaConfig.Producer.Retry.Max = 20
+	pipe.KafkaConfig.Metadata.Retry.Max = 20
 
 	for _, out := range []string{"kafka"} {
 		//for out := range pipe.Pipes { //FIXME: file and hdfs fail some time
@@ -527,4 +526,10 @@ func TestBasic(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestMain(m *testing.M) {
+	_ = test.LoadConfig()
+
+	os.Exit(m.Run())
 }

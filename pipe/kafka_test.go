@@ -41,6 +41,18 @@ const (
 	BATCH = -1
 )
 
+func setTestKafkaConfig() {
+	KafkaConfig = sarama.NewConfig()
+	KafkaConfig.Producer.Partitioner = sarama.NewManualPartitioner
+	KafkaConfig.Producer.Return.Successes = true
+	KafkaConfig.Consumer.MaxWaitTime = 20 * time.Millisecond
+	KafkaConfig.Producer.RequiredAcks = sarama.WaitForAll
+	KafkaConfig.Producer.Retry.Max = 50
+	KafkaConfig.Metadata.Retry.Max = 50
+	KafkaConfig.Metadata.Retry.Backoff = 500 * time.Millisecond
+	KafkaConfig.Metadata.RefreshFrequency = 1 * time.Minute
+}
+
 func createPipe(batchSize int) *KafkaPipe {
 	pcfg := cfg.Pipe
 	pcfg.MaxBatchSize = batchSize
@@ -84,6 +96,8 @@ func TestKafkaBasic(t *testing.T) {
 	test.SkipIfNoKafkaAvailable(t)
 	test.SkipIfNoMySQLAvailable(t)
 
+	setTestKafkaConfig()
+
 	log.Debugf("Testing basic Kafka pipe functionality")
 
 	startCh = make(chan bool)
@@ -110,6 +124,8 @@ func TestKafkaBasic(t *testing.T) {
 func TestKafkaBigMessage(t *testing.T) {
 	test.SkipIfNoKafkaAvailable(t)
 	test.SkipIfNoMySQLAvailable(t)
+
+	setTestKafkaConfig()
 
 	log.Debugf("Testing Big Kafka pipe message")
 
@@ -163,6 +179,8 @@ func TestKafkaBigMessage(t *testing.T) {
 func TestKafkaOffsets(t *testing.T) {
 	test.SkipIfNoKafkaAvailable(t)
 	test.SkipIfNoMySQLAvailable(t)
+
+	setTestKafkaConfig()
 
 	startCh = make(chan bool, 1)
 
@@ -323,6 +341,8 @@ func TestKafkaMultiPartition(t *testing.T) {
 	test.SkipIfNoKafkaAvailable(t)
 	test.SkipIfNoMySQLAvailable(t)
 
+	setTestKafkaConfig()
+
 	startCh = make(chan bool, 1)
 
 	_ = util.ExecSQL(state.GetDB(), "DROP TABLE IF EXISTS kafka_offsets")
@@ -395,6 +415,7 @@ func TestKafkaMultiPartition(t *testing.T) {
 }
 
 func TestKafkaPartitionKey(t *testing.T) {
+	setTestKafkaConfig()
 	kp := createPipe(1)
 	p, err := kp.NewProducer("partition-key-test-topic")
 	test.CheckFail(err, t)
@@ -405,6 +426,9 @@ func TestKafkaPartitionKey(t *testing.T) {
 }
 
 func TestKafkaProducerConfig(t *testing.T) {
+	s := KafkaConfig
+	defer func() { KafkaConfig = s }()
+
 	p := &KafkaPipe{cfg: cfg.Pipe}
 
 	// Let's check the config setup through the global KafkaConfig variable

@@ -13,6 +13,8 @@ for i in 1 2 3; do
 	while ! nc -q 1 localhost $((2180+i)) </dev/null; do echo "Waiting %i"; sleep 1; done
 done
 
+sleep 1 # give time zookeeper to initialize
+
 # Launch and wait for Kafka
 for i in 1 2 3; do
     KAFKA_PORT=`expr $i + 9090`
@@ -24,4 +26,4 @@ for i in 1 2 3; do
 	while ! nc -q 1 localhost $((9090+i)) </dev/null; do echo "Waiting"; sleep 1; done
 done
 
-sleep 5
+sleep 7 # give time kafka to initialize

@@ -49,6 +49,7 @@ func StartHTTPServer(port int) {
 	mutex.Lock()
 
 	server = &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: nil}
+	log.Debugf("HTTP server is listening on %v port", port)
 
 	mutex.Unlock()
 
@@ -56,7 +57,6 @@ func StartHTTPServer(port int) {
 	if err != nil && err != http.ErrServerClosed {
 		log.E(err)
 	}
-	log.Debugf("HTTP server is listening on %v port", port)
 }
 
 //healthCheck handles call to the health check endpoint

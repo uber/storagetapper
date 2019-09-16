@@ -7,11 +7,18 @@ Standards-Version: 3.9.8
 Section: utils
 Homepage: https://github.com/uber/storagetapper
 
-Package: storagetapper
+Package: storagetapper-server
 Architecture: any
 Section: utils
 Depends: ${misc:Depends}
-Description: StorageTapper is a service that reads data from MySQL, transforms it into an
- Avro schema serialized format and publishes these events to Kafka.
- Consumers can then consume these events directly from Kafka.
+Description: StorageTapper is a realtime change data capture and transformation
+ service. This package contains server components.
+
+Package: storagetapper-client
+Architecture: any
+Section: utils
+Depends: ${misc:Depends}
+Description: StorageTapper is a realtime change data capture and transformation
+ service. This package contains client components.
+
 

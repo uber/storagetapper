@@ -1,3 +1,10 @@
+storagetapper (1.0.0-beta) unstable; urgency=medium
+
+  * Versioning scheme changed
+  * Separate debian packages for server and client
+
+ -- Evgeniy Firsov <firsov@uber.com>  Tue, 15 Sep 2019 02:55:00 +0000
+
 storagetapper (1.0) unstable; urgency=medium
 
   * Initial version

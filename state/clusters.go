@@ -29,13 +29,13 @@ import (
 )
 
 //InsertClusterInfo adds connection information for the cluster "name" to state
-func InsertClusterInfo(name string, ci *db.Addr) error {
+func InsertClusterInfo(ci *db.Addr) error {
 	err := util.ExecSQL(mgr.conn, "INSERT INTO clusters(name,host,port,user,password) VALUES(?, ?, ?, ?, ?)",
-		name, ci.Host, ci.Port, ci.User, ci.Pwd)
+		ci.Name, ci.Host, ci.Port, ci.User, ci.Pwd)
 	if log.E(err) {
 		return err
 	}
-	log.Debugf("Cluster added: name:%v Host:%v Port:%v User:%v", name, ci.Host, ci.Port, ci.User)
+	log.Debugf("Cluster added: name:%v Host:%v Port:%v User:%v", ci.Name, ci.Host, ci.Port, ci.User)
 	return nil
 }
 
@@ -72,7 +72,8 @@ func GetClusterInfo(cond string, args ...interface{}) ([]db.Addr, error) {
 }
 
 //ConnectInfoGet resolves database address using state clusters table
-func ConnectInfoGet(l *db.Loc, connType int) (*db.Addr, error) {
+//If no Slaves we need to fall back to master
+func ConnectInfoGet(l *db.Loc, connType db.ConnectionType) (*db.Addr, error) {
 	var c string
 	var a db.Addr
 
@@ -97,12 +98,18 @@ func ConnectInfoGet(l *db.Loc, connType int) (*db.Addr, error) {
 		}
 	}
 
-	//FIXME:Select by type
-	err := util.QueryRowSQL(mgr.conn, "SELECT name,host,port,user,password FROM clusters WHERE name=?", c).Scan(
-		&c, &a.Host, &a.Port, &a.User, &a.Pwd)
+	err := util.QueryRowSQL(mgr.conn, "SELECT name,host,port,user,password FROM clusters WHERE name=? AND type=?", c, connType.String()).Scan(&c, &a.Host, &a.Port, &a.User, &a.Pwd)
+	//If the connection type is not available then check if the other type is
+	if err == sql.ErrNoRows && connType == db.Slave {
+		err = util.QueryRowSQL(mgr.conn, "SELECT name,host,port,user,password FROM clusters WHERE name=? AND type=?", c, db.Master.String()).Scan(&c, &a.Host, &a.Port, &a.User, &a.Pwd)
+	} else if err == sql.ErrNoRows && connType == db.Master {
+		err = util.QueryRowSQL(mgr.conn, "SELECT name,host,port,user,password FROM clusters WHERE name=? AND type=?", c, db.Slave.String()).Scan(&c, &a.Host, &a.Port, &a.User, &a.Pwd)
+	}
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
+
 	if log.E(err) {
 		return nil, err
 	}
@@ -113,6 +120,7 @@ func ConnectInfoGet(l *db.Loc, connType int) (*db.Addr, error) {
 	}
 
 	a.Db = l.Name
+	a.Name = c
 
 	return &a, nil
 }

@@ -42,7 +42,7 @@ const cancelCheckInterval = 180 * time.Second
 type mysqlReader struct {
 	dbl       *db.Loc
 	connInfo  *db.Addr
-	connType  int
+	connType  db.ConnectionType
 	conn      *sql.DB
 	trx       *sql.Tx
 	rows      *sql.Rows

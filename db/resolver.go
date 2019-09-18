@@ -28,14 +28,20 @@ import (
 	"github.com/uber/storagetapper/log"
 )
 
-// Define connection types
+// ConnectionType is used as enum to represent connection types
+type ConnectionType int
+
 const (
 	// Master is the type corresponding to a master or a leader
-	Master = iota
+	Master ConnectionType = iota
 
 	// Slave is the type corresponding to a slave or a follower
 	Slave
 )
+
+func (c ConnectionType) String() string {
+	return [...]string{"master", "slave"}[c]
+}
 
 type resolverConstructor func() Resolver
 
@@ -81,9 +87,9 @@ func (d *Loc) LogFields() log.Logger {
 
 // Resolver defines a MySQL connection info resolver
 type Resolver interface {
-	GetInfo(context.Context, *Loc, int) (*Addr, error)
+	GetInfo(context.Context, *Loc, ConnectionType) (*Addr, error)
 	GetEnumerator(context.Context, string, string, string, string) (Enumerator, error)
-	IsValidConn(ctx context.Context, dbl *Loc, connType int, addr *Addr) bool
+	IsValidConn(ctx context.Context, dbl *Loc, connType ConnectionType, addr *Addr) bool
 }
 
 // NewResolver returns a MySQL connection info resolver depending on the input type

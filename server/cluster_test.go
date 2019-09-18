@@ -126,7 +126,7 @@ func TestClusterInfoListCommands(t *testing.T) {
 		{Name: "clst4", Host: "host4", Port: 4, User: "user4"},
 	}
 	for _, v := range addrs {
-		err := state.InsertClusterInfo(v.Name, &v)
+		err := state.InsertClusterInfo(&v)
 		test.CheckFail(err, t)
 	}
 

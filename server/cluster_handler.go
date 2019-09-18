@@ -151,7 +151,7 @@ func clusterInfoCmd(w http.ResponseWriter, r *http.Request) {
 		if len(s.Host) == 0 || len(s.User) == 0 {
 			err = errors.New("invalid 'add' command. Host and User cannot be empty")
 		} else {
-			err = state.InsertClusterInfo(s.Name, &db.Addr{Host: s.Host, Port: s.Port, User: s.User, Pwd: s.Pw})
+			err = state.InsertClusterInfo(&db.Addr{Name: s.Name, Host: s.Host, Port: s.Port, User: s.User, Pwd: s.Pw})
 		}
 	} else if s.Cmd == "del" {
 		err = state.DeleteClusterInfo(s.Name)

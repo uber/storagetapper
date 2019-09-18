@@ -89,7 +89,7 @@ func ConnectInfoGet(l *db.Loc, connType int) (*db.Addr, error) {
 			l.Name).Scan(&c)
 		if err != nil && err != sql.ErrNoRows {
 			log.E(err)
-			return nil, nil
+			return nil, err
 		}
 		if c != "" {
 			log.Debugf("Cluster name resolved from state: %v by service=%v, db=%v, connType=%v", c, l.Service,
@@ -100,8 +100,11 @@ func ConnectInfoGet(l *db.Loc, connType int) (*db.Addr, error) {
 	//FIXME:Select by type
 	err := util.QueryRowSQL(mgr.conn, "SELECT name,host,port,user,password FROM clusters WHERE name=?", c).Scan(
 		&c, &a.Host, &a.Port, &a.User, &a.Pwd)
-	if err == sql.ErrNoRows || log.E(err) {
+	if err == sql.ErrNoRows {
 		return nil, nil
+	}
+	if log.E(err) {
+		return nil, err
 	}
 
 	if l.Cluster != "" && c != l.Cluster {

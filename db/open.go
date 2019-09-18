@@ -95,7 +95,7 @@ func OpenService(dbl *Loc, substDB string, inputType string) (*sql.DB, error) {
 }
 
 // GetConnInfoByType returns DB connection info by type of DB node
-func GetConnInfoByType(dbl *Loc, connType int, inputType string) (*Addr, error) {
+func GetConnInfoByType(dbl *Loc, connType ConnectionType, inputType string) (*Addr, error) {
 	res, err := NewResolver(inputType)
 	if log.E(err) {
 		return nil, err
@@ -128,7 +128,7 @@ func GetEnumeratorByType(svc, cluster, sdb, table, inputType string) (Enumerator
 }
 
 // IsValidConnByType checks the validity of the connection to make sure connection is to the correct DB
-func IsValidConnByType(dbl *Loc, connType int, addr *Addr, inputType string) bool {
+func IsValidConnByType(dbl *Loc, connType ConnectionType, addr *Addr, inputType string) bool {
 	res, err := NewResolver(inputType)
 	if err != nil {
 		log.Errorf(errors.Wrap(err, "Invalid connection").Error())

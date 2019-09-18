@@ -843,13 +843,14 @@ func TestTableVersions(t *testing.T) {
 func TestClusterInfo(t *testing.T) {
 	resetState(t)
 
-	refa := db.Addr{Host: "state_test_host1", Port: 1234, User: "state_test_user1", Pwd: "state_test_pw1", Db: "state_test_db1"}
-	refb := db.Addr{Host: "state_test_host2", Port: 4567, User: "state_test_user2", Pwd: "state_test_pw2", Db: "state_test_db2"}
-	err := InsertClusterInfo("state_test_cluster1", &refa)
+	refa := db.Addr{Name: "state_test_cluster1", Host: "state_test_host1", Port: 1234, User: "state_test_user1", Pwd: "state_test_pw1", Db: "state_test_db1"}
+	refb := db.Addr{Name: "state_test_cluster2", Host: "state_test_host2", Port: 4567, User: "state_test_user2", Pwd: "state_test_pw2", Db: "state_test_db2"}
+	err := InsertClusterInfo(&refa)
 	test.CheckFail(err, t)
-	err = InsertClusterInfo("state_test_cluster2", &refb)
+	err = InsertClusterInfo(&refb)
 	test.CheckFail(err, t)
-	err = InsertClusterInfo("state_test_cluster1", &db.Addr{Host: "state_test_host1", Port: 1234, User: "state_test_user1", Pwd: "state_test_pw1", Db: "state_test_db1"})
+	err = InsertClusterInfo(&refa)
+	//Should fail because Name and Type is a primary key and we're inserting it twice
 	if err == nil {
 		t.FailNow()
 	}
@@ -869,10 +870,7 @@ func TestClusterInfo(t *testing.T) {
 	addrs, err := GetClusterInfo("")
 	test.CheckFail(err, t)
 	test.Assert(t, len(addrs) == 2, "Should be two records. got %+v", addrs)
-	refa.Name = "state_test_cluster1"
-	refa.Db = ""
-	refb.Name = "state_test_cluster2"
-	refb.Db = ""
+	refa.Db, refb.Db = "", ""
 	if !reflect.DeepEqual(addrs[0], refa) || !reflect.DeepEqual(addrs[1], refb) {
 		log.Errorf("Expected: %+v %+v", refa, refb)
 		log.Errorf("Received: %+v %+v", addrs[0], addrs[1])
@@ -886,9 +884,7 @@ func TestClusterInfo(t *testing.T) {
 		log.Errorf("Received: %+v", addrs[0])
 		t.FailNow()
 	}
-	refa.Name = ""
 	refa.Db = "state_test_db1"
-	refb.Name = ""
 	refb.Db = "state_test_db2"
 
 	err = DeleteClusterInfo("state_test_cluster2")

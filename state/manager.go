@@ -264,12 +264,13 @@ func (m *Mgr) create() bool {
 	}
 	err = util.ExecSQL(m.nodbconn, `
 	CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.clusters (
-		name     VARCHAR(128) NOT NULL PRIMARY KEY,
+		name     VARCHAR(128) NOT NULL,
 		host     VARCHAR(128) NOT NULL,
 		port     INT NOT NULL DEFAULT 3306,
 		user     VARCHAR(64) NOT NULL,
 		password VARCHAR(64) NOT NULL,
-		type     VARCHAR(32) NOT NULL DEFAULT 'slave'
+		type     VARCHAR(32) NOT NULL DEFAULT 'slave',
+		PRIMARY KEY(name, type)
 	) ENGINE=INNODB`)
 	if err != nil {
 		log.Errorf("clusters table create failed: " + err.Error())

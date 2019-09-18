@@ -31,7 +31,7 @@ import (
 )
 
 // GetConnInfoForTest return address of local MySQL used by tests
-func GetConnInfoForTest(dbl *Loc, connType int, inputType string) (*Addr, error) {
+func GetConnInfoForTest(dbl *Loc, connType ConnectionType, inputType string) (*Addr, error) {
 	log.Infof("Fetching connection info for tests: DB %v, connType %v, inputType %v", dbl.Name, connType, inputType)
 
 	if dbl.Cluster == "please_return_nil_db_addr" {
@@ -62,7 +62,7 @@ func GetEnumeratorForTest(svc, cluster, sdb, table, inputType string) (Enumerato
 }
 
 // IsValidConnForTest is DB connection validator for tests
-func IsValidConnForTest(_ *Loc, _ int, _ *Addr, _ string) bool {
+func IsValidConnForTest(_ *Loc, _ ConnectionType, _ *Addr, _ string) bool {
 	return true
 }
 

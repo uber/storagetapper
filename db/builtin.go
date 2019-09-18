@@ -36,7 +36,7 @@ func init() {
 //BuiltinResolveCluster to implement runtime polymorphism and resolve cyclic
 //package dependency. state.SchemaGet will be assigned to in main.go and
 //connectInfoGetFortest in db/open_test.go
-var BuiltinResolveCluster func(*Loc, int) (*Addr, error)
+var BuiltinResolveCluster func(*Loc, ConnectionType) (*Addr, error)
 
 // BuiltinResolver resolves MySQL connection info for SOA databases using Nemo
 type BuiltinResolver struct {
@@ -48,7 +48,7 @@ func NewBuiltinResolver() Resolver {
 }
 
 // GetInfo returns MySQL connection info
-func (r *BuiltinResolver) GetInfo(ctx context.Context, dbl *Loc, connType int) (*Addr, error) {
+func (r *BuiltinResolver) GetInfo(ctx context.Context, dbl *Loc, connType ConnectionType) (*Addr, error) {
 
 	if BuiltinResolveCluster != nil {
 		return BuiltinResolveCluster(dbl, connType)
@@ -58,7 +58,7 @@ func (r *BuiltinResolver) GetInfo(ctx context.Context, dbl *Loc, connType int) (
 }
 
 // IsValidConn checks the validity of the connection to make sure connection is to the correct MySQL DB
-func (r *BuiltinResolver) IsValidConn(ctx context.Context, dbl *Loc, connType int, addr *Addr) bool {
+func (r *BuiltinResolver) IsValidConn(ctx context.Context, dbl *Loc, connType ConnectionType, addr *Addr) bool {
 	l := log.WithFields(log.Fields{"service": dbl.Service, "cluster": dbl.Cluster, "db": dbl.Name, "host": addr.Host, "port": addr.Port})
 
 	conn, err := r.GetInfo(ctx, dbl, connType)

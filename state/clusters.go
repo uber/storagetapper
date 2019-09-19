@@ -71,10 +71,14 @@ func GetClusterInfo(cond string, args ...interface{}) ([]db.Addr, error) {
 	return res, nil
 }
 
+func selectCluster(a *db.Addr, connType db.ConnectionType) error {
+	query := "SELECT name,host,port,user,password FROM clusters WHERE name=? AND type=?"
+	return util.QueryRowSQL(mgr.conn, query, a.Name, connType.String()).Scan(&a.Name, &a.Host, &a.Port, &a.User, &a.Pwd)
+}
+
 //ConnectInfoGet resolves database address using state clusters table
 //If no Slaves we need to fall back to master
 func ConnectInfoGet(l *db.Loc, connType db.ConnectionType) (*db.Addr, error) {
-	var c string
 	var a db.Addr
 
 	//FIXME: Add connection type to info in state
@@ -84,26 +88,26 @@ func ConnectInfoGet(l *db.Loc, connType db.ConnectionType) (*db.Addr, error) {
 		return nil, nil
 	}
 
-	c = l.Cluster
+	a.Name = l.Cluster
 	if l.Cluster == "" {
 		err := util.QueryRowSQL(mgr.conn, "SELECT cluster FROM state WHERE service=? AND db=?", l.Service,
-			l.Name).Scan(&c)
+			l.Name).Scan(&a.Name)
 		if err != nil && err != sql.ErrNoRows {
 			log.E(err)
 			return nil, err
 		}
-		if c != "" {
-			log.Debugf("Cluster name resolved from state: %v by service=%v, db=%v, connType=%v", c, l.Service,
+		if a.Name != "" {
+			log.Debugf("Cluster name resolved from state: %v by service=%v, db=%v, connType=%v", a.Name, l.Service,
 				l.Name, connType)
 		}
 	}
 
-	err := util.QueryRowSQL(mgr.conn, "SELECT name,host,port,user,password FROM clusters WHERE name=? AND type=?", c, connType.String()).Scan(&c, &a.Host, &a.Port, &a.User, &a.Pwd)
+	err := selectCluster(&a, connType)
 	//If the connection type is not available then check if the other type is
 	if err == sql.ErrNoRows && connType == db.Slave {
-		err = util.QueryRowSQL(mgr.conn, "SELECT name,host,port,user,password FROM clusters WHERE name=? AND type=?", c, db.Master.String()).Scan(&c, &a.Host, &a.Port, &a.User, &a.Pwd)
+		err = selectCluster(&a, db.Master)
 	} else if err == sql.ErrNoRows && connType == db.Master {
-		err = util.QueryRowSQL(mgr.conn, "SELECT name,host,port,user,password FROM clusters WHERE name=? AND type=?", c, db.Slave.String()).Scan(&c, &a.Host, &a.Port, &a.User, &a.Pwd)
+		err = selectCluster(&a, db.Slave)
 	}
 
 	if err == sql.ErrNoRows {
@@ -114,13 +118,12 @@ func ConnectInfoGet(l *db.Loc, connType db.ConnectionType) (*db.Addr, error) {
 		return nil, err
 	}
 
-	if l.Cluster != "" && c != l.Cluster {
-		log.Errorf("Cluster name mismatch, given: %v, in state %v", l.Cluster, c)
+	if l.Cluster != "" && a.Name != l.Cluster {
+		log.Errorf("Cluster name mismatch, given: %v, in state %v", l.Cluster, a.Name)
 		return nil, nil
 	}
 
 	a.Db = l.Name
-	a.Name = c
 
 	return &a, nil
 }

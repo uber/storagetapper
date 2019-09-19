@@ -28,15 +28,8 @@ import (
 	"github.com/uber/storagetapper/test"
 )
 
-/*
-Things we need to test:
-	1) "SELECT name,host,port,user,password FROM clusters WHERE name=? AND type=?", c, connType.String()).Scan(
-		&c, &a.Host, &a.Port, &a.User, &a.Pwd)
-			test different connType inputs and see if slave and master returns the specified rows
-*/
-
 //Structure for input of TestConnectInfoGet test
-type TestConnectInfoGetInput struct {
+type testConnectInfoGetInput struct {
 	clusterName string
 	connType    db.ConnectionType
 }
@@ -44,12 +37,12 @@ type TestConnectInfoGetInput struct {
 func TestConnectInfoGet(t *testing.T) {
 	tests := []struct {
 		name   string
-		input  TestConnectInfoGetInput
+		input  testConnectInfoGetInput
 		output *db.Addr
 	}{
 		{
 			"Test row exists and master type",
-			TestConnectInfoGetInput{
+			testConnectInfoGetInput{
 				"test_cluster_db1",
 				db.Master,
 			},
@@ -64,7 +57,7 @@ func TestConnectInfoGet(t *testing.T) {
 		},
 		{
 			"Test row exists and slave type",
-			TestConnectInfoGetInput{
+			testConnectInfoGetInput{
 				"test_cluster_db1",
 				db.Slave,
 			},
@@ -79,7 +72,7 @@ func TestConnectInfoGet(t *testing.T) {
 		},
 		{
 			"Test row exists and query for slave but only master type exists",
-			TestConnectInfoGetInput{
+			testConnectInfoGetInput{
 				"test_cluster_db2",
 				db.Slave,
 			},
@@ -94,7 +87,7 @@ func TestConnectInfoGet(t *testing.T) {
 		},
 		{
 			"Test row exists and query for master but only slave type exists",
-			TestConnectInfoGetInput{
+			testConnectInfoGetInput{
 				"test_cluster_db3",
 				db.Master,
 			},
@@ -109,7 +102,7 @@ func TestConnectInfoGet(t *testing.T) {
 		},
 		{
 			"Test no row exists",
-			TestConnectInfoGetInput{
+			testConnectInfoGetInput{
 				"test_cluster_db4",
 				db.Master,
 			},

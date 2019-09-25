@@ -157,7 +157,7 @@ type TableParams struct {
 	Schedule   ScheduleConfig
 	NoSnapshot bool `yaml:"no_snapshot"`
 
-	RowFilter `yaml:"row_filter"`
+	RowFilter RowFilter `yaml:"row_filter"`
 }
 
 // RowFilter has the condition, column name & values on which filter will be applied
@@ -426,6 +426,7 @@ func (t *TableParams) CopyForMerge() *TableParams {
 	tp := *t
 	tp.Pipe.Hadoop.Addresses = nil
 	tp.Pipe.Kafka.Addresses = nil
+	tp.RowFilter.Values = nil
 	return &tp
 }
 
@@ -437,5 +438,8 @@ func (t *TableParams) MergeCompound(r *TableParams) {
 	}
 	if len(t.Pipe.Kafka.Addresses) == 0 && len(r.Pipe.Kafka.Addresses) != 0 {
 		t.Pipe.Kafka.Addresses = r.Pipe.Kafka.Addresses
+	}
+	if len(t.RowFilter.Values) == 0 && len(r.RowFilter.Values) != 0 {
+		t.RowFilter.Values = r.RowFilter.Values
 	}
 }

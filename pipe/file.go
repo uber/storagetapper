@@ -744,7 +744,9 @@ func (p *fileProducer) Close() error {
 		if err := p.dumpStat(f); err != nil {
 			return err
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

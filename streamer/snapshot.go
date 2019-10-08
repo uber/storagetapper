@@ -21,6 +21,7 @@
 package streamer
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -40,7 +41,7 @@ var cancelCheckInterval = 180 * time.Second
 //The function may skip producing last fetched message, because of the partition
 //key change, so we need to return it and use as a first message on subsequent
 //call to streamBatch
-func (s *Streamer) streamBatch(snReader snapshot.Reader, outProducer pipe.Producer, key string, pKey string, outMsg []byte, snapshotMetrics *metrics.Snapshot) (bool, int64, int64, string, string, []byte, error) {
+func (s *Streamer) streamBatch(snReader snapshot.Reader, outProducer pipe.Producer, key string, pKey string, outMsg []byte, ticker *time.Ticker, snapshotMetrics *metrics.Snapshot) (bool, int64, int64, string, string, []byte, error) {
 	var i, b int
 	var prevKey string
 	var err error
@@ -76,6 +77,17 @@ func (s *Streamer) streamBatch(snReader snapshot.Reader, outProducer pipe.Produc
 		i++
 		outMsg = nil
 		prevKey = pKey
+
+		if ticker != nil {
+			select {
+			case <-ticker.C:
+				if err := s.snapshotTickHandler(snReader); err != nil {
+					s.log.Warnf("Snapshot cancelled: %v", err)
+					return false, 0, 0, "", "", nil, err
+				}
+			default:
+			}
+		}
 	}
 
 	snapshotMetrics.BatchSize.Record(time.Duration(i) * time.Millisecond)
@@ -116,22 +128,19 @@ func (s *Streamer) pushSchema(outProducer pipe.Producer) bool {
 	return !log.EL(s.log, err)
 }
 
-func (s *Streamer) snapshotTickHandler(snReader snapshot.Reader) bool {
+func (s *Streamer) snapshotTickHandler(snReader snapshot.Reader) error {
 	reg, _ := state.TableRegisteredInState(s.row.ID)
 	if !reg {
-		s.log.Warnf("Table removed from ingestion. Snapshot cancelled.")
-		return false
+		return fmt.Errorf("table removed from ingestion")
 	}
 
 	if !state.RefreshTableLock(s.row.ID, s.workerID) {
-		s.log.Warnf("Lost the table lock. Snapshot cancelled.")
-		return false
+		return fmt.Errorf("lost the table lock")
 	}
 	if !s.clusterLock.Refresh() {
-		s.log.Warnf("Lost the cluster lock. Snapshot cancelled.")
-		return false
+		return fmt.Errorf("lost the cluster lock")
 	}
-	return true
+	return nil
 }
 
 func (s *Streamer) streamLoop(snReader snapshot.Reader, outProducer pipe.Producer, iopsThrottler, mbThrottler *throttle.Throttle, ticker *time.Ticker, snapshotMetrics *metrics.Snapshot) bool {
@@ -142,7 +151,7 @@ func (s *Streamer) streamLoop(snReader snapshot.Reader, outProducer pipe.Produce
 	var outMsg []byte
 
 	for !shutdown.Initiated() {
-		next, nBytes, nEvents, key, pKey, outMsg, err = s.streamBatch(snReader, outProducer, key, pKey, outMsg, snapshotMetrics)
+		next, nBytes, nEvents, key, pKey, outMsg, err = s.streamBatch(snReader, outProducer, key, pKey, outMsg, ticker, snapshotMetrics)
 		if err != nil {
 			return false
 		}
@@ -167,7 +176,8 @@ func (s *Streamer) streamLoop(snReader snapshot.Reader, outProducer pipe.Produce
 
 		select {
 		case <-ticker.C:
-			if !s.snapshotTickHandler(snReader) {
+			if err := s.snapshotTickHandler(snReader); err != nil {
+				s.log.Warnf("Snapshot cancelled: %v", err)
 				return false
 			}
 		default:

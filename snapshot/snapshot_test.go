@@ -24,7 +24,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ngaut/log"
+	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/shutdown"
 	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/test"

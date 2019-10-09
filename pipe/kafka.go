@@ -492,9 +492,9 @@ func (p *kafkaProducer) PushK(key string, in interface{}) error {
 
 func (p *kafkaProducer) pushLow(key string, in interface{}) (int32, int64, error) {
 	var bytes []byte
-	switch in.(type) {
+	switch b := in.(type) {
 	case []byte:
-		bytes = in.([]byte)
+		bytes = b
 	default:
 		return 0, 0, fmt.Errorf("kafka pipe can handle binary arrays only")
 	}
@@ -516,9 +516,9 @@ func (p *kafkaProducer) pushLow(key string, in interface{}) (int32, int64, error
 //PushBatchCommit
 func (p *kafkaProducer) PushBatch(key string, in interface{}) error {
 	var bytes []byte
-	switch in.(type) {
+	switch b := in.(type) {
 	case []byte:
-		bytes = in.([]byte)
+		bytes = b
 	default:
 		return fmt.Errorf("kafka pipe can handle binary arrays only")
 	}

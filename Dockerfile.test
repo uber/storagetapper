@@ -7,18 +7,19 @@ deb http://deb.debian.org/debian-security stretch/updates main" > /etc/apt/sourc
 
 RUN DEBIAN_FRONTEND="noninteractive" apt-get install -y --force-yes lsb-release wget default-jre sudo vim openssh-server curl netcat build-essential
 
-COPY scripts/install_deps.sh /
-RUN chmod +x /install_deps.sh
-
-COPY scripts/install_kafka.sh /scripts/
+COPY scripts/install_mysql.sh /scripts/
+RUN GOPATH=$HOME/gopath PATH=$HOME/gopath/bin:$PATH DOCKER_BUILD=1 /bin/sh scripts/install_mysql.sh
+COPY scripts/install_go.sh /scripts/
+RUN GOPATH=$HOME/gopath PATH=$HOME/gopath/bin:$PATH DOCKER_BUILD=1 /bin/sh scripts/install_go.sh
 COPY scripts/start_kafka.sh /scripts/
-RUN mkdir /kafka
-
+COPY scripts/install_kafka.sh /scripts/
+RUN GOPATH=$HOME/gopath PATH=$HOME/gopath/bin:$PATH DOCKER_BUILD=1 /bin/sh scripts/install_kafka.sh
 COPY scripts/install_hadoop.sh /scripts/
+RUN GOPATH=$HOME/gopath PATH=$HOME/gopath/bin:$PATH DOCKER_BUILD=1 /bin/sh scripts/install_hadoop.sh
 COPY scripts/install_sql.sh /scripts/
+RUN GOPATH=$HOME/gopath PATH=$HOME/gopath/bin:$PATH DOCKER_BUILD=1 /bin/sh scripts/install_sql.sh
 COPY scripts/install_hive.sh /scripts/
-
-RUN GOPATH=$HOME/gopath PATH=$HOME/gopath/bin:$PATH DOCKER_BUILD=1 /install_deps.sh
+RUN GOPATH=$HOME/gopath PATH=$HOME/gopath/bin:$PATH DOCKER_BUILD=1 /bin/sh scripts/install_hive.sh
 
 COPY scripts/prepare_test_env.sh /scripts/
 
@@ -30,5 +31,6 @@ RUN echo 'set -x;sh scripts/prepare_test_env.sh\nexport GOPATH=~/gopath;export P
 WORKDIR /storagetapper
 
 ENV USER=root
+RUN echo "export PATH=$PATH:/root/gopath/bin:/usr/local/go/bin" > /root/.bashrc
 
 CMD /bin/bash -l

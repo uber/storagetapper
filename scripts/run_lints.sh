@@ -5,7 +5,7 @@ set -e
 TIMEOUT=300s
 
 for i in $@; do
-	CGO_ENABLED=0 golangci-lint run -e format_gen --disable-all \
+	CGO_ENABLED=0 golangci-lint run --skip-files format_gen --disable-all \
 		-Egofmt \
 		-Egovet \
 		-Egolint \

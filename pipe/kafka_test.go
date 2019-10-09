@@ -75,9 +75,9 @@ func createPipe(batchSize int) *KafkaPipe {
 //pushPartition sends a keyed message to specific partition
 func (p *kafkaProducer) pushPartition(key string, partition int, in interface{}) error {
 	var bytes []byte
-	switch in.(type) {
+	switch b := in.(type) {
 	case []byte:
-		bytes = in.([]byte)
+		bytes = b
 	default:
 		return fmt.Errorf("kafka pipe can handle binary arrays only")
 	}

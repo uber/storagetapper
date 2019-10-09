@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/efirs/hdfs"
+	"github.com/efirs/hdfs/v2"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/metrics"

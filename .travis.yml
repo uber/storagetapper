@@ -9,7 +9,7 @@ install:
 script: |
   sed -i 's/level: debug/level: info/g' config/development.yaml
   docker run --cidfile=/tmp/s3server.cid -d -p 8000:8000 scality/s3server
-  travis_wait make test
+  GO111MODULE=on travis_wait make test
 after_success:
   - bash <(curl -s https://codecov.io/bash)
 notifications:

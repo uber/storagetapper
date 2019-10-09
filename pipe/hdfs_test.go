@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/efirs/hdfs"
+	"github.com/efirs/hdfs/v2"
 	"github.com/uber/storagetapper/test"
 )
 
@@ -13,7 +13,7 @@ func deleteTestHdfsTopics(t *testing.T) {
 	client, err := hdfs.NewClient(cp)
 	test.CheckFail(err, t)
 
-	err = client.Remove(cfg.Pipe.Hadoop.BaseDir)
+	err = client.RemoveAll(cfg.Pipe.Hadoop.BaseDir)
 	if !os.IsNotExist(err) {
 		test.CheckFail(err, t)
 	}

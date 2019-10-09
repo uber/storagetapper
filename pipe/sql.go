@@ -146,9 +146,9 @@ func (p *sqlPipe) NewConsumer(topic string) (Consumer, error) {
 
 func (p *sqlProducer) push(in interface{}) error {
 	var bytes []byte
-	switch in.(type) {
+	switch b := in.(type) {
 	case []byte:
-		bytes = in.([]byte)
+		bytes = b
 	default:
 		return fmt.Errorf("SQL pipe can handle binary arrays only")
 	}
@@ -177,9 +177,9 @@ func (p *sqlProducer) PushBatch(key string, in interface{}) (err error) {
 		}
 	}
 	var bytes []byte
-	switch in.(type) {
+	switch b := in.(type) {
 	case []byte:
-		bytes = in.([]byte)
+		bytes = b
 	default:
 		return fmt.Errorf("SQL pipe can handle binary arrays only")
 	}

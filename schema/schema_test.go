@@ -147,7 +147,7 @@ func TestGetMySQLTableSchema(t *testing.T) {
 	for _, tblCol := range tblSchema.Columns {
 		test.Assert(t, schemaTesttbl[tblCol.Name] != "", "Not OK")
 		if tblCol.Type == types.MySQLBoolean {
-			test.Assert(t, "BOOLEAN" == schemaTesttbl[strings.ToLower(tblCol.Name)], "%v != %v", strings.ToUpper(tblCol.DataType), schemaTesttbl[strings.ToLower(tblCol.Name)])
+			test.Assert(t, schemaTesttbl[strings.ToLower(tblCol.Name)] == "BOOLEAN", "%v != %v", strings.ToUpper(tblCol.DataType), schemaTesttbl[strings.ToLower(tblCol.Name)])
 		} else {
 			test.Assert(t, strings.ToUpper(tblCol.DataType) == schemaTesttbl[strings.ToLower(tblCol.Name)], "%v != %v", strings.ToUpper(tblCol.DataType), schemaTesttbl[strings.ToLower(tblCol.Name)])
 		}

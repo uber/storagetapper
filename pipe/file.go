@@ -596,9 +596,9 @@ func (p *fileProducer) rotateOnSizeLimit(key string, f *file) {
 //Push produces message to File topic
 func (p *fileProducer) push(key string, in interface{}, batch bool) error {
 	var bytes []byte
-	switch in.(type) {
+	switch b := in.(type) {
 	case []byte:
-		bytes = in.([]byte)
+		bytes = b
 	default:
 		return fmt.Errorf("file pipe can handle binary arrays only")
 	}

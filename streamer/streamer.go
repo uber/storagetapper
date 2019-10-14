@@ -211,7 +211,7 @@ func (s *Streamer) setupChangelogConsumer(cfg *config.AppConfig) (pipe.Consumer,
 		return nil, false
 	}
 
-	if !s.waitForGtid(s.row.Service, s.row.Cluster, s.row.Db, s.row.Input, gtid) {
+	if s.row.NeedSnapshot && !s.row.Params.NoSnapshot && !s.waitForGtid(s.row.Service, s.row.Cluster, s.row.Db, s.row.Input, gtid) {
 		if consumer != nil {
 			log.E(consumer.CloseOnFailure())
 		}

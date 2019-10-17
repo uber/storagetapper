@@ -179,38 +179,39 @@ func TestKafkaOffsets(t *testing.T) {
 		startConsumers(p, 1, 0, i, t) //this consumer and next producer is to persist current offset
 		<-startCh                     //wait consumers to start
 		log.Debugf("Started consumers")
-		testProducerWorker(p, "topic0", 0, KEY, i, t)
+		testProducerWorker(p, "topic000", 0, KEY, i, t)
+		log.Debugf("wait consumers to finish")
 		wg.Wait() // wait consumers to finish
 
-		o, err := p.getOffsets("topic0")
+		o, err := p.getOffsets("topic000")
 		test.CheckFail(err, t)
 		log.Debugf("Produce %v event, Consume %v event and gracefully close. Current offsets: %+v", i, i, o)
-		testProducerWorker(p, "topic0", 100, KEY, i, t)
-		testConsumerWorker(p, "topic0", 100, i, true, t)
+		testProducerWorker(p, "topic000", 100, KEY, i, t)
+		testConsumerWorker(p, "topic000", 100, i, true, t)
 		<-startCh //pop so next kafka consumer doesn't block
-		o1, err := p.getOffsets("topic0")
+		o1, err := p.getOffsets("topic000")
 		test.CheckFail(err, t)
 
 		if o[0].offset+int64(i) != o1[0].offset {
 			t.Fatalf("Offset for %v consumed message(s) should be persisted. Offset before %+v, offsets after: %v", i, o, o1)
 		}
 
-		o, err = p.getOffsets("topic0")
+		o, err = p.getOffsets("topic000")
 		test.CheckFail(err, t)
 		log.Debugf("Produce %v event, Consume %v event and failure close", i, i)
-		testProducerWorker(p, "topic0", 1000, KEY, i*2, t)
-		testConsumerWorker(p, "topic0", 1000, i*2, false, t) //offsets of last batch should not be persisted
+		testProducerWorker(p, "topic000", 1000, KEY, i*2, t)
+		testConsumerWorker(p, "topic000", 1000, i*2, false, t) //offsets of last batch should not be persisted
 		<-startCh
-		o1, err = p.getOffsets("topic0")
+		o1, err = p.getOffsets("topic000")
 		test.CheckFail(err, t)
 
 		if o[0].offset+int64(i) != o1[0].offset {
 			t.Fatalf("Offset for %v consumed message(s) should NOT be persisted. Offset before %+v, offsets after: %v", i, o, o1)
 		}
 
-		testConsumerWorker(p, "topic0", 1000+i, i, true, t) //offsets should be persisted
+		testConsumerWorker(p, "topic000", 1000+i, i, true, t) //offsets should be persisted
 		<-startCh
-		o1, err = p.getOffsets("topic0")
+		o1, err = p.getOffsets("topic000")
 		test.CheckFail(err, t)
 
 		if o[0].offset+int64(i*2) != o1[0].offset {
@@ -220,7 +221,7 @@ func TestKafkaOffsets(t *testing.T) {
 		log.Debugf("Check that we can start consuming messages after graceful shutdown")
 		startConsumers(p, 1, 0, i, t) //this consumer and next producer is to persist current offset
 		<-startCh
-		testProducerWorker(p, "topic0", 0, KEY, i, t)
+		testProducerWorker(p, "topic000", 0, KEY, i, t)
 		wg.Wait() // wait consumers to finish
 
 		log.Debugf("Check that we are not progressing offsets out of bound after graceful shutdown")
@@ -300,7 +301,7 @@ func multiTestLoop(p Pipe, i int, t *testing.T) {
 	}
 
 	for j := 0; j < numMsgs*numPartitions; j++ {
-		e := "topic3333key." + strconv.Itoa(j)
+		e := fmt.Sprintf("topic3333key.%03d", j)
 		log.Debugf("msg %v", e)
 		if !res[e] {
 			t.Fatalf("Absent: %v", e)

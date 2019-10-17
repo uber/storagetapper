@@ -43,6 +43,7 @@ import (
 	"golang.org/x/crypto/openpgp/armor"
 	"golang.org/x/crypto/openpgp/packet"
 	"golang.org/x/net/context" //"context"
+	"golang.org/x/sys/unix"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/uber/storagetapper/config"
@@ -528,6 +529,11 @@ func (p *fileProducer) cancel(f *file) {
 	log.E(p.fs.Cancel(f.file))
 }
 
+func syncFsMetadata() error {
+	_, _, err := unix.Syscall(unix.SYS_SYNC, 0, 0, 0)
+	return err
+}
+
 func (p *fileProducer) closeFile(f *file, graceful bool) error {
 	log.Debugf("Closed: %v", f)
 	if f == nil {
@@ -552,6 +558,7 @@ func (p *fileProducer) closeFile(f *file, graceful bool) error {
 	}
 	p.stats[fn] = &stat{NumRecs: f.nRecs, Hash: fmt.Sprintf("%x", f.hash.Sum(nil)), FileName: fn}
 	p.metrics.FilesClosed.Inc(1)
+	syncFsMetadata()
 	log.Debugf("Closed: %v", f.name)
 	return rerr
 }
@@ -772,14 +779,28 @@ func (p *fileConsumer) waitForNextFileFinish(watcher *fsnotify.Watcher) error {
 	return nil
 }
 
+func (p *fileConsumer) checkForNextFile(watcher *fsnotify.Watcher) bool {
+	var e bool
+	for {
+		select {
+		case event := <-watcher.Events:
+			if event.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0 {
+				log.Debugf("modified file during readdir: %v %v", event.Name, event.Op)
+				e = true
+			}
+		default:
+			return e
+		}
+	}
+}
+
 func (p *fileConsumer) waitForNextFile(watcher *fsnotify.Watcher) (bool, error) {
 	log.Debugf("Waiting for directory events %v", p.topic)
 
 	for {
 		select {
 		case event := <-watcher.Events:
-			log.Debugf("event: %v", event)
-			if event.Op&fsnotify.Create == fsnotify.Create {
+			if event.Op&(fsnotify.Create|fsnotify.Rename) != 0 {
 				log.Debugf("modified file: %v", event.Name)
 				return false, nil
 			}
@@ -792,17 +813,25 @@ func (p *fileConsumer) waitForNextFile(watcher *fsnotify.Watcher) (bool, error) 
 }
 
 func (p *fileConsumer) waitAndOpenNextFile() bool {
+	defer func() { log.E(p.waitForNextFileFinish(p.watcher)) }()
 	for {
 		//Need to start watching before p.nextFile() to avoid race condition
 		p.err = p.waitForNextFilePrepare()
 		if log.E(p.err) {
 			return true
 		}
-		defer func() { log.E(p.waitForNextFileFinish(p.watcher)) }()
 
 		nextFn, err := p.nextFile(p.topic, p.name)
 		if log.E(p.err) {
 			return true
+		}
+
+		// There was create file events while we were reading the directory in
+		// nextFile, so we need to start over to guarantee file ordering
+		if p.checkForNextFile(p.watcher) {
+			log.Debugf("directory was modified, restarting check for next file")
+			log.E(p.waitForNextFileFinish(p.watcher))
+			continue
 		}
 
 		if nextFn != "" && !strings.HasSuffix(nextFn, ".open") {
@@ -823,6 +852,8 @@ func (p *fileConsumer) waitAndOpenNextFile() bool {
 		if ctxDone {
 			return false
 		}
+
+		log.E(p.waitForNextFileFinish(p.watcher))
 	}
 }
 

@@ -22,7 +22,6 @@ package pipe
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -39,7 +38,7 @@ var numPartitions = 8
 var wg sync.WaitGroup
 
 func msgGenDef(topic string, i int) string {
-	return strings.Replace(topic, "/", ".", -1) + "key" + "." + strconv.Itoa(i)
+	return strings.Replace(topic, "/", ".", -1) + "key" + "." + fmt.Sprintf("%03d", i)
 }
 
 func schemaGenDef(topic string) string {
@@ -149,7 +148,7 @@ func testProducerWorker(p Pipe, topic string, startFrom int, ptype int, nrecs in
 }
 
 func startConsumers(p Pipe, nprocs int, startFrom int, n int, t *testing.T) {
-	startConsumersLow(p, nprocs, startFrom, n, "topic%d", t)
+	startConsumersLow(p, nprocs, startFrom, n, "topic%03d", t)
 }
 
 func startConsumersLow(p Pipe, nprocs int, startFrom int, n int, topicFmt string, t *testing.T) {
@@ -161,7 +160,7 @@ func startConsumersLow(p Pipe, nprocs int, startFrom int, n int, topicFmt string
 }
 
 func startProducers(p Pipe, startFrom int, t *testing.T, pt int) {
-	startProducersLow(p, startFrom, t, pt, "topic%d")
+	startProducersLow(p, startFrom, t, pt, "topic%03d")
 }
 
 func startProducersLow(p Pipe, startFrom int, t *testing.T, pt int, topicFmt string) {
@@ -176,7 +175,7 @@ func startProducersLow(p Pipe, startFrom int, t *testing.T, pt int, topicFmt str
 }
 
 func testLoop(p Pipe, t *testing.T, pt int) {
-	testLoopLow(p, t, pt, "topic%d")
+	testLoopLow(p, t, pt, "topic%03d")
 }
 
 func testLoopLow(p Pipe, t *testing.T, pt int, topicFmt string) {

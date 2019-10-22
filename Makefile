@@ -22,10 +22,13 @@ unittest: $(NAME)
 lint: $(NAME)
 	sh scripts/run_lints.sh $(PKGS)
 
+shellcheck: $(NAME)
+	shellcheck scripts/*.sh
+
 bench: $(NAME)
 	sh scripts/run_benchmarks.sh $(PKGS)
 
-test: unittest lint
+test: unittest lint shellcheck
 
 deb:
 	dpkg-buildpackage -uc -us -b

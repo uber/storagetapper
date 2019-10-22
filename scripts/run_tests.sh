@@ -1,6 +1,7 @@
 #!/bin/bash
 
-export STORAGETAPPER_CONFIG_DIR=$(pwd)/config
+STORAGETAPPER_CONFIG_DIR=$(pwd)/config
+export STORAGETAPPER_CONFIG_DIR
 
 if [ -z "$STORAGETAPPER_ENVIRONMENT" ]; then
 	export STORAGETAPPER_ENVIRONMENT=development
@@ -15,10 +16,10 @@ if [ -z "$NOCOVER" ]; then
 fi
 
 #FIXME: Because of the shared state in database tests can't be run in parallel
-CMD="go test -race $COVER -test.timeout $TIMEOUT"
+CMD="go test -race $COVER -test.timeout $TIMEOUT $TEST_PARAM"
 
-for i in $@; do
-	$CMD $TEST_PARAM $i || exit 1
+for i in "$@"; do
+	$CMD "$i" || exit 1
 	if [ -f profile.out ]; then
 		cat profile.out >> coverage.out #combine coverage report for codecov.io
 		rm profile.out

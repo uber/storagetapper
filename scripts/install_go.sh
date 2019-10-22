@@ -10,6 +10,6 @@ sudo tar -xzf go$GOVERSION.linux-amd64.tar.gz -C /usr/local
 export GOPATH=$HOME/gopath
 export PATH=/usr/local/go/bin:$PATH
 export GOROOT=/usr/local/go
-curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.20.0
+curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b "$(go env GOPATH)/bin" v1.20.0
 go get github.com/tinylib/msgp
 

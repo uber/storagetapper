@@ -9,11 +9,12 @@ export STORAGETAPPER_ENVIRONMENT="test"
 /bin/sh scripts/prepare_test_env.sh
 
 P=$GOPATH/src/github.com/uber
-mkdir -p $P
-cp -ap /storagetapper $P
-cd $P/storagetapper
+mkdir -p "$P"
+cp -ap /storagetapper "$P"
+cd "$P"/storagetapper
 
-export STORAGTAPPER_CONFIG_DIR=$(pwd)/config
+STORAGTAPPER_CONFIG_DIR=$(pwd)/config
+export STORAGTAPPER_CONFIG_DIR
 
 export GO111MODULE=on
 make test

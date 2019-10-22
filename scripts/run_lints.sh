@@ -1,10 +1,8 @@
-#!/bin/bash
+#!/bin/sh
 
 set -e
 
-TIMEOUT=300s
-
-for i in $@; do
+for i in "$@"; do
 	CGO_ENABLED=0 golangci-lint run --skip-files format_gen --disable-all \
 		-Egofmt \
 		-Egovet \
@@ -25,5 +23,5 @@ for i in $@; do
 		-Emaligned \
 		-Eprealloc \
 		-Estylecheck \
-		$i && echo "ok\t$i"
+		"$i" && printf "ok\t%s\n" "$i"
 done

@@ -832,12 +832,17 @@ func TestTableVersions(t *testing.T) {
 		n += tests[i].real
 
 		_, err = GetSchema("svc1", "db1_state", "REG_SCHEMA_TEST1", tests[i].input, tests[i].output, tests[i].version)
-		test.CheckFail(err, t)
+		if tests[i].real != 0 {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err) // table has been deregistered in previous iteration
+		}
 
 		if !DeregisterTableFromState(&db.Loc{Service: "svc1", Cluster: "clst1", Name: "db1_state"}, "REG_SCHEMA_TEST1", tests[i].input, tests[i].output, tests[i].version, 0) {
 			t.Fatalf("Fail to deregister %v, %v, %v", tests[i].input, tests[i].output, tests[i].version)
 		}
 	}
+
 }
 
 func TestClusterInfo(t *testing.T) {

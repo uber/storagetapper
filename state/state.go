@@ -401,7 +401,7 @@ func GetSchema(svc, sdb, table, input string, output string, version int) (*type
 		"character_maximum_length, numeric_precision, numeric_scale, column_type, " +
 		"column_key from columns " +
 		"INNER JOIN state ON state.id = columns.state_id " +
-		"WHERE state.db = ? AND state.table_name = ? AND state.service = ? AND state.input = ? AND state.output = ? AND state.version = ? " +
+		"WHERE state.deleted_at is null AND state.db = ? AND state.table_name = ?  AND state.service = ? AND state.input = ? AND state.output = ? AND state.version = ? " +
 		"GROUP BY service, db, table_name, input, output, version, column_name " +
 		"ORDER BY ordinal_position"
 

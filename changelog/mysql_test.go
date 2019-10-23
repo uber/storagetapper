@@ -465,6 +465,10 @@ func regTableForMultiTableTest(pipeType string, secondPipe string, t *testing.T)
 		if !state.RegisterTableInState(loc, "t1", "not_mysql", pipeType, 1, outputFormat, "", 0) {
 			t.FailNow()
 		}
+		loc.Service = "test_svc2"
+		if !state.RegisterTableInState(loc, "t1", "mysql", pipeType, 0, outputFormat, "", 0) {
+			t.FailNow()
+		}
 	}
 }
 
@@ -610,8 +614,8 @@ func CheckBinlogFormat(t *testing.T) {
 }
 */
 
-func initConsumeTableEvents(p pipe.Pipe, db string, table string, version int, t *testing.T) pipe.Consumer {
-	tn, err := config.Get().GetChangelogTopicName("test_svc1", db, table, "mysql", "local", version, time.Now())
+func initConsumeTableEvents(p pipe.Pipe, svc, db string, table string, version int, t *testing.T) pipe.Consumer {
+	tn, err := config.Get().GetChangelogTopicName(svc, db, table, "mysql", "local", version, time.Now())
 	test.CheckFail(err, t)
 	pc, err := p.NewConsumer(tn)
 	test.CheckFail(err, t)
@@ -619,7 +623,7 @@ func initConsumeTableEvents(p pipe.Pipe, db string, table string, version int, t
 	return pc
 }
 
-func convertToCommonFormat(enc encoder.Encoder, b interface{}, seqnoShift uint64) (*types.CommonFormatEvent, error) {
+func convertToCommonFormat(enc encoder.Encoder, b interface{}, seqnoShift []uint64) (*types.CommonFormatEvent, error) {
 	var err error
 	var cf *types.CommonFormatEvent
 	switch m := b.(type) {
@@ -652,16 +656,16 @@ func convertToCommonFormat(enc encoder.Encoder, b interface{}, seqnoShift uint64
 		}
 	}
 
-	cf.SeqNo -= 1000000 + seqnoShift
+	cf.SeqNo -= 1000000
 	cf.Timestamp = 0
 
 	return cf, nil
 }
 
-func consumeTableEvents(pc pipe.Consumer, db, table, input string, output string, version int, result []types.CommonFormatEvent, seqnoShift uint64, t *testing.T) error {
-	log.Debugf("consuming events %+v %+v %v %v", db, table, cfg.InternalEncoding, seqnoShift)
-	enc, err := encoder.Create(cfg.InternalEncoding, "test_svc1", db, table, input, output, version)
-	if err != nil {
+func consumeTableEvents(pc pipe.Consumer, svc, db, table, input string, output string, version int, result []types.CommonFormatEvent, seqnoShift []uint64, t *testing.T) error {
+	log.Debugf("consuming events %+v %+v %+v %v %+v", svc, db, table, cfg.InternalEncoding, seqnoShift)
+	enc, err := encoder.Create(cfg.InternalEncoding, svc, db, table, input, output, version)
+	if log.E(err) {
 		return err
 	}
 
@@ -681,6 +685,12 @@ func consumeTableEvents(pc pipe.Consumer, db, table, input string, output string
 			return err
 		}
 
+		//This hack is because of Golang's non-deterministic state map iteration
+		// in changelog reader
+		require.True(t, cf.SeqNo == v.SeqNo+seqnoShift[0] || cf.SeqNo == v.SeqNo+seqnoShift[1])
+		cf.SeqNo = 0
+		v.SeqNo = 0
+
 		require.Equal(t, v, *cf)
 
 		log.Infof("Successfully matched: i=%v %+v Fields=%v", i, cf, cf.Fields)
@@ -697,7 +707,7 @@ func consumeTableEvents(pc pipe.Consumer, db, table, input string, output string
 func checkPoolControl(pipeType string, t *testing.T) {
 	if pipeType == "local" {
 		mt := strings.HasSuffix(t.Name(), "multi_table")
-		if (mt && globalTPoolProcs != 5) || (!mt && globalTPoolProcs != 2) {
+		if (mt && globalTPoolProcs != 6) || (!mt && globalTPoolProcs != 2) {
 			t.Fatalf("Binlog reader should control number of streamers num=%v, pipe=%v", globalTPoolProcs, pipeType)
 		}
 	} else if globalTPoolProcs != 0 {
@@ -722,7 +732,7 @@ func CheckQueries(pipeType string, prepare []string, queries []string, result []
 	shutdown.Register(1)
 	go func() {
 		var err error
-		var pc, pc1, pc2, pc3 pipe.Consumer
+		var pc, pc1, pc2, pc3, pc4 pipe.Consumer
 		defer shutdown.Done()
 		defer func() {
 			log.Debugf("Signal that we finished consuming events")
@@ -735,31 +745,42 @@ func CheckQueries(pipeType string, prepare []string, queries []string, result []
 			if pc2 != nil {
 				test.CheckFail(pc2.Close(), t)
 			}
+			if pc3 != nil {
+				test.CheckFail(pc3.Close(), t)
+			}
+			if pc4 != nil {
+				test.CheckFail(pc4.Close(), t)
+			}
 			initCh <- err
 		}()
-		pc = initConsumeTableEvents(p1, "db1", "t1", 0, t)
+		pc = initConsumeTableEvents(p1, "test_svc1", "db1", "t1", 0, t)
 		if strings.HasSuffix(t.Name(), "multi_table") {
-			pc1 = initConsumeTableEvents(p1, "db9", "t1", 0, t)
-			pc2 = initConsumeTableEvents(p1, "db9", "t1", 1, t)
-			pc3 = initConsumeTableEvents(p2, "db9", "t1", 1, t)
+			pc1 = initConsumeTableEvents(p1, "test_svc1", "db9", "t1", 0, t)
+			pc2 = initConsumeTableEvents(p1, "test_svc1", "db9", "t1", 1, t)
+			pc3 = initConsumeTableEvents(p2, "test_svc1", "db9", "t1", 1, t)
+			pc4 = initConsumeTableEvents(p1, "test_svc2", "db9", "t1", 0, t)
 		}
 		log.Debugf("Signal that all consumer has been initialized")
 		initCh <- nil
-		err = consumeTableEvents(pc, "db1", "t1", "mysql", pipeType, 0, result, 0, t)
+		err = consumeTableEvents(pc, "test_svc1", "db1", "t1", "mysql", pipeType, 0, result, []uint64{0, 0}, t)
 		if err != nil {
 			return
 		}
 		if strings.HasSuffix(t.Name(), "multi_table") {
-			err = consumeTableEvents(pc1, "db9", "t1", "mysql", pipeType, 0, testMultiTableResult2, 0, t)
-			if err != nil {
+			err = consumeTableEvents(pc1, "test_svc1", "db9", "t1", "mysql", pipeType, 0, testMultiTableResult2, []uint64{0, 1}, t)
+			if log.E(err) {
 				return
 			}
-			err = consumeTableEvents(pc2, "db9", "t1", "mysql", pipeType, 0, testMultiTableResult2, 1, t)
-			if err != nil {
+			err = consumeTableEvents(pc2, "test_svc1", "db9", "t1", "mysql", pipeType, 0, testMultiTableResult2, []uint64{1, 2}, t)
+			if log.E(err) {
 				return
 			}
-			err = consumeTableEvents(pc3, "db9", "t1", "mysql", pipeType, 0, testMultiTableResult2, 2, t)
-			if err != nil {
+			err = consumeTableEvents(pc3, "test_svc1", "db9", "t1", "mysql", pipeType, 0, testMultiTableResult2, []uint64{2, 3}, t)
+			if log.E(err) {
+				return
+			}
+			err = consumeTableEvents(pc4, "test_svc2", "db9", "t1", "mysql", pipeType, 0, testMultiTableResult2, []uint64{3, 0}, t)
+			if log.E(err) {
 				return
 			}
 		}
@@ -896,8 +917,12 @@ func TestMultiVersions_multi_table(t *testing.T) {
 	defer func() { test.CheckFail(dbc.Close(), t) }()
 
 	// Wait till changelog reader pickup the tables
-	if !test.WaitForNumProcGreater(4+3, 80*200) {
+	if !test.WaitForNumProcGreater(5+3, 80*200) {
 		t.Fatalf("Number of workers didn't decrease in %v secs. NumProcs: %v", 80*50/1000, shutdown.NumProcs())
+	}
+
+	if !state.DeregisterTableFromState(&db.Loc{Service: "test_svc2", Cluster: "test_cluster1", Name: "db9"}, "t1", "mysql", "local", 0, 0) {
+		t.Fatalf("Failed to deregister table")
 	}
 
 	n := 0
@@ -910,7 +935,7 @@ func TestMultiVersions_multi_table(t *testing.T) {
 		if tests[i].real != 0 {
 			test.Assert(t, testReader.tables[tests[i].db] != nil, "Db not found in map: %v", tests[i].db)
 			dlen = len(testReader.tables[tests[i].db])
-			a := testReader.tables[tests[i].db][tests[i].t]
+			a := testReader.tables[tests[i].db][tests[i].t]["test_svc1"]
 			test.Assert(t, a != nil, "Table not found in map: %v", tests[i].t)
 			tlen = len(a)
 			test.Assert(t, inVersionArray(a, tests[i].output, tests[i].version), "Not found in map %v %v %v %v", tests[i].db, tests[i].t, tests[i].output, tests[i].version)
@@ -930,7 +955,7 @@ func TestMultiVersions_multi_table(t *testing.T) {
 		if tests[i].real != 0 {
 			if tlen > 1 {
 				test.Assert(t, testReader.tables[tests[i].db] != nil, "Db not found in map: %v", tests[i].db)
-				a := testReader.tables[tests[i].db][tests[i].t]
+				a := testReader.tables[tests[i].db][tests[i].t]["test_svc1"]
 				test.Assert(t, a != nil, "Table not found in map: %v", tests[i].t)
 
 				test.Assert(t, !inVersionArray(a, tests[i].output, tests[i].version), "Found in map %v %v %v %v", tests[i].db, tests[i].t, tests[i].output, tests[i].version)
@@ -1116,7 +1141,7 @@ func TestReloadState(t *testing.T) {
 	}
 
 	b := &mysqlReader{}
-	b.tables = make(map[string]map[string][]*table)
+	b.tables = make(map[string]map[string]map[string][]*table)
 
 	b.bufPipe, err = pipe.Create("local", &config.Get().TableParams.Pipe, state.GetDB())
 	require.NoError(t, err)
@@ -1136,6 +1161,10 @@ func TestReloadState(t *testing.T) {
 				r := state.RegisterTableInState(&db.Loc{Cluster: "c1", Service: "s1", Name: fmt.Sprintf("d%d", i)}, fmt.Sprintf("t%d", j), "mysql", "local", k, "json", "", 0)
 				require.True(t, r)
 			}
+			for k := 0; k < nvers; k++ {
+				r := state.RegisterTableInState(&db.Loc{Cluster: "c1", Service: "s2", Name: fmt.Sprintf("d%d", i)}, fmt.Sprintf("t%d", j), "mysql", "local", k, "json", "", 0)
+				require.True(t, r)
+			}
 		}
 	}
 
@@ -1149,20 +1178,30 @@ func TestReloadState(t *testing.T) {
 		require.Equal(t, ntbls, len(b.tables[dbn]))
 		for j := 0; j < ntbls; j++ {
 			tbl := fmt.Sprintf("t%d", j)
-			require.Equal(t, nvers, len(b.tables[dbn][tbl]))
-			for i := 0; i < len(b.tables[dbn][tbl]); i++ {
-				tver := b.tables[dbn][tbl][i]
+			require.Equal(t, nvers, len(b.tables[dbn][tbl]["s1"]))
+			for i := 0; i < len(b.tables[dbn][tbl]["s1"]); i++ {
+				tver := b.tables[dbn][tbl]["s1"][i]
+				require.Equal(t, true, tver.dead)
+				require.Equal(t, i, tver.version)
+			}
+			require.Equal(t, nvers, len(b.tables[dbn][tbl]["s2"]))
+			for i := 0; i < len(b.tables[dbn][tbl]["s2"]); i++ {
+				tver := b.tables[dbn][tbl]["s2"][i]
 				require.Equal(t, true, tver.dead)
 				require.Equal(t, i, tver.version)
 			}
 		}
 	}
 
-	// Remove all the tables and version from d0 database
+	// Remove all the tables and versions from d0 database
 	for j := 0; j < ntbls; j++ {
 		tbl := fmt.Sprintf("t%d", j)
 		for k := 0; k < nvers; k++ {
 			r := state.DeregisterTableFromState(&db.Loc{Cluster: "c1", Service: "s1", Name: "d0"}, tbl, "mysql", "local", k, 0)
+			require.True(t, r)
+		}
+		for k := 0; k < nvers; k++ {
+			r := state.DeregisterTableFromState(&db.Loc{Cluster: "c1", Service: "s2", Name: "d0"}, tbl, "mysql", "local", k, 0)
 			require.True(t, r)
 		}
 	}
@@ -1174,16 +1213,26 @@ func TestReloadState(t *testing.T) {
 			r := state.DeregisterTableFromState(&db.Loc{Cluster: "c1", Service: "s1", Name: "d1"}, tbl, "mysql", "local", k, 0)
 			require.True(t, r)
 		}
+		for k := 0; k < j+1; k++ {
+			r := state.DeregisterTableFromState(&db.Loc{Cluster: "c1", Service: "s2", Name: "d1"}, tbl, "mysql", "local", k, 0)
+			require.True(t, r)
+		}
 	}
 
 	// Remove version 0 from tble t0 of d2 database
 	r := state.DeregisterTableFromState(&db.Loc{Cluster: "c1", Service: "s1", Name: "d2"}, "t0", "mysql", "local", 0, 0)
 	require.True(t, r)
+	r = state.DeregisterTableFromState(&db.Loc{Cluster: "c1", Service: "s2", Name: "d2"}, "t0", "mysql", "local", 0, 0)
+	require.True(t, r)
 	// Remove version 1 from tble t1 of d2 database
 	r = state.DeregisterTableFromState(&db.Loc{Cluster: "c1", Service: "s1", Name: "d2"}, "t1", "mysql", "local", 1, 0)
 	require.True(t, r)
+	r = state.DeregisterTableFromState(&db.Loc{Cluster: "c1", Service: "s2", Name: "d2"}, "t1", "mysql", "local", 1, 0)
+	require.True(t, r)
 	// Remove version 2 from tble t2 of d2 database
 	r = state.DeregisterTableFromState(&db.Loc{Cluster: "c1", Service: "s1", Name: "d2"}, "t2", "mysql", "local", 2, 0)
+	require.True(t, r)
+	r = state.DeregisterTableFromState(&db.Loc{Cluster: "c1", Service: "s2", Name: "d2"}, "t2", "mysql", "local", 2, 0)
 	require.True(t, r)
 
 	res = b.reloadState()
@@ -1206,10 +1255,16 @@ func TestReloadState(t *testing.T) {
 			if i == 1 {
 				vers = nvers - j - 1
 			}
-			require.Equal(t, vers, len(b.tables[dbn][tbl]))
+			require.Equal(t, vers, len(b.tables[dbn][tbl]["s1"]))
+			require.Equal(t, vers, len(b.tables[dbn][tbl]["s2"]))
 			tt := j
-			for i := j; i < len(b.tables[dbn][tbl]); i++ {
-				tver := b.tables[dbn][tbl][i]
+			for k := j; k < len(b.tables[dbn][tbl]["s1"]); k++ {
+				tver := b.tables[dbn][tbl]["s1"][k]
+				require.Equal(t, true, tver.dead)
+				require.NotEqual(t, tt, tver.version)
+			}
+			for k := j; k < len(b.tables[dbn][tbl]["s2"]); k++ {
+				tver := b.tables[dbn][tbl]["s2"][k]
 				require.Equal(t, true, tver.dead)
 				require.NotEqual(t, tt, tver.version)
 			}

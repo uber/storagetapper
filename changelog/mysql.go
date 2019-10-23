@@ -73,7 +73,7 @@ type mysqlReader struct {
 	gtidSet   *mysql.MysqlGTIDSet
 	seqNo     uint64
 	masterCI  *db.Addr
-	tables    map[string]map[string][]*table
+	tables    map[string]map[string]map[string][]*table
 	numTables int
 	bufPipe   pipe.Pipe
 	dbl       db.Loc
@@ -237,10 +237,10 @@ func (b *mysqlReader) addNewTable(t *state.Row) bool {
 
 	nt := &table{t.ID, false, p, t.RawSchema, t.SchemaGtid, t.Service, enc, t.Output, t.Version, t.OutputFormat, t.ParamsRaw, t.SnapshottedAt}
 
-	if b.tables[t.Db][t.Table] == nil {
-		b.tables[t.Db][t.Table] = make([]*table, 0)
+	if b.tables[t.Db][t.Table][t.Service] == nil {
+		b.tables[t.Db][t.Table][t.Service] = make([]*table, 0)
 	}
-	b.tables[t.Db][t.Table] = append(b.tables[t.Db][t.Table], nt)
+	b.tables[t.Db][t.Table][t.Service] = append(b.tables[t.Db][t.Table][t.Service], nt)
 
 	b.log.Infof("New table added to MySQL binlog reader (%v,%v,%v,%v,%v,%v), will produce to: %v", t.Service, t.Db, t.Table, t.Output, t.Version, t.OutputFormat, pn)
 
@@ -251,25 +251,30 @@ func (b *mysqlReader) removeDeletedTables() (count uint) {
 	var s string
 	for dbn := range b.tables {
 		for tbn := range b.tables[dbn] {
-			for i := 0; i < len(b.tables[dbn][tbn]); {
-				t := b.tables[dbn][tbn][i]
-				if t.dead {
-					b.log.Infof("Table with id %v removed from binlog reader", t.id)
-					err := t.producer.Close()
-					log.EL(b.log, err)
-					s := b.tables[dbn][tbn]
-					s[i] = s[len(s)-1]
-					s[len(s)-1] = nil
-					b.tables[dbn][tbn] = s[:len(s)-1]
-					if len(b.tables[dbn][tbn]) == 0 {
-						delete(b.tables[dbn], tbn)
+			for svc := range b.tables[dbn][tbn] {
+				for i := 0; i < len(b.tables[dbn][tbn][svc]); {
+					t := b.tables[dbn][tbn][svc][i]
+					if t.dead {
+						b.log.Infof("Table with id %v removed from binlog reader", t.id)
+						err := t.producer.Close()
+						log.EL(b.log, err)
+						s := b.tables[dbn][tbn][svc]
+						s[i] = s[len(s)-1]
+						s[len(s)-1] = nil
+						b.tables[dbn][tbn][svc] = s[:len(s)-1]
+					} else {
+						t.dead = true
+						count++
+						s += fmt.Sprintf("%v,", t.id)
+						i++
 					}
-				} else {
-					t.dead = true
-					count++
-					s += fmt.Sprintf("%v,", t.id)
-					i++
 				}
+				if len(b.tables[dbn][tbn][svc]) == 0 {
+					delete(b.tables[dbn][tbn], svc)
+				}
+			}
+			if len(b.tables[dbn][tbn]) == 0 {
+				delete(b.tables[dbn], tbn)
 			}
 		}
 		if len(b.tables[dbn]) == 0 {
@@ -282,11 +287,14 @@ func (b *mysqlReader) removeDeletedTables() (count uint) {
 
 func (b *mysqlReader) closeTableProducers() {
 	for dbn, sdb := range b.tables {
-		for tbn, tver := range sdb {
-			for i := 0; i < len(tver); i++ {
-				b.log.Debugf("Closing producer for service=%v, table=%v", tver[i].service, tver[i].id)
-				log.EL(b.log, tver[i].producer.Close())
-				tver[i] = nil
+		for tbn, svc := range sdb {
+			for svcn, tver := range svc {
+				for i := 0; i < len(tver); i++ {
+					b.log.Debugf("Closing producer for service=%v, table=%v", tver[i].service, tver[i].id)
+					log.EL(b.log, tver[i].producer.Close())
+					tver[i] = nil
+				}
+				delete(b.tables[dbn][tbn], svcn)
 			}
 			delete(b.tables[dbn], tbn)
 		}
@@ -314,7 +322,7 @@ func (b *mysqlReader) reloadState() bool {
 		t := &st[i]
 
 		if b.tables[t.Db] == nil {
-			b.tables[t.Db] = make(map[string][]*table)
+			b.tables[t.Db] = make(map[string]map[string][]*table)
 		}
 
 		if b.seqNo == 0 {
@@ -322,10 +330,14 @@ func (b *mysqlReader) reloadState() bool {
 		}
 
 		if b.tables[t.Db][t.Table] == nil {
-			b.tables[t.Db][t.Table] = make([]*table, 0)
+			b.tables[t.Db][t.Table] = make(map[string][]*table, 0)
 		}
 
-		tver := b.tables[t.Db][t.Table]
+		if b.tables[t.Db][t.Table][t.Service] == nil {
+			b.tables[t.Db][t.Table][t.Service] = make([]*table, 0)
+		}
+
+		tver := b.tables[t.Db][t.Table][t.Service]
 
 		j := findInVersionArray(tver, t.Output, t.Version)
 
@@ -336,7 +348,7 @@ func (b *mysqlReader) reloadState() bool {
 				log.EL(b.log, err)
 				tver[j] = tver[len(tver)-1]
 				tver[len(tver)-1] = nil
-				b.tables[t.Db][t.Table] = tver[:len(tver)-1]
+				b.tables[t.Db][t.Table][t.Service] = tver[:len(tver)-1]
 			} else {
 				tver[j].dead = false
 				if t.SnapshotTimeChanged(tver[j].snapshottedAt) {
@@ -536,9 +548,14 @@ func (b *mysqlReader) handleRowsEvent(ev *replication.BinlogEvent, dbn string, t
 	}
 
 	//Produce event to all outputs and versions of the table
-	for i := range b.tables[dbn][tbn] {
-		if !b.handleRowsEventLow(ev, b.tables[dbn][tbn][i]) {
-			return false
+	for _, svc := range b.tables[dbn][tbn] {
+		if svc == nil {
+			continue
+		}
+		for ver := range svc {
+			if !b.handleRowsEventLow(ev, svc[ver]) {
+				return false
+			}
 		}
 	}
 
@@ -558,7 +575,7 @@ func handleAlterTable(b *mysqlReader, qe *replication.QueryEvent, m [][]string) 
 	}
 	d := b.tables[dbname]
 	if d != nil && d[table] != nil {
-		tver := d[table]
+		svc := d[table]
 		b.log.WithFields(log.Fields{"db": dbname, "table": table, "alter": m[0][3]}).Debugf("detected alter statement of being ingested table")
 		b.metrics.ChangelogAlterTableEvents.Inc(1)
 
@@ -572,29 +589,32 @@ func handleAlterTable(b *mysqlReader, qe *replication.QueryEvent, m [][]string) 
 			return false
 		}
 
-		for i := range tver {
-			t := tver[i]
-			newGtid := util.SortedGTIDString(b.gtidSet)
-			if !schema.MutateTable(state.GetNoDB(), t.service, dbname, table, m[0][3], t.encoder.Schema(), &t.rawSchema) ||
-				!state.ReplaceSchema(t.service, b.dbl.Cluster, t.encoder.Schema(), t.rawSchema, t.schemaGtid, newGtid, b.inputType, t.output, t.version, t.outputFormat, t.params) {
-				b.log.WithFields(log.Fields{"db": dbname, "table": table, "alter": m[0][3]}).Warnf("error executing alter table")
+		for _, tver := range svc {
+			for i := range tver {
+				t := tver[i]
+				newGtid := util.SortedGTIDString(b.gtidSet)
+				if !schema.MutateTable(state.GetNoDB(), t.service, dbname, table, m[0][3], t.encoder.Schema(), &t.rawSchema) ||
+					!state.ReplaceSchema(t.service, b.dbl.Cluster, t.encoder.Schema(), t.rawSchema, t.schemaGtid, newGtid, b.inputType, t.output, t.version, t.outputFormat, t.params) {
+					b.log.WithFields(log.Fields{"db": dbname, "table": table, "alter": m[0][3]}).Warnf("error executing alter table")
+					return false
+				}
+
+				t.schemaGtid = newGtid
+
+				err := t.encoder.UpdateCodec()
+				if log.EL(b.log, err) {
+					return false
+				}
+				log.Debugf("Updated codec. id=%v", t.id)
+			}
+
+			if !b.pushSchema(tver) {
 				return false
 			}
 
-			t.schemaGtid = newGtid
-
-			err := t.encoder.UpdateCodec()
-			if log.EL(b.log, err) {
-				return false
-			}
-			log.Debugf("Updated codec. id=%v", t.id)
+			b.metrics.ChangelogQueryEventsWritten.Inc(int64(len(tver)))
 		}
 
-		if !b.pushSchema(tver) {
-			return false
-		}
-
-		b.metrics.ChangelogQueryEventsWritten.Inc(int64(len(tver)))
 		return true
 	}
 	b.log.WithFields(log.Fields{"query": util.BytesToString(qe.Query), "db": util.BytesToString(qe.Schema)}).Debugf("Unhandled query (alter). cluster: " + b.dbl.Cluster)
@@ -617,41 +637,44 @@ func handleRenameTable(b *mysqlReader, qe *replication.QueryEvent, m [][]string)
 		}
 		d := b.tables[dbname]
 		if d != nil && len(d[table]) > 0 {
-			tver := d[table]
+			svc := d[table]
 			b.log.WithFields(log.Fields{"db": dbname, "table": table, "rename": t[0]}).Debugf("detected rename statement of being ingested table")
 			b.metrics.ChangelogAlterTableEvents.Inc(1)
 
-			newGtid := util.SortedGTIDString(b.gtidSet)
-			ts, rs := state.PullCurrentSchema(&db.Loc{Service: tver[0].service, Cluster: b.dbl.Cluster, Name: dbname}, table, types.InputMySQL)
-			if ts == nil {
-				return false
-			}
-
-			for i := range tver {
-				t := tver[i]
-				t.rawSchema = rs
-				ets := t.encoder.Schema()
-				ets.DBName = ts.DBName
-				ets.TableName = ts.TableName
-				ets.Columns = ts.Columns
-				if !state.ReplaceSchema(t.service, b.dbl.Cluster, t.encoder.Schema(), t.rawSchema, t.schemaGtid, newGtid, b.inputType, t.output, t.version, t.outputFormat, t.params) {
+			for _, tver := range svc {
+				newGtid := util.SortedGTIDString(b.gtidSet)
+				ts, rs := state.PullCurrentSchema(&db.Loc{Service: tver[0].service, Cluster: b.dbl.Cluster, Name: dbname}, table, types.InputMySQL)
+				if ts == nil {
 					return false
 				}
 
-				t.schemaGtid = newGtid
+				for i := range tver {
+					t := tver[i]
+					t.rawSchema = rs
+					ets := t.encoder.Schema()
+					ets.DBName = ts.DBName
+					ets.TableName = ts.TableName
+					ets.Columns = ts.Columns
+					if !state.ReplaceSchema(t.service, b.dbl.Cluster, t.encoder.Schema(), t.rawSchema, t.schemaGtid, newGtid, b.inputType, t.output, t.version, t.outputFormat, t.params) {
+						return false
+					}
 
-				err := t.encoder.UpdateCodec()
-				if log.EL(b.log, err) {
+					t.schemaGtid = newGtid
+
+					err := t.encoder.UpdateCodec()
+					if log.EL(b.log, err) {
+						return false
+					}
+					log.Debugf("Updated codec. id=%v", t.id)
+				}
+
+				if !b.pushSchema(tver) {
 					return false
 				}
-				log.Debugf("Updated codec. id=%v", t.id)
+
+				b.metrics.ChangelogQueryEventsWritten.Inc(int64(len(tver)))
 			}
 
-			if !b.pushSchema(tver) {
-				return false
-			}
-
-			b.metrics.ChangelogQueryEventsWritten.Inc(int64(len(tver)))
 			return true
 		}
 	}
@@ -772,17 +795,20 @@ func (b *mysqlReader) commitBatch() bool {
 	w := b.metrics.ProduceLatency
 	w.Start()
 	for _, sdb := range b.tables {
-		for _, tver := range sdb {
-			for i := 0; i < len(tver); i++ {
-				err := tver[i].producer.PushBatchCommit()
-				if log.EL(b.log, err) {
-					w.Stop()
-					return false
+		for _, svc := range sdb {
+			for _, tver := range svc {
+				for i := 0; i < len(tver); i++ {
+					err := tver[i].producer.PushBatchCommit()
+					if log.EL(b.log, err) {
+						w.Stop()
+						return false
+					}
 				}
 			}
 		}
 	}
 	w.Stop()
+
 	return true
 }
 
@@ -982,7 +1008,7 @@ func (b *mysqlReader) start(cfg *config.AppConfig) bool {
 		return true
 	}
 
-	b.tables = make(map[string]map[string][]*table)
+	b.tables = make(map[string]map[string]map[string][]*table)
 
 	for i := 0; i < len(queryHandlers); i++ {
 		queryHandlers[i].compiled = regexp.MustCompile(queryHandlers[i].regexp)

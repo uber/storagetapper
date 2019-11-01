@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -842,18 +843,18 @@ func TableMaxVersion(svc, cluster, sdb, table, input, output string) (int, error
 	return max, nil
 }
 
-var cachedStateMySQLVersion string
+var cachedStateMySQLVersion atomic.Value
 
 // CheckMySQLVersion check is state db cluster is of given version
 func CheckMySQLVersion(expected string) bool {
-	version := cachedStateMySQLVersion
+	version, _ := cachedStateMySQLVersion.Load().(string)
 
 	if version == "" {
 		err := GetNoDB().QueryRow("SELECT @@global.version").Scan(&version)
 		if log.E(err) {
 			return false
 		}
-		cachedStateMySQLVersion = version
+		cachedStateMySQLVersion.Store(version)
 	}
 
 	return strings.HasPrefix(version, expected)

@@ -23,5 +23,6 @@ for i in "$@"; do
 		-Emaligned \
 		-Eprealloc \
 		-Estylecheck \
-		"$i" && printf "ok\t%s\n" "$i"
+		"$i" || exit 1
+	printf "ok\t%s\n" "$i"
 done

@@ -70,8 +70,9 @@ func (t *tallyMetrics) Tagged(tags map[string]string) scope {
 }
 
 func newScope(address string, interval time.Duration) (tally.Scope, io.Closer) {
-	statter, _ := statsd.NewBufferedClient(address,
-		"stats", -1, 0)
+	config := &statsd.ClientConfig{Address: address, Prefix: "stats", FlushInterval: -1, FlushBytes: 0}
+
+	statter, _ := statsd.NewClientWithConfig(config)
 
 	scope, closer := tally.NewRootScope(tally.ScopeOptions{
 		Prefix:   types.MySvcName,

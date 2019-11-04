@@ -5,7 +5,7 @@ go 1.12
 require (
 	github.com/Shopify/sarama v1.24.0
 	github.com/aws/aws-sdk-go v1.25.9
-	github.com/cactus/go-statsd-client/statsd v0.0.0-20190922113730-52b467de415c
+	github.com/cactus/go-statsd-client/statsd v0.0.0-20191030180650-a68a2246f89c
 	github.com/davecgh/go-spew v1.1.1
 	github.com/efirs/hdfs/v2 v2.0.1
 	github.com/fsnotify/fsnotify v1.4.7

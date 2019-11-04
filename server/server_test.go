@@ -239,6 +239,7 @@ func TestStartStop(t *testing.T) {
 		if err == nil {
 			break
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	test.CheckFail(err, t)
 
@@ -254,6 +255,7 @@ func TestStartStop(t *testing.T) {
 		if err != nil {
 			break
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	test.Assert(t, err != nil, "no server should be listening")
 }

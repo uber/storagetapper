@@ -5,8 +5,8 @@ github.com/Shopify/toxiproxy v2.1.4+incompatible h1:TKdv8HiTLgE5wdJuEML90aBgNWso
 github.com/Shopify/toxiproxy v2.1.4+incompatible/go.mod h1:OXgGpZ6Cli1/URJOF1DMxUHB2q5Ap20/P/eIdh4G0pI=
 github.com/aws/aws-sdk-go v1.25.9 h1:WtVzerf5wSgPwlTTwl+ktCq/0GCS5MI9ZlLIcjsTr+Q=
 github.com/aws/aws-sdk-go v1.25.9/go.mod h1:KmX6BPdI08NWTb3/sm4ZGu5ShLoqVDhKgpiN924inxo=
-github.com/cactus/go-statsd-client/statsd v0.0.0-20190922113730-52b467de415c h1:rjNo46GktWW4T9RFL1Gx+rubFI+KkPTuvrRBbbovv+g=
-github.com/cactus/go-statsd-client/statsd v0.0.0-20190922113730-52b467de415c/go.mod h1:D4RDtP0MffJ3+R36OkGul0LwJLIN8nRb0Ac6jZmJCmo=
+github.com/cactus/go-statsd-client/statsd v0.0.0-20191030180650-a68a2246f89c h1:rrLWPlpOKwnBpVUXitbgM3+Nie1eBaFfBZqfiPpxVj8=
+github.com/cactus/go-statsd-client/statsd v0.0.0-20191030180650-a68a2246f89c/go.mod h1:l/bIBLeOl9eX+wxJAzxS4TveKRtAqlyDpHjhkfO0MEI=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

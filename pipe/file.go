@@ -558,7 +558,7 @@ func (p *fileProducer) closeFile(f *file, graceful bool) error {
 	}
 	p.stats[fn] = &stat{NumRecs: f.nRecs, Hash: fmt.Sprintf("%x", f.hash.Sum(nil)), FileName: fn}
 	p.metrics.FilesClosed.Inc(1)
-	syncFsMetadata()
+	log.E(syncFsMetadata())
 	log.Debugf("Closed: %v", f.name)
 	return rerr
 }

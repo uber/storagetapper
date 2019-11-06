@@ -573,6 +573,7 @@ func handleAlterTable(b *mysqlReader, qe *replication.QueryEvent, m [][]string) 
 			newGtid := util.SortedGTIDString(b.gtidSet)
 			if !schema.MutateTable(state.GetNoDB(), t.service, dbname, table, m[0][3], t.encoder.Schema(), &t.rawSchema) ||
 				!state.ReplaceSchema(t.service, b.dbl.Cluster, t.encoder.Schema(), t.rawSchema, t.schemaGtid, newGtid, b.inputType, t.output, t.version, t.outputFormat, t.params) {
+				b.log.WithFields(log.Fields{"db": dbname, "table": table, "alter": m[0][3]}).Warnf("error executing alter table")
 				return false
 			}
 

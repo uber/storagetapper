@@ -23,6 +23,7 @@ package schema
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/uber/storagetapper/log"
@@ -35,17 +36,20 @@ import (
 func MutateTable(sdb *sql.DB, svc string, dbName string, tableName string, alter string, ts *types.TableSchema, rawSchema *string) bool {
 
 	//TODO: Wrap below SQL calls in a transaction
-	tn, err := uuid.NewV4()
+	stn, err := uuid.NewV4()
 	if log.E(err) {
 		return false
 	}
-
-	ftn := "`" + types.MyDbName + "`.`" + tn.String() + "`"
+	tn := time.Now().Format("20060102") + "_" + stn.String()
+	ftn := "`" + types.MyDbName + "`.`" + tn + "`"
 	c := fmt.Sprintf("%s_%s_%s", svc, dbName, tableName)
 
 	if log.E(util.ExecSQL(sdb, "CREATE TABLE "+ftn+*rawSchema+" COMMENT='"+c+"'")) {
 		return false
 	}
+	defer func() {
+		log.E(util.ExecSQL(sdb, "DROP TABLE "+ftn))
+	}()
 
 	if log.E(util.ExecSQL(sdb, "ALTER TABLE "+ftn+" "+alter)) {
 		return false
@@ -56,12 +60,8 @@ func MutateTable(sdb *sql.DB, svc string, dbName string, tableName string, alter
 		return false
 	}
 
-	tsn, err := GetColumns(sdb, types.MyDbName, tn.String())
+	tsn, err := GetColumns(sdb, types.MyDbName, tn)
 	if log.E(err) {
-		return false
-	}
-
-	if log.E(util.ExecSQL(sdb, "DROP TABLE "+ftn)) {
 		return false
 	}
 

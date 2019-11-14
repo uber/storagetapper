@@ -143,6 +143,10 @@ func (b *mysqlReader) binlogFormat() string {
 	if log.E(err) {
 		return ""
 	}
+	if rf == "" {
+		log.EL(b.log, fmt.Errorf("invalid (empty) binlog format"))
+		return ""
+	}
 	log.Debugf("Master's binlog format: %s", rf)
 	return rf
 }
@@ -972,8 +976,9 @@ func (b *mysqlReader) start(cfg *config.AppConfig) bool {
 
 	rf := b.binlogFormat()
 	if rf != "ROW" {
-		b.log.Errorf("Binlog format is %s", rf)
-		b.log.Errorf("Row binlog format required. Skipping")
+		if rf != "" {
+			b.log.Errorf("binlog format is %s. row binlog format required. skipping", rf)
+		}
 		return true
 	}
 

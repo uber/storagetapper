@@ -140,7 +140,7 @@ func (s *mysqlReader) startLow(svc string, cluster string, dbs string, table str
 	}
 
 	s.conn, err = db.Open(s.connInfo)
-	if log.E(err) {
+	if err != nil {
 		return err
 	}
 

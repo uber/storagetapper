@@ -134,6 +134,11 @@ func (s *Streamer) snapshotTickHandler(snReader snapshot.Reader) error {
 		return fmt.Errorf("table removed from ingestion")
 	}
 
+	ns, err := state.GetNeedSnapshotFlag(s.row.ID)
+	if err != nil || !ns {
+		return fmt.Errorf("snapshot not required for the table")
+	}
+
 	if !state.RefreshTableLock(s.row.ID, s.workerID) {
 		return fmt.Errorf("lost the table lock")
 	}

@@ -298,6 +298,12 @@ func SaveBinlogState(cluster, gtid string, seqNo uint64) error {
 	return util.ExecSQL(mgr.conn, "UPDATE cluster_state SET gtid=?, seqno=? WHERE cluster=?", gtid, seqNo, cluster)
 }
 
+//GetNeedSnapshotFlag returns need_snapshot flag saved in the STATE
+func GetNeedSnapshotFlag(id int64) (ns bool, err error) {
+	err = util.QueryRowSQL(mgr.conn, "SELECT need_snapshot FROM state WHERE id=?", id).Scan(&ns)
+	return ns, err
+}
+
 func getNeedSnapshotFlag(tx *sql.Tx, id int64) (regid int64, ns bool, err error) {
 	err = util.QueryTxRowSQL(tx, "SELECT reg_id, need_snapshot FROM state WHERE id=? FOR UPDATE", id).Scan(&regid, &ns)
 	return

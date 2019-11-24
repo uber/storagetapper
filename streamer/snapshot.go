@@ -63,20 +63,20 @@ func (s *Streamer) streamBatch(snReader snapshot.Reader, outProducer pipe.Produc
 
 		if len(outMsg) == 0 {
 			outMsg = nil
-			continue
+		} else {
+			b += len(outMsg)
+
+			key = outProducer.PartitionKey("snapshot", key)
+			err = outProducer.PushBatch(key, outMsg)
+
+			if log.EL(s.log, err) {
+				return false, 0, 0, "", "", nil, err
+			}
+
+			i++
+			outMsg = nil
+			prevKey = pKey
 		}
-		b += len(outMsg)
-
-		key = outProducer.PartitionKey("snapshot", key)
-		err = outProducer.PushBatch(key, outMsg)
-
-		if log.EL(s.log, err) {
-			return false, 0, 0, "", "", nil, err
-		}
-
-		i++
-		outMsg = nil
-		prevKey = pKey
 
 		if ticker != nil {
 			select {

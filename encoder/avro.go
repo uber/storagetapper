@@ -251,7 +251,7 @@ func convertTime(b string, dtype string) (interface{}, error) {
 
 func convertText(b []byte, d string) interface{} {
 	//mysql binlog reader library returns []byte for text type
-	if d == "text" || d == "tinytext" || d == "mediumtext" || d == "longtext" {
+	if d == "text" || d == "tinytext" || d == "mediumtext" || d == "longtext" || d == "json" {
 		return string(b)
 	}
 	return b

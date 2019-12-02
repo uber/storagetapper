@@ -99,7 +99,9 @@ func (s *mysqlReader) startFromTx(svc string, _ string, dbs string, table string
 		return lastGtid, err
 	}
 
-	s.rows, err = s.trx.Query(strings.Replace(s.query, "<table_name>", table, -1))
+	query := strings.Replace(s.query, "<table_name>", table, -1)
+	s.log.Infof("Snapshot reader query: %s", query)
+	s.rows, err = s.trx.Query(query)
 
 	if log.EL(s.log, err) {
 		return lastGtid, err

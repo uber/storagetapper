@@ -157,7 +157,10 @@ type TableParams struct {
 	Schedule   ScheduleConfig
 	NoSnapshot bool `yaml:"no_snapshot"`
 
-	RowFilter RowFilter `yaml:"row_filter"`
+	RowFilter  RowFilter   `yaml:"row_filter"`
+	RowFilters []RowFilter `yaml:"row_filters"` // only used in table params
+
+	ForceIndex string `yaml:"force_index"`
 }
 
 // RowFilter has the condition, column name & values on which filter will be applied

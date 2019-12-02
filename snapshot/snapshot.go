@@ -69,34 +69,77 @@ func Start(input string, svc string, cluster string, dbs string, table string, p
 
 //FilterRow returns the Filter query based for specified input
 func FilterRow(input string, table string, params *config.TableParams) string {
-	var rowFilter *config.RowFilter
+	var rowFilters []*config.RowFilter
 
 	if params == nil || len(params.RowFilter.Values) == 0 || params.RowFilter.Condition == "" || params.RowFilter.Column == "" {
+		// if the legacy RowFilter is not set, use RowFilters if any
+		if params != nil && len(params.RowFilters) > 0 {
+			for _, rowFilter := range params.RowFilters {
+				rf := rowFilter
+				rowFilters = append(rowFilters, &rf)
+			}
+			return getWhereClauseFromRowFilters(rowFilters)
+		}
 		conf := config.Get()
-		if conf.Filters == nil || conf.Filters[input] == nil {
+		if conf.Filters == nil {
+			return ""
+		}
+		if _, ok := conf.Filters[input]; !ok || conf.Filters[input] == nil {
 			return ""
 		}
 		rf, ok := conf.Filters[input][table]
 		if !ok || len(rf.Values) == 0 || rf.Condition == "" || rf.Column == "" {
 			return ""
 		}
-		rowFilter = &rf
+		rowFilters = append(rowFilters, &rf)
 	} else {
-		rowFilter = &params.RowFilter
+		rowFilters = append(rowFilters, &params.RowFilter)
 	}
 
-	op := rowFilter.Operator
-	if op == "" {
-		op = "AND"
-	}
+	return getWhereClauseFromRowFilters(rowFilters)
+}
 
-	filter := "WHERE"
-	for _, val := range rowFilter.Values {
-		if filter != "WHERE" {
-			filter += " " + op
+//ForceIndex returns the FORCE INDEX clause
+func ForceIndex(params *config.TableParams) string {
+	if params == nil || params.ForceIndex == "" {
+		conf := config.Get()
+		return getForceIndexClause(conf.ForceIndex)
+	}
+	return getForceIndexClause(params.ForceIndex)
+}
+
+// getWhereClauseFromRowFilters generates WHERE clause from a list of RowFilter
+func getWhereClauseFromRowFilters(rowFilters []*config.RowFilter) string {
+	var subfilters []string
+	for _, rowFilter := range rowFilters {
+		var colFilters []string
+		op := rowFilter.Operator
+		if op == "" {
+			op = "AND"
 		}
-		filter = filter + fmt.Sprintf(" `%s` %s '%s'", rowFilter.Column, rowFilter.Condition, val)
+
+		for _, val := range rowFilter.Values {
+			colFilters = append(colFilters, fmt.Sprintf("`%s` %s '%s'", rowFilter.Column, rowFilter.Condition, val))
+		}
+
+		if len(colFilters) == 0 {
+			continue
+		}
+		subfilter := strings.Join(colFilters, fmt.Sprintf(" %s ", op))
+		subfilters = append(subfilters, fmt.Sprintf("(%s)", subfilter))
 	}
 
-	return filter
+	if len(subfilters) == 0 {
+		return ""
+	}
+
+	return "WHERE " + strings.Join(subfilters, " AND ")
+}
+
+//getForceIndexClause generates the FORCE INDEX clause from the given index name if any
+func getForceIndexClause(index string) string {
+	if index != "" {
+		return fmt.Sprintf("FORCE INDEX (%s)", index)
+	}
+	return ""
 }

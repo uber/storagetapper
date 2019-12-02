@@ -212,26 +212,26 @@ tInput:
    tTable:
      column: "tKey1"
      values: ["tVal1"]
-     condition: "!="`, "WHERE `tKey1` != 'tVal1'"},
+     condition: "!="`, "WHERE (`tKey1` != 'tVal1')"},
 		{"multiField", `
 tInput:
    tTable:
      column: "tKey1"
      values: ["tVal1", "tVal2"]
-     condition: "!="`, "WHERE `tKey1` != 'tVal1' AND `tKey1` != 'tVal2'"},
+     condition: "!="`, "WHERE (`tKey1` != 'tVal1' AND `tKey1` != 'tVal2')"},
 		{"testCond", `
 tInput:
    tTable:
      column: "tKey1"
      values: ["tVal1", "tVal2"]
-     condition: "=="`, "WHERE `tKey1` == 'tVal1' AND `tKey1` == 'tVal2'"},
+     condition: "=="`, "WHERE (`tKey1` == 'tVal1' AND `tKey1` == 'tVal2')"},
 		{"testOP", `
 tInput:
    tTable:
      column: "tKey1"
      values: ["tVal1", "tVal2"]
      operator: "OR"
-     condition: "=="`, "WHERE `tKey1` == 'tVal1' OR `tKey1` == 'tVal2'"},
+     condition: "=="`, "WHERE (`tKey1` == 'tVal1' OR `tKey1` == 'tVal2')"},
 	}
 
 	for _, tt := range tests {
@@ -252,7 +252,7 @@ tInput:
      column: "tKey1"
      values: ["tVal1", "tVal2"]
      condition: "=="`
-	output := "WHERE `tKey1` == 'tVal1' AND `tKey1` == 'tVal2'"
+	output := "WHERE (`tKey1` == 'tVal1' AND `tKey1` == 'tVal2')"
 	var f map[string]map[string]config.RowFilter
 	err := yaml.Unmarshal([]byte(input), &f)
 	require.NoError(t, err)
@@ -260,8 +260,30 @@ tInput:
 	assert.Equal(t, output, FilterRow("tInput", "tTable", nil))
 
 	params := config.TableParams{RowFilter: config.RowFilter{Column: "tKey2", Condition: "!=", Values: []string{"tVal3"}}}
-	output1 := "WHERE `tKey2` != 'tVal3'"
+	output1 := "WHERE (`tKey2` != 'tVal3')"
 	assert.Equal(t, output1, FilterRow("tInput", "tTable", &params))
+}
+
+func TestDynamicRowFiltersFromParams(t *testing.T) {
+	params := config.TableParams{RowFilters: []config.RowFilter{
+		{Column: "k1", Condition: "!=", Values: []string{"v1"}},
+		{Column: "k2", Condition: "=", Values: []string{"v2", "v3"}},
+	}}
+	output := "WHERE (`k1` != 'v1') AND (`k2` = 'v2' AND `k2` = 'v3')"
+	assert.Equal(t, output, FilterRow("input1", "table1", &params))
+}
+
+func TestForceIndexFromConfig(t *testing.T) {
+	config.Get().ForceIndex = "test"
+	assert.Equal(t, "FORCE INDEX (test)", ForceIndex(nil))
+	config.Get().ForceIndex = ""
+}
+
+func TestForceIndexFromParams(t *testing.T) {
+	config.Get().ForceIndex = "test"
+	params := config.TableParams{ForceIndex: "foobar"}
+	assert.Equal(t, "FORCE INDEX (foobar)", ForceIndex(&params))
+	config.Get().ForceIndex = ""
 }
 
 func testBasic(input string, t *testing.T) {

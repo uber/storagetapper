@@ -11,3 +11,4 @@
 /vendor
 /storagetapper
 types/format_gen*.go
+.DS_Store

@@ -497,7 +497,7 @@ func startWorker(p1 pipe.Pipe, t *testing.T) {
 
 	/* Let binlog reader to initialize */
 	for {
-		g, err := state.GetGTID("test_cluster1")
+		g, _, err := state.GetGTID("test_cluster1")
 		test.CheckFail(err, t)
 		if g != "" {
 			break

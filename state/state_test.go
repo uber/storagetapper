@@ -250,9 +250,9 @@ func testGTIDs(t *testing.T) {
 
 	dbloc1 := &db.Loc{Cluster: "clst1", Service: "svc1", Name: "db1_state"}
 
-	gts, err := GetGTID(dbloc1.Cluster)
+	gts, sn, err := GetGTID(dbloc1.Cluster)
 	test.CheckFail(err, t)
-	if gts != "" {
+	if gts != "" || sn != 0 {
 		t.Fatalf(gts)
 	}
 
@@ -269,7 +269,7 @@ func testGTIDs(t *testing.T) {
 	err = SetGTID(dbloc1.Cluster, exgts)
 	test.CheckFail(err, t)
 
-	gts, err = GetGTID(dbloc1.Cluster)
+	gts, _, err = GetGTID(dbloc1.Cluster)
 	test.CheckFail(err, t)
 
 	if gts != exgts {
@@ -282,7 +282,7 @@ func testGTIDs(t *testing.T) {
 		insertStateRowForTest(int64(100+i), &types.TableLoc{Service: "svc1", Cluster: "clst1", Db: "db1_state", Table: v, Input: "mysql", Output: "kafka", Version: 0}, "", "", t)
 	}
 
-	gts, err = GetGTID(dbloc1.Cluster)
+	gts, _, err = GetGTID(dbloc1.Cluster)
 	test.CheckFail(err, t)
 
 	if gts != exgts {

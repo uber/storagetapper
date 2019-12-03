@@ -22,6 +22,7 @@ package server
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -31,21 +32,28 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/test"
 	"github.com/uber/storagetapper/types"
+	"github.com/uber/storagetapper/util"
 )
 
 //TODO: Test list filters
 
 func clustersTableInit(t *testing.T) {
 	conn := state.GetDB()
-	if conn == nil {
-		t.FailNow()
-	}
-	_, err := conn.Exec("TRUNCATE TABLE " + types.MyDbName + ".clusters")
+	require.NotNil(t, conn)
+
+	err := util.ExecSQL(conn, "TRUNCATE TABLE "+types.MyDbName+".clusters")
+	test.CheckFail(err, t)
+
+	err = util.ExecSQL(conn, "TRUNCATE TABLE "+types.MyDbName+".cluster_state")
+	test.CheckFail(err, t)
+
+	err = util.ExecSQL(conn, "INSERT INTO cluster_state(cluster, gtid, seqno) VALUES (?, ?, ?)", "test_cluster1", "test_gtid_set1", 11111)
 	test.CheckFail(err, t)
 }
 
@@ -63,7 +71,7 @@ func clusterFormRequest(typ string, cmd clusterInfoReq, code int, t *testing.T) 
 	body := url.Values{}
 	body.Add("cmd", cmd.Cmd)
 	body.Add("name", cmd.Name)
-	if cmd.Name != "" && cmd.Cmd != "list" {
+	if cmd.Name != "" && cmd.Cmd != "list" && cmd.Cmd != "pos" {
 		body.Set("name", cmd.Name+"_"+typ)
 	}
 	body.Add("host", cmd.Host)
@@ -90,6 +98,28 @@ func clusterRequest(cmd clusterInfoReq, code int, t *testing.T) {
 	clusterJSONRequest(cmd, code, t)
 	clusterFormRequest("POST", cmd, code, t)
 	clusterFormRequest("GET", cmd, code, t)
+}
+
+func TestClusterPosition(t *testing.T) {
+	clustersTableInit(t)
+
+	req := clusterInfoReq{
+		Cmd:  "pos",
+		Name: "test_cluster1",
+	}
+
+	resp := clusterFormRequest("GET", req, http.StatusOK, t)
+
+	require.Equal(t, `{"SeqNo":11111,"GTIDSet":"test_gtid_set1"}`, resp.Body.String())
+
+	req = clusterInfoReq{
+		Cmd:  "pos",
+		Name: "test_cluster2",
+	}
+
+	resp = clusterFormRequest("GET", req, http.StatusNotFound, t)
+
+	require.Equal(t, sql.ErrNoRows.Error()+"\n", resp.Body.String())
 }
 
 func TestClusterInfoAddDelCommands(t *testing.T) {

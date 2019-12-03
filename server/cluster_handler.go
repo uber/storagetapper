@@ -21,6 +21,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"mime"
@@ -46,6 +47,25 @@ type clusterInfoReq struct {
 	Offset int64
 	Limit  int64
 	Filter string
+}
+
+func handleClusterPosition(w http.ResponseWriter, name string) error {
+	gtid, seqno, err := state.GetGTID(name)
+	if err != nil {
+		return err
+	}
+
+	var b []byte
+	if b, err = json.Marshal(struct {
+		SeqNo   int64
+		GTIDSet string
+	}{SeqNo: seqno, GTIDSet: gtid}); err != nil {
+		return err
+	}
+
+	_, err = w.Write(b)
+
+	return err
 }
 
 func handleClusterListCmd(w http.ResponseWriter, t *clusterInfoReq) error {
@@ -108,6 +128,7 @@ func parsePagination(r *http.Request) (offset int64, limit int64, err error) {
 	}
 	return
 }
+
 func clusterInfoCmd(w http.ResponseWriter, r *http.Request) {
 	var err error
 	s := clusterInfoReq{}
@@ -155,12 +176,18 @@ func clusterInfoCmd(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if s.Cmd == "del" {
 		err = state.DeleteClusterInfo(s.Name)
+	} else if s.Cmd == "pos" {
+		err = handleClusterPosition(w, s.Name)
 	} else {
 		err = errors.New("unknown command (possible commands: add/del)")
 	}
 	if err != nil {
-		log.Errorf("Cluster http: cmd=%v, name=%v, error=%v", s.Cmd, s.Name, err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if err == sql.ErrNoRows {
+			http.Error(w, err.Error(), http.StatusNotFound)
+		} else {
+			log.Errorf("Cluster http: cmd=%v, name=%v, error=%v", s.Cmd, s.Name, err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

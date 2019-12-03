@@ -1016,7 +1016,7 @@ func (b *mysqlReader) start(cfg *config.AppConfig) bool {
 
 	// Start reading binlogs from the gtid set saved in the state
 	var gtid string
-	gtid, err = state.GetGTID(b.dbl.Cluster)
+	gtid, _, err = state.GetGTID(b.dbl.Cluster)
 	if log.EL(b.log, err) {
 		return true
 	}

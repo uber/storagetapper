@@ -281,9 +281,9 @@ func GetTableByID(id int64) (*Row, error) {
 }
 
 //GetGTID returns GTID saved in the state for given db locator
-func GetGTID(cluster string) (gtid string, err error) {
+func GetGTID(cluster string) (gtid string, seqno int64, err error) {
 	// Get first non empty gtid for the cluster
-	err = util.QueryRowSQL(mgr.conn, "SELECT gtid FROM cluster_state WHERE cluster=?", cluster).Scan(&gtid)
+	err = util.QueryRowSQL(mgr.conn, "SELECT gtid, seqno FROM cluster_state WHERE cluster=?", cluster).Scan(&gtid, &seqno)
 	return
 }
 

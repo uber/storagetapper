@@ -827,7 +827,7 @@ L:
 				if err != nil {
 					b.log.Errorf("Error fetchching purged gtid from server: %v", err)
 				}
-				b.log.WithFields(log.Fields{"my_gtid_set": strings.Replace(util.SortedGTIDString(b.gtidSet), ",", ",\n", -1), "server_gtid_set": serverGtid, "purged_gtid": purgedGtid}).Errorf("Error connecting to master: %v", merr)
+				b.log.WithFields(log.Fields{"my_gtid_set": strings.Replace(util.SortedGTIDString(b.gtidSet), ",", ",\n", -1), "server_gtid_set": serverGtid, "purged_gtid": purgedGtid, "host": b.masterCI.Host, "port": b.masterCI.Port, "user": b.masterCI.User}).Errorf("Error connecting to master: %v", merr)
 				return false
 			} else if msg.err.Error() != "context canceled" {
 				b.log.Errorf("BinlogReadEvents: %v", msg.err.Error())

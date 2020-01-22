@@ -119,7 +119,7 @@ var testAlterFailureRestarted = []string{
 }
 
 var testAlterFailureResult = []types.CommonFormatEvent{
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 1000001, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f2", Value: "bigint(20)"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 1000001, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint"}, {Name: "f2", Value: "bigint"}}},
 	{Type: "insert", Key: []interface{}{int64(200)}, SeqNo: 1000002, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(200)}, {Name: "f2", Value: int64(300)}}},
 }
 
@@ -250,11 +250,11 @@ var testDDL = []string{
 	`	 alter table 
 	db1.t1 add 	f2 
 	varchar(32) 	`,
-	"alter table db2.t1 add f2 varchar(32)", //we don't track db2 so this should not affect db1.t1
+	"/* alterch_wait */ alter table db2.t1 add f2 varchar(32)", //we don't track db2 so this should not affect db1.t1
 	"insert into db1.t1 value (3, 'aaa')",
 	"use db1",
 	"/* alterch_wait */ alter table t1 drop f2",
-	"/* alterch_wait */ alter table t1 add constraint fk1 foreign key (f1) references db2.t1(f1)",
+	"alter table t1 add constraint fk1 foreign key (f1) references db2.t1(f1)",
 	"insert into t1 value (4)",
 	"insert into db1.t1 value (5)",
 	"use db2",
@@ -280,21 +280,21 @@ var testDDLResult = []types.CommonFormatEvent{
 	/* Test basic insert, update, delete */
 	{Type: "insert", Key: []interface{}{int64(1)}, SeqNo: 1, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(1)}}},
 	{Type: "insert", Key: []interface{}{int64(2)}, SeqNo: 2, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(2)}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 3, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f2", Value: "varchar(32)"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 3, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint"}, {Name: "f2", Value: "varchar(32)"}}},
 	{Type: "insert", Key: []interface{}{int64(3)}, SeqNo: 4, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(3)}, {Name: "f2", Value: "aaa"}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 5, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 5, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint"}}},
 	{Type: "insert", Key: []interface{}{int64(4)}, SeqNo: 6, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(4)}}},
 	{Type: "insert", Key: []interface{}{int64(5)}, SeqNo: 7, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(5)}}},
 	{Type: "insert", Key: []interface{}{int64(6)}, SeqNo: 8, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(6)}}},
 	{Type: "delete", Key: []interface{}{int64(2)}, SeqNo: 9, Timestamp: 0, Fields: nil},
 	{Type: "insert", Key: []interface{}{int64(9)}, SeqNo: 10, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(9)}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 11, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "text"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 11, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "text"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int"}}},
 	//{Type: "insert", Key: []interface{}{45676.0}, SeqNo: 12.0, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: 45676.0}, {Name: "f3", Value: "ggg"}, {Name: "f4", Value: "dHR0"}, {Name: "f5", Value: "eXl5"}, {Name: "f6", Value: "vvv"}, {Name: "f7", Value: 7543.0}}},
 	{Type: "insert", Key: []interface{}{int64(45676)}, SeqNo: 12, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(45676)}, {Name: "f3", Value: "ggg"}, {Name: "f4", Value: "ttt"}, {Name: "f5", Value: []byte{121, 121, 121}}, {Name: "f6", Value: "vvv"}, {Name: "f7", Value: int32(7543)}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 13, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "text"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 14, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "varchar(20)"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int(11)"}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 15, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f3", Value: "varchar(128)"}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 16, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 13, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "text"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 14, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint"}, {Name: "f3", Value: "varchar(128)"}, {Name: "f4", Value: "varchar(20)"}, {Name: "f5", Value: "blob"}, {Name: "f6", Value: "varchar(32)"}, {Name: "f7", Value: "int"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 15, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint"}, {Name: "f3", Value: "varchar(128)"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 16, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint"}}},
 }
 
 var testRenameTablePrepare = []string{
@@ -335,10 +335,10 @@ var testRenameTableResult = []types.CommonFormatEvent{
 	/* Test basic insert, update, delete */
 	{Type: "insert", Key: []interface{}{int64(1)}, SeqNo: 1, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(1)}}},
 	{Type: "insert", Key: []interface{}{int64(2)}, SeqNo: 2, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(2)}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 3, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}, {Name: "f2", Value: "int(11)"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 3, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint"}, {Name: "f2", Value: "int"}}},
 	{Type: "insert", Key: []interface{}{int64(5)}, SeqNo: 4, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(5)}, {Name: "f2", Value: int32(50)}}},
 	{Type: "insert", Key: []interface{}{int64(6)}, SeqNo: 5, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(6)}, {Name: "f2", Value: int32(60)}}},
-	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 6, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}}},
+	{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 6, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint"}}},
 	{Type: "insert", Key: []interface{}{int64(7)}, SeqNo: 7, Timestamp: 0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: int64(7)}}},
 }
 

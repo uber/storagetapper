@@ -330,7 +330,7 @@ func (b *mysqlReader) reloadState() bool {
 		}
 
 		if b.tables[t.Db][t.Table] == nil {
-			b.tables[t.Db][t.Table] = make(map[string][]*table, 0)
+			b.tables[t.Db][t.Table] = make(map[string][]*table)
 		}
 
 		if b.tables[t.Db][t.Table][t.Service] == nil {

@@ -345,9 +345,9 @@ func prepareSchemaResult(format string, seqno int, tableNum int, f2 bool, result
 		f2json = `,{"Name":"f2","Value":"varchar(32)"}`
 	}
 	if formatSQL(format) {
-		*result = append(*result, fmt.Sprintf(`CREATE TABLE "e2e_test_table%d" ("seqno" BIGINT NOT NULL, "f1" int(11) NOT NULL, "f3" int(11) NOT NULL, "f4" int(11), %sUNIQUE KEY("seqno"), PRIMARY KEY ("f1"));`, tableNum, f2sql))
+		*result = append(*result, fmt.Sprintf(`CREATE TABLE "e2e_test_table%d" ("seqno" BIGINT NOT NULL, "f1" int NOT NULL, "f3" int NOT NULL, "f4" int, %sUNIQUE KEY("seqno"), PRIMARY KEY ("f1"));`, tableNum, f2sql))
 	} else if format != "avro" {
-		*result = append(*result, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int(11)"},{"Name":"f3","Value":"int(11)"},{"Name":"f4","Value":"int(11)"}%s]}`, seqno, f2json))
+		*result = append(*result, fmt.Sprintf(`{"Type":"schema","Key":["f1"],"SeqNo":%d,"Timestamp":0,"Fields":[{"Name":"f1","Value":"int"},{"Name":"f3","Value":"int"},{"Name":"f4","Value":"int"}%s]}`, seqno, f2json))
 	}
 }
 

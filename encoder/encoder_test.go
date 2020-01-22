@@ -133,7 +133,7 @@ var testBasicPrepare = []string{
 	)`,
 }
 
-var outJSONSchema = `{"Type":"schema","Key":["f1"],"SeqNo":1,"Timestamp":0,"Fields":[{"Name":"f1","Value":"bigint(20)"},{"Name":"f2","Value":"char(16)"},{"Name":"f3","Value":"varchar(32)"},{"Name":"f4","Value":"text"},{"Name":"f5","Value":"timestamp"},{"Name":"f6","Value":"date"},{"Name":"f7","Value":"time"},{"Name":"f8","Value":"year(4)"},{"Name":"f9","Value":"bigint(20)"},{"Name":"f10","Value":"binary(1)"},{"Name":"f11","Value":"int(11)"},{"Name":"f12","Value":"float"},{"Name":"f13","Value":"double"},{"Name":"f14","Value":"decimal(10,0)"},{"Name":"f15","Value":"decimal(10,0)"},{"Name":"f16","Value":"datetime"},{"Name":"f17","Value":"tinyint(1)"},{"Name":"f18","Value":"json"}]}`
+var outJSONSchema = `{"Type":"schema","Key":["f1"],"SeqNo":1,"Timestamp":0,"Fields":[{"Name":"f1","Value":"bigint"},{"Name":"f2","Value":"char(16)"},{"Name":"f3","Value":"varchar(32)"},{"Name":"f4","Value":"text"},{"Name":"f5","Value":"timestamp"},{"Name":"f6","Value":"date"},{"Name":"f7","Value":"time"},{"Name":"f8","Value":"year"},{"Name":"f9","Value":"bigint"},{"Name":"f10","Value":"binary(1)"},{"Name":"f11","Value":"int"},{"Name":"f12","Value":"float"},{"Name":"f13","Value":"double"},{"Name":"f14","Value":"decimal(10,0)"},{"Name":"f15","Value":"decimal(10,0)"},{"Name":"f16","Value":"datetime"},{"Name":"f17","Value":"tinyint(1)"},{"Name":"f18","Value":"json"}]}`
 
 // TestGetType tests basic type method
 func TestType(t *testing.T) {
@@ -251,7 +251,7 @@ func TestEncodeDecodeSchema(t *testing.T) {
 		test.CheckFail(err, t)
 		decoded.Timestamp = 0
 
-		ref := types.CommonFormatEvent{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 0.0, Timestamp: 0.0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint(20)"}}}
+		ref := types.CommonFormatEvent{Type: "schema", Key: []interface{}{"f1"}, SeqNo: 0.0, Timestamp: 0.0, Fields: &[]types.CommonFormatField{{Name: "f1", Value: "bigint"}}}
 		test.Assert(t, reflect.DeepEqual(&ref, decoded), "decoded different from initial")
 	}
 }
@@ -434,11 +434,11 @@ func TestSchema(t *testing.T) {
 
 		s := outJSONSchema
 		if SQLType(enc.Type()) {
-			s = `CREATE TABLE "t2" ("seqno" BIGINT NOT NULL, "f1" bigint(20) NOT NULL, "f2" char(16), "f3" varchar(32), "f4" text, "f5" timestamp, "f6" date, "f7" time, "f8" year(4), "f9" bigint(20), "f10" binary(1), "f11" int(11), "f12" float, "f13" double, "f14" decimal(10,0), "f15" decimal(10,0), "f16" datetime, "f17" tinyint(1), "f18" json, UNIQUE KEY("seqno"), PRIMARY KEY ("f1"));`
+			s = `CREATE TABLE "t2" ("seqno" BIGINT NOT NULL, "f1" bigint NOT NULL, "f2" char(16), "f3" varchar(32), "f4" text, "f5" timestamp, "f6" date, "f7" time, "f8" year, "f9" bigint, "f10" binary(1), "f11" int, "f12" float, "f13" double, "f14" decimal(10,0), "f15" decimal(10,0), "f16" datetime, "f17" tinyint(1), "f18" json, UNIQUE KEY("seqno"), PRIMARY KEY ("f1"));`
 		}
 		if enc.Type() == "mysql" || enc.Type() == "mysql_idempotent" {
 			s = strings.Replace(s, `"`, "`", -1)
-			//			s = "CREATE TABLE `t2` (seqno BIGINT NOT NULL, `f1` bigint(20) NOT NULL, `f2` char(16), `f3` varchar(32), `f4` text, `f5` timestamp NOT NULL, `f6` date, `f7` time, `f8` year(4), `f9` bigint(20), `f10` binary(1), `f11` int(11), `f12` float, `f13` double, `f14` decimal(10,0), `f15` decimal(10,0), `f16` datetime, UNIQUE KEY(seqno), PRIMARY KEY (`f1`));"
+			//			s = "CREATE TABLE `t2` (seqno BIGINT NOT NULL, `f1` bigint NOT NULL, `f2` char(16), `f3` varchar(32), `f4` text, `f5` timestamp NOT NULL, `f6` date, `f7` time, `f8` year, `f9` bigint, `f10` binary(1), `f11` int, `f12` float, `f13` double, `f14` decimal(10,0), `f15` decimal(10,0), `f16` datetime, UNIQUE KEY(seqno), PRIMARY KEY (`f1`));"
 		}
 		log.Debugf("%v %v", enc.Type(), s)
 		require.Equal(t, s, string(schema))
@@ -448,11 +448,11 @@ func TestSchema(t *testing.T) {
 //f16 and f17 is deleted from schema as well
 var outAvroSchemaWithDeletedf2f10f15 = `{"fields":[{"name":"f1","type":["null","long"]},{"name":"f3","type":["null","string"]},{"name":"f4","type":["null","string"]},{"name":"f5","type":["null","long"]},{"name":"f6","type":["null","string"]},{"name":"f7","type":["null","string"]},{"name":"f8","type":["null","int"]},{"name":"f9","type":["null","long"]},{"name":"f11","type":["null","int"]},{"name":"f12","type":["null","float"]},{"name":"f13","type":["null","double"]},{"name":"f14","type":["null","double"]},{"name":"ref_key","type":["long"]},{"name":"row_key","type":["bytes"]},{"name":"is_deleted","type":["null","boolean"]}],"name":"db1-t2","namespace":"storagetapper","owner":"db1","schema_id":0,"schemaVersion":0,"type":"record","last_modified":""}`
 
-var outJSONSchemaWithDeletedf1f2f10f15 = `{"Type":"schema","Key":["f1"],"SeqNo":1,"Timestamp":0,"Fields":[{"Name":"f3","Value":"varchar(32)"},{"Name":"f4","Value":"text"},{"Name":"f5","Value":"timestamp"},{"Name":"f6","Value":"date"},{"Name":"f7","Value":"time"},{"Name":"f8","Value":"year(4)"},{"Name":"f9","Value":"bigint(20)"},{"Name":"f11","Value":"int(11)"},{"Name":"f12","Value":"float"},{"Name":"f13","Value":"double"},{"Name":"f14","Value":"decimal(10,0)"}]}`
+var outJSONSchemaWithDeletedf1f2f10f15 = `{"Type":"schema","Key":["f1"],"SeqNo":1,"Timestamp":0,"Fields":[{"Name":"f3","Value":"varchar(32)"},{"Name":"f4","Value":"text"},{"Name":"f5","Value":"timestamp"},{"Name":"f6","Value":"date"},{"Name":"f7","Value":"time"},{"Name":"f8","Value":"year"},{"Name":"f9","Value":"bigint"},{"Name":"f11","Value":"int"},{"Name":"f12","Value":"float"},{"Name":"f13","Value":"double"},{"Name":"f14","Value":"decimal(10,0)"}]}`
 
 var outAvroSchemaWithDeletedf2f10f15f3f8 = `{"fields":[{"name":"f1","type":["null","long"]},{"name":"f4","type":["null","string"]},{"name":"f5","type":["null","long"]},{"name":"f6","type":["null","string"]},{"name":"f7","type":["null","string"]},{"name":"f9","type":["null","long"]},{"name":"f11","type":["null","int"]},{"name":"f12","type":["null","float"]},{"name":"f13","type":["null","double"]},{"name":"f14","type":["null","double"]},{"name":"ref_key","type":["long"]},{"name":"row_key","type":["bytes"]},{"name":"is_deleted","type":["null","boolean"]}],"name":"db1-t2","namespace":"storagetapper","owner":"db1","schema_id":0,"schemaVersion":0,"type":"record","last_modified":""}`
 
-var outJSONSchemaWithDeletedf1f2f10f15f3f8 = `{"Type":"schema","Key":["f1"],"SeqNo":1,"Fields":[{"Name":"f4","Value":"text"},{"Name":"f5","Value":"timestamp"},{"Name":"f6","Value":"date"},{"Name":"f7","Value":"time"},{"Name":"f9","Value":"bigint(20)"},{"Name":"f11","Value":"int(11)"},{"Name":"f12","Value":"float"},{"Name":"f13","Value":"double"},{"Name":"f14","Value":"decimal(10,0)"}]}`
+var outJSONSchemaWithDeletedf1f2f10f15f3f8 = `{"Type":"schema","Key":["f1"],"SeqNo":1,"Fields":[{"Name":"f4","Value":"text"},{"Name":"f5","Value":"timestamp"},{"Name":"f6","Value":"date"},{"Name":"f7","Value":"time"},{"Name":"f9","Value":"bigint"},{"Name":"f11","Value":"int"},{"Name":"f12","Value":"float"},{"Name":"f13","Value":"double"},{"Name":"f14","Value":"decimal(10,0)"}]}`
 
 //We can't remove metadata and primary key "f1" from the schema
 var outAvroSchemaWithAllFieldsDeleted = `{"fields":[{"name":"f1","type":["null","long"]}, {"name":"ref_key","type":["long"]},{"name":"row_key","type":["bytes"]},{"name":"is_deleted","type":["null","boolean"]}],"name":"db1-t2","namespace":"storagetapper","owner":"db1","schema_id":0,"schemaVersion":0,"type":"record","last_modified":""}`

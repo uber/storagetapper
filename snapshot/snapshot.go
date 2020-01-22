@@ -110,7 +110,7 @@ func ForceIndex(params *config.TableParams) string {
 
 // getWhereClauseFromRowFilters generates WHERE clause from a list of RowFilter
 func getWhereClauseFromRowFilters(rowFilters []*config.RowFilter) string {
-	var subfilters []string
+	subfilters := make([]string, 0, len(rowFilters))
 	for _, rowFilter := range rowFilters {
 		var colFilters []string
 		op := rowFilter.Operator

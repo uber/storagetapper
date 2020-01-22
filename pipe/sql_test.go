@@ -45,7 +45,7 @@ func msgGenSQLLow(typ string, topic string, f1 int, f2 string, f3 float64) strin
 func schemaGenSQLLow(Typ string, topic string) string {
 	switch Typ {
 	case clickhouse:
-		return "CREATE TABLE " + topic + " (f1 INT, f2 VARCHAR, f3 float) ENGINE=Memory"
+		return "CREATE TABLE " + topic + " (f1 Int64, f2 String, f3 Float64) ENGINE=Memory"
 	case postgres:
 		return "CREATE TABLE " + topic + " (f1 INT, f2 VARCHAR, f3 float)"
 	default:

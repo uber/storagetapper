@@ -446,7 +446,7 @@ func TestStateSchema(t *testing.T) {
 				CharacterMaximumLength: sql.NullInt64{Int64: 0, Valid: false},
 				NumericPrecision:       sql.NullInt64{Int64: 19, Valid: true},
 				NumericScale:           sql.NullInt64{Int64: 0, Valid: true},
-				Type:                   "bigint(20)",
+				Type:                   "bigint",
 				Key:                    "PRI",
 			},
 			{
@@ -457,7 +457,7 @@ func TestStateSchema(t *testing.T) {
 				CharacterMaximumLength: sql.NullInt64{Int64: 0, Valid: false},
 				NumericPrecision:       sql.NullInt64{Int64: 19, Valid: true},
 				NumericScale:           sql.NullInt64{Int64: 0, Valid: true},
-				Type:                   "bigint(20)",
+				Type:                   "bigint",
 				Key:                    "MUL",
 			},
 		},
@@ -482,8 +482,8 @@ func TestStateSchema(t *testing.T) {
 	test.CheckFail(err, t)
 
 	tsRawRef := "(\n" +
-		"  `field1` bigint(20) NOT NULL,\n" +
-		"  `field2` bigint(20) NOT NULL DEFAULT '0',\n" +
+		"  `field1` bigint NOT NULL,\n" +
+		"  `field2` bigint NOT NULL DEFAULT '0',\n" +
 		"  PRIMARY KEY (`field1`),\n" +
 		"  UNIQUE KEY `field2` (`field2`,`field1`)\n" +
 		") ENGINE=InnoDB"
@@ -552,7 +552,7 @@ func TestStateSchema(t *testing.T) {
 			CharacterMaximumLength: sql.NullInt64{Int64: 0, Valid: false},
 			NumericPrecision:       sql.NullInt64{Int64: 19, Valid: true},
 			NumericScale:           sql.NullInt64{Int64: 0, Valid: true},
-			Type:                   "bigint(20)",
+			Type:                   "bigint",
 			Key:                    "PRI",
 		}},
 	}

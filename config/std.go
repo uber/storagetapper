@@ -123,7 +123,9 @@ func (c *std) loadSection(cfg interface{}) error {
 }
 
 func (c *std) parseConfig(cfg *AppConfig) error {
-	cfg.PortDyn = cfg.Port
+	if cfg.PortDyn == 0 {
+		cfg.PortDyn = cfg.Port
+	}
 	return nil
 }
 

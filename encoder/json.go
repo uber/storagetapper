@@ -28,7 +28,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/state"
 	"github.com/uber/storagetapper/types"
 )
@@ -39,14 +38,9 @@ func init() {
 
 //jsonEncoder implements Encoder interface into common format
 type jsonEncoder struct {
-	Service   string
-	Db        string
-	Table     string
-	Input     string
-	Output    string
-	Version   int
+	encoder
+
 	inSchema  *types.TableSchema
-	filter    []int //Contains indexes of fields which are not in output schema
 	outSchema *types.CommonFormatEvent
 }
 
@@ -65,8 +59,8 @@ var GenTime GenTimeFunc = genTime
 //ZeroTime in UTC
 var ZeroTime = time.Time{}.In(time.UTC)
 
-func initJSONEncoder(service, db, table, input string, output string, version int) (Encoder, error) {
-	return &jsonEncoder{Service: service, Db: db, Table: table, Input: input, Output: output, Version: version}, nil
+func initJSONEncoder(service, db, table, input string, output string, version int, filtering bool) (Encoder, error) {
+	return &jsonEncoder{encoder: encoder{Service: service, Db: db, Table: table, Input: input, Output: output, Version: version, filterEnabled: filtering}}, nil
 }
 
 //Type returns this encoder type
@@ -90,20 +84,24 @@ func (e *jsonEncoder) Row(tp int, row *[]interface{}, seqno uint64, _ time.Time)
 	return e.CommonFormatEncode(cf)
 }
 
-func filterCommonFormat(filter []int, cf *types.CommonFormatEvent) *types.CommonFormatEvent {
-	if len(filter) == 0 || cf.Fields == nil || len(*cf.Fields) == 0 {
-		return cf
+func filterCommonFormat(filter []int, cf *types.CommonFormatEvent) (*types.CommonFormatEvent, error) {
+	if cf.Fields == nil || len(*cf.Fields) == 0 {
+		return cf, nil
+	}
+
+	if len(*cf.Fields) != len(filter) {
+		return nil, fmt.Errorf("number of fields in input event(%v) should be equal to number of fields in the input schema(%v)", len(*cf.Fields), len(filter))
 	}
 
 	c := &types.CommonFormatEvent{SeqNo: cf.SeqNo, Type: cf.Type, Timestamp: cf.Timestamp, Key: cf.Key, Fields: new([]types.CommonFormatField)}
-	for i, j := 0, 0; i < len(*cf.Fields); i++ {
-		if filteredField(filter, i, &j) {
+	for i := 0; i < len(*cf.Fields); i++ {
+		if filter[i] == -1 {
 			continue
 		}
 		*c.Fields = append(*c.Fields, (*cf.Fields)[i])
 	}
 
-	return c
+	return c, nil
 }
 
 //CommonFormat encodes common format event into byte array
@@ -114,7 +112,11 @@ func (e *jsonEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) 
 			return nil, err
 		}
 	}
-	cf = filterCommonFormat(e.filter, cf)
+	var err error
+	cf, err = filterCommonFormat(e.filter, cf)
+	if err != nil {
+		return nil, err
+	}
 	return e.CommonFormatEncode(cf)
 }
 
@@ -136,20 +138,14 @@ func (e *jsonEncoder) UpdateCodec() error {
 		if err != nil {
 			return err
 		}
-		if c.Type != "schema" {
+		if c.Type != "schema" && c.Type != "record" {
 			return nil
 			//return fmt.Errorf("Broken schema in state for %v,%v,%v", e.Service, e.Db, e.Table)
 		}
 		e.outSchema = c
-
-		if e.outSchema.Fields != nil && len(e.inSchema.Columns)-len(*e.outSchema.Fields) < 0 {
-			err = fmt.Errorf("input schema has less fields than output schema")
-			log.E(err)
-			return err
-		}
 	}
 
-	e.prepareFilter()
+	e.filter = prepareFilter(e.inSchema, nil, e.outSchema, e.filterEnabled)
 
 	return err
 }
@@ -207,15 +203,14 @@ func (e *jsonEncoder) fixFieldTypes(res *types.CommonFormatEvent) (err error) {
 	k := 0
 
 	//Restore field types according to schema
-	if e.inSchema != nil && res.Type != "schema" {
-		var j int
+	if e.inSchema != nil && res.Type != "schema" && res.Type != "record" {
 		for i := 0; i < len(e.inSchema.Columns); i++ {
-			if filteredField(e.filter, i, &j) {
+			if e.filter[i] == -1 {
 				continue
 			}
 
-			if res.Fields != nil && i-j < len(*res.Fields) {
-				f := &(*res.Fields)[i-j]
+			if res.Fields != nil {
+				f := &(*res.Fields)[e.filter[i]]
 				f.Value, err = fixFieldType(f.Value, e.inSchema.Columns[i].DataType)
 				if err != nil {
 					return err
@@ -271,8 +266,8 @@ func fillCommonFormatKey(e *types.CommonFormatEvent, row *[]interface{}, s *type
 
 func fillCommonFormatFields(c *types.CommonFormatEvent, row *[]interface{}, schema *types.TableSchema, filter []int) {
 	f := make([]types.CommonFormatField, 0, len(schema.Columns))
-	for i, j := 0, 0; i < len(schema.Columns); i++ {
-		if filteredField(filter, i, &j) {
+	for i := 0; i < len(schema.Columns); i++ {
+		if filter[i] == -1 {
 			continue
 		}
 		var v interface{}
@@ -339,37 +334,6 @@ func (e *jsonEncoder) convertRowToCommonFormat(tp int, row *[]interface{}, schem
 	}
 
 	return &c
-}
-
-func (e *jsonEncoder) prepareFilter() {
-	if e.outSchema == nil {
-		return
-	}
-
-	nfiltered := len(e.inSchema.Columns)
-	if e.outSchema.Fields != nil {
-		nfiltered = nfiltered - len(*e.outSchema.Fields)
-	}
-
-	if nfiltered == 0 {
-		return
-	}
-
-	f := e.outSchema.Fields
-	e.filter = make([]int, 0)
-	var j int
-	for i := 0; i < len(e.inSchema.Columns); i++ {
-		//Primary key cannot be filtered
-		if f == nil || len(*f) == 0 || (i-j) >= len(*f) || e.inSchema.Columns[i].Name != (*f)[i-j].Name {
-			if e.inSchema.Columns[i].Key != "PRI" {
-				log.Debugf("Field %v will be filtered", e.inSchema.Columns[i].Name)
-				e.filter = append(e.filter, i)
-			}
-			j++
-		}
-	}
-
-	log.Debugf("len=%v, filtered fields (%v)", len(e.filter), e.filter)
 }
 
 // UnwrapEvent splits the event header and payload

@@ -273,7 +273,7 @@ func (s *Streamer) start(cfg *config.AppConfig) bool {
 		return false
 	}
 
-	s.outEncoder, err = encoder.Create(s.row.OutputFormat, s.row.Service, s.row.Db, s.row.Table, s.row.Input, s.row.Output, s.row.Version)
+	s.outEncoder, err = encoder.Create(s.row.OutputFormat, s.row.Service, s.row.Db, s.row.Table, s.row.Input, s.row.Output, s.row.Version, !cfg.ChangelogBuffer)
 	if log.EL(s.log, err) {
 		if consumer != nil {
 			log.E(consumer.CloseOnFailure())
@@ -293,7 +293,7 @@ func (s *Streamer) start(cfg *config.AppConfig) bool {
 	if cfg.ChangelogBuffer {
 		//Transit format encoder, aka envelope encoder
 		//It must be per table to be able to decode schematized events
-		s.envEncoder, err = encoder.Create(encoder.Internal.Type(), s.row.Service, s.row.Db, s.row.Table, s.row.Input, s.row.Output, s.row.Version)
+		s.envEncoder, err = encoder.Create(encoder.Internal.Type(), s.row.Service, s.row.Db, s.row.Table, s.row.Input, s.row.Output, s.row.Version, true)
 		if log.EL(s.log, err) {
 			log.E(consumer.CloseOnFailure())
 			return false

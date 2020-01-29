@@ -26,11 +26,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/types"
 )
 
+type encoder struct {
+	Service string
+	Db      string
+	Table   string
+	Input   string
+	Output  string
+	Version int
+
+	filter        []int //Contains indexes of fields which are not in output schema
+	filterEnabled bool
+}
+
 //encoderConstructor initializes encoder plugin
-type encoderConstructor func(service, db, table, input string, output string, version int) (Encoder, error)
+type encoderConstructor func(service, db, table, input string, output string, version int, filtering bool) (Encoder, error)
 
 //plugins insert their constructors into this map
 var encoders map[string]encoderConstructor
@@ -71,14 +84,14 @@ func Encoders() []string {
 }
 
 //InitEncoder constructs encoder without updating schema
-func InitEncoder(encType, svc, sdb, tbl, input string, output string, version int) (Encoder, error) {
+func InitEncoder(encType, svc, sdb, tbl, input string, output string, version int, filtering bool) (Encoder, error) {
 	init := encoders[strings.ToLower(encType)]
 
 	if init == nil {
 		return nil, fmt.Errorf("unsupported encoder: %s", strings.ToLower(encType))
 	}
 
-	enc, err := init(svc, sdb, tbl, input, output, version)
+	enc, err := init(svc, sdb, tbl, input, output, version, filtering)
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +101,8 @@ func InitEncoder(encType, svc, sdb, tbl, input string, output string, version in
 
 //Create is a factory which create encoder of given type for given service, db,
 //table, input, output, version
-func Create(encType, svc, sdb, tbl, input string, output string, version int) (Encoder, error) {
-	enc, err := InitEncoder(encType, svc, sdb, tbl, input, output, version)
+func Create(encType, svc, sdb, tbl, input string, output string, version int, filtering bool) (Encoder, error) {
+	enc, err := InitEncoder(encType, svc, sdb, tbl, input, output, version, filtering)
 	if err != nil {
 		return nil, err
 	}
@@ -125,14 +138,6 @@ func GetCommonFormatKey(cf *types.CommonFormatEvent) string {
 	return key
 }
 
-func filteredField(filter []int, i int, j *int) bool {
-	if *j < len(filter) && filter[*j] == i {
-		(*j)++
-		return true
-	}
-	return false
-}
-
 //WrapEvent prepend provided payload with CommonFormat like event
 func WrapEvent(outputFormat string, key string, bd []byte, seqno uint64) ([]byte, error) {
 	akey := make([]interface{}, 1)
@@ -159,3 +164,81 @@ func WrapEvent(outputFormat string, key string, bd []byte, seqno uint64) ([]byte
 
 	return buf.Bytes(), nil
 }
+
+type fmapItem struct {
+	inPos  int
+	outPos int
+}
+
+func prepareFilter(in *types.TableSchema, out *types.AvroSchema, cf *types.CommonFormatEvent, filterEnabled bool) []int {
+	log.Debugf("prepareFilter in_len=%v out=%v cf=%v", len(in.Columns), out, cf)
+	filter := make([]int, len(in.Columns))
+	fmap := make(map[string]*fmapItem, len(in.Columns))
+
+	for i := 0; i < len(in.Columns); i++ {
+		fmap[in.Columns[i].Name] = &fmapItem{i, -1}
+	}
+
+	if filterEnabled && out != nil && out.Fields != nil {
+		for i := 0; i < len(out.Fields); i++ {
+			t := fmap[out.Fields[i].Name]
+			if t != nil {
+				t.outPos = i
+			}
+		}
+	} else if filterEnabled && cf != nil && cf.Fields != nil {
+		for i := 0; i < len(*cf.Fields); i++ {
+			t := fmap[(*cf.Fields)[i].Name]
+			if t != nil {
+				t.outPos = i
+			}
+		}
+	} else { // If schema is not defined or filter disabled produce all the fields as is
+		for i := 0; i < len(in.Columns); i++ {
+			t := fmap[in.Columns[i].Name]
+			t.outPos = i
+		}
+	}
+
+	for _, v := range fmap {
+		filter[v.inPos] = v.outPos
+	}
+
+	log.Debugf("prepareFilter filter=%+v", filter)
+
+	return filter
+}
+
+/*
+func prepareFilter(in *types.TableSchema, out *types.AvroSchema, numMetaFields int) []int {
+	if out == nil {
+		return nil
+	}
+
+	nfiltered := len(in.Columns)
+	if out.Fields != nil {
+		nfiltered = nfiltered - (len(out.Fields) - numMetaFields)
+	}
+	if nfiltered == 0 {
+		return nil
+	}
+
+	f := out.Fields
+	filter := make([]int, 0)
+	var j int
+	for i := 0; i < len(in.Columns); i++ {
+		//Primary key cannot be filtered
+		if (i-j) >= len(f) || in.Columns[i].Name != f[i-j].Name {
+			if in.Columns[i].Key != "PRI" {
+				log.Debugf("Field %v will be filtered", in.Columns[i].Name)
+				filter = append(filter, i)
+			}
+			j++
+		}
+	}
+
+	log.Debugf("len=%v, filtered fields (%v)", len(filter), filter)
+
+	return filter
+}
+*/

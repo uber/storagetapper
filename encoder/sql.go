@@ -39,6 +39,8 @@ func init() {
 }
 
 type sqlEncoder struct {
+	encoder
+
 	typ          string
 	c            jsonEncoder
 	insertPrefix string
@@ -48,24 +50,24 @@ type sqlEncoder struct {
 	idempotentInsert bool
 }
 
-func initEncoder(tp, service, db, table, input string, output string, version int, quote string, ii bool) (Encoder, error) {
-	return &sqlEncoder{typ: tp, c: jsonEncoder{Service: service, Db: db, Table: table, Input: input, Output: output, Version: version}, identQuote: quote, idempotentInsert: ii}, nil
+func initEncoder(tp, service, db, table, input string, output string, version int, quote string, ii bool, filtering bool) (Encoder, error) {
+	return &sqlEncoder{typ: tp, c: jsonEncoder{encoder: encoder{Service: service, Db: db, Table: table, Input: input, Output: output, Version: version, filterEnabled: filtering}}, identQuote: quote, idempotentInsert: ii}, nil
 }
 
-func initMySQLEncoder(service, db, table, input string, output string, version int) (Encoder, error) {
-	return initEncoder("mysql", service, db, table, input, output, version, "`", false)
+func initMySQLEncoder(service, db, table, input string, output string, version int, filtering bool) (Encoder, error) {
+	return initEncoder("mysql", service, db, table, input, output, version, "`", false, filtering)
 }
 
-func initAnsiSQLEncoder(service, db, table, input string, output string, version int) (Encoder, error) {
-	return initEncoder("ansisql", service, db, table, input, output, version, "\"", false)
+func initAnsiSQLEncoder(service, db, table, input string, output string, version int, filtering bool) (Encoder, error) {
+	return initEncoder("ansisql", service, db, table, input, output, version, "\"", false, filtering)
 }
 
-func initMySQLIdempotentEncoder(service, db, table, input string, output string, version int) (Encoder, error) {
-	return initEncoder("mysql_idempotent", service, db, table, input, output, version, "`", true)
+func initMySQLIdempotentEncoder(service, db, table, input string, output string, version int, filtering bool) (Encoder, error) {
+	return initEncoder("mysql_idempotent", service, db, table, input, output, version, "`", true, filtering)
 }
 
-func initAnsiSQLIdempotentEncoder(service, db, table, input string, output string, version int) (Encoder, error) {
-	return initEncoder("ansisql_idempotent", service, db, table, input, output, version, "\"", true)
+func initAnsiSQLIdempotentEncoder(service, db, table, input string, output string, version int, filtering bool) (Encoder, error) {
+	return initEncoder("ansisql_idempotent", service, db, table, input, output, version, "\"", true, filtering)
 }
 
 //Schema returns table schema
@@ -179,11 +181,11 @@ func (e *sqlEncoder) appendFieldNames(schema *types.TableSchema, filter []int, p
 	if !pk {
 		fieldNames += e.quotedIdent("seqno")
 	}
-	for i, j := 0, 0; i < len(schema.Columns); i++ {
+	for i := 0; i < len(schema.Columns); i++ {
 		if pk && schema.Columns[i].Key != "PRI" {
 			continue
 		}
-		if filteredField(filter, i, &j) {
+		if e.filter[i] == -1 {
 			continue
 		}
 		if len(fieldNames) != 0 {
@@ -196,8 +198,8 @@ func (e *sqlEncoder) appendFieldNames(schema *types.TableSchema, filter []int, p
 
 func (e *sqlEncoder) appendSchemaFields(schema *types.TableSchema, filter []int) string {
 	fieldNames := e.quotedIdent("seqno") + " BIGINT NOT NULL, "
-	for i, j := 0, 0; i < len(schema.Columns); i++ {
-		if filteredField(filter, i, &j) {
+	for i := 0; i < len(schema.Columns); i++ {
+		if e.filter[i] == -1 {
 			continue
 		}
 		fieldNames += e.quotedIdent(schema.Columns[i].Name) + " " + schema.Columns[i].Type
@@ -215,8 +217,8 @@ func (e *sqlEncoder) appendSchema(schema *types.TableSchema, filter []int) strin
 
 func (e *sqlEncoder) appendFields(b *bytes.Buffer, row []interface{}, cf *types.CommonFormatEvent, seqno uint64) {
 	bufWrite(b, strconv.FormatUint(seqno, 10))
-	for i, j := 0, 0; i < len(e.c.inSchema.Columns); i++ {
-		if filteredField(e.c.filter, i, &j) {
+	for i := 0; i < len(e.c.inSchema.Columns); i++ {
+		if e.filter[i] == -1 {
 			continue
 		}
 		_ = b.WriteByte(',')

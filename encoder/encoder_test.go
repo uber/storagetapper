@@ -970,6 +970,17 @@ func TestUnwrapBinaryKey(t *testing.T) {
 	test.Assert(t, s == key, "keys should be equal")
 }
 
+func TestPrepareFilter(t *testing.T) {
+	var tests = struct {
+		in     []types.ColumnSchema
+		out    []types.AvroFields
+		result []int
+	}{
+		in:  []types.ColumnSchema{{Name: "a"}, {Name: "b"}, {Name: "c"}},
+		out: []types.AvroFields{{Name: "a"}, {Name: "b"}, {Name: "c"}},
+	}
+}
+
 func ExecSQL(db *sql.DB, t test.Failer, query string) {
 	test.CheckFail(util.ExecSQL(db, query), t)
 }

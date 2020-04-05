@@ -39,7 +39,7 @@ type msgPackEncoder struct {
 }
 
 func initMsgPackEncoder(service, db, table, input string, output string, version int) (Encoder, error) {
-	return &msgPackEncoder{jsonEncoder{Service: service, Db: db, Table: table, Input: input, Output: output, Version: version}}, nil
+	return &msgPackEncoder{jsonEncoder{Service: service, DB: db, Table: table, Input: input, Output: output, Version: version}}, nil
 }
 
 //Row encodes row into CommonFormat

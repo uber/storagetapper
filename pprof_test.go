@@ -40,7 +40,7 @@ func TestPprofBasic(t *testing.T) {
 	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword})
 	test.CheckFail(err, t)
 
-	test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS "+types.MyDbName)
+	test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS "+types.MyDBName)
 	test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS e2e_test_db1")
 	test.ExecSQL(conn, t, "RESET MASTER")
 

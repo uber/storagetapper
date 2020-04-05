@@ -49,7 +49,7 @@ type sqlEncoder struct {
 }
 
 func initEncoder(tp, service, db, table, input string, output string, version int, quote string, ii bool) (Encoder, error) {
-	return &sqlEncoder{typ: tp, c: jsonEncoder{Service: service, Db: db, Table: table, Input: input, Output: output, Version: version}, identQuote: quote, idempotentInsert: ii}, nil
+	return &sqlEncoder{typ: tp, c: jsonEncoder{Service: service, DB: db, Table: table, Input: input, Output: output, Version: version}, identQuote: quote, idempotentInsert: ii}, nil
 }
 
 func initMySQLEncoder(service, db, table, input string, output string, version int) (Encoder, error) {

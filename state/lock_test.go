@@ -51,7 +51,7 @@ func lockAndCheckLockedTaskBasic(t *testing.T, num int) {
 
 func getTableLocForTest(i int) *types.TableLoc {
 	d := fmt.Sprintf("%v", i)
-	return &types.TableLoc{Service: "locksvc" + d, Cluster: "lockclst" + d, Db: "lockdb" + d, Table: "lockt0" + d, Input: "mysql", Output: "kafka", Version: 0}
+	return &types.TableLoc{Service: "locksvc" + d, Cluster: "lockclst" + d, DB: "lockdb" + d, Table: "lockt0" + d, Input: "mysql", Output: "kafka", Version: 0}
 }
 
 func TestStateLockTaskBasic(t *testing.T) {
@@ -118,7 +118,7 @@ func TestStateLockTaskRefresh(t *testing.T) {
 
 func TestStateLockTaskScheduleInterval(t *testing.T) {
 	resetState(t)
-	tl := &types.TableLoc{Service: "locksvc1", Cluster: "lockclst1", Db: "lockdb1", Table: "lockt01", Input: "notmysql", Output: "kafka", Version: 0}
+	tl := &types.TableLoc{Service: "locksvc1", Cluster: "lockclst1", DB: "lockdb1", Table: "lockt01", Input: "notmysql", Output: "kafka", Version: 0}
 	insertStateRowForTest(1, tl, "", `{"Schedule":{"Interval":10}}`, t)
 	tl.Table = "lockt02"
 	insertStateRowForTest(2, tl, "", "", t)
@@ -181,7 +181,7 @@ func TestStateLockClusterBasic(t *testing.T) {
 	for i := 1; i <= 8; i++ {
 		d := fmt.Sprintf("%v", i)
 		d2 := fmt.Sprintf("%v", (i+1)/2)
-		insertStateRowForTest(int64(i), &types.TableLoc{Service: "locksvc" + d2, Cluster: "lockclst" + d2, Db: "lockdb" + d, Table: "lockt0" + d, Input: "mysql", Output: "kafka", Version: 0}, "", "", t)
+		insertStateRowForTest(int64(i), &types.TableLoc{Service: "locksvc" + d2, Cluster: "lockclst" + d2, DB: "lockdb" + d, Table: "lockt0" + d, Input: "mysql", Output: "kafka", Version: 0}, "", "", t)
 	}
 
 	lockAndCheckLockedClusterBasic(t, 4)
@@ -198,7 +198,7 @@ func TestStateLockClusterRefresh(t *testing.T) {
 	for i := 1; i <= 8; i++ {
 		d := fmt.Sprintf("%v", i)
 		d2 := fmt.Sprintf("%v", (i+1)/2)
-		insertStateRowForTest(int64(i), &types.TableLoc{Service: "locksvc" + d2, Cluster: "lockclst" + d2, Db: "lockdb" + d, Table: "lockt0" + d, Input: "mysql", Output: "kafka", Version: 0}, "", "", t)
+		insertStateRowForTest(int64(i), &types.TableLoc{Service: "locksvc" + d2, Cluster: "lockclst" + d2, DB: "lockdb" + d, Table: "lockt0" + d, Input: "mysql", Output: "kafka", Version: 0}, "", "", t)
 	}
 
 	lockAndCheckLockedClusterBasic(t, 4)
@@ -232,7 +232,7 @@ func TestStateLockTableAndClusterParallel(t *testing.T) {
 	for i := 1; i <= 200; i++ {
 		d := fmt.Sprintf("%v", i)
 		d2 := fmt.Sprintf("%v", (i-1)/4+1)
-		insertStateRowForTest(int64(i), &types.TableLoc{Service: "locksvc" + d2, Cluster: "lockclst" + d2, Db: "lockdb" + d, Table: "lockt0" + d, Input: "mysql", Output: "kafka", Version: 0}, "", "", t)
+		insertStateRowForTest(int64(i), &types.TableLoc{Service: "locksvc" + d2, Cluster: "lockclst" + d2, DB: "lockdb" + d, Table: "lockt0" + d, Input: "mysql", Output: "kafka", Version: 0}, "", "", t)
 	}
 
 	var wg sync.WaitGroup

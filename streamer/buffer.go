@@ -40,7 +40,7 @@ var batchCommitInterval = 1 * time.Second
 func (s *Streamer) getTag() map[string]string {
 	return map[string]string{
 		"table":   s.row.Table,
-		"db":      s.row.Db,
+		"db":      s.row.DB,
 		"cluster": s.row.Cluster,
 		"input":   s.row.Input,
 		"version": strconv.Itoa(s.row.Version),
@@ -143,12 +143,14 @@ func (s *Streamer) produceEvent(outProducer pipe.Producer, data interface{}) err
 	return err
 }
 
+/*
 //message passed from fetcher to the main loop
 type result struct {
 	data    interface{}
 	err     error
 	hasNext bool
 }
+*/
 
 func (s *Streamer) commitBatch(outProducer pipe.Producer, numEvents int64) bool {
 	s.metrics.EventsRead.Inc(numEvents)

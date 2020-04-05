@@ -1,13 +1,13 @@
 log_type: zap
 log_level: debug
 
-changelog_topic_name_template_default: "storagetapper-{{.Service}}-{{.Db}}-{{.Table}}{{if .Version}}-v{{.Version}}{{end}}"
+changelog_topic_name_template_default: "storagetapper-{{.Service}}-{{.DB}}-{{.Table}}{{if .Version}}-v{{.Version}}{{end}}"
 
 output_topic_name_template:
   mysql:
     kafka:
-        "hp-dbevents-mysql-{{.Service}}-{{.Db}}-{{.Table}}"
-    hdfs: "{{.Input}}/{{.Service}}/{{.Table}}/{{.Version}}/{{.Db}}_"
-    s3: "{{.Input}}/{{.Service}}/{{.Table}}/{{.Version}}/{{.Db}}_"
+        "hp-dbevents-mysql-{{.Service}}-{{.DB}}-{{.Table}}"
+    hdfs: "{{.Input}}/{{.Service}}/{{.Table}}/{{.Version}}/{{.DB}}_"
+    s3: "{{.Input}}/{{.Service}}/{{.Table}}/{{.Version}}/{{.DB}}_"
 
 max_file_size: 5368709120

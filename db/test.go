@@ -43,7 +43,7 @@ func GetConnInfoForTest(dbl *Loc, connType ConnectionType, inputType string) (*A
 		Port: 3306,
 		User: types.TestMySQLUser,
 		Pwd:  types.TestMySQLPassword,
-		Db:   dbl.Name,
+		DB:   dbl.Name,
 	}, nil
 }
 

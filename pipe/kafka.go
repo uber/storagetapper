@@ -152,7 +152,7 @@ func (p *KafkaPipe) Init() error {
 		log.Warnf("No DB configured, offset won't be persisted")
 		return nil
 	}
-	err = util.ExecSQL(p.conn, `CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.kafka_offsets (
+	err = util.ExecSQL(p.conn, `CREATE TABLE IF NOT EXISTS `+types.MyDBName+`.kafka_offsets (
 		topic VARCHAR(255) CHARACTER SET utf8 NOT NULL,
 		partitionId INT NOT NULL DEFAULT 0,
 		offset BIGINT NOT NULL DEFAULT 0,

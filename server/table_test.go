@@ -102,7 +102,7 @@ func tableFormRequest(typ string, cmd tableCmdReq, code int, t *testing.T) *http
 	body.Add("cmd", cmd.Cmd)
 	body.Add("cluster", cmd.Cluster)
 	body.Add("service", cmd.Service)
-	body.Add("db", cmd.Db)
+	body.Add("db", cmd.DB)
 	body.Add("table", cmd.Table)
 	if cmd.Table != "" && cmd.Cmd != "list" {
 		body.Set("table", cmd.Table+"_"+typ)
@@ -195,7 +195,7 @@ func TestServerTableListCommands(t *testing.T) {
 		Cmd:          "list",
 		Cluster:      "*",
 		Service:      "svc1",
-		Db:           "db1",
+		DB:           "db1",
 		Table:        "*",
 		Input:        "mysql",
 		Output:       "kafka",
@@ -205,8 +205,8 @@ func TestServerTableListCommands(t *testing.T) {
 	resp := tableJSONRequest(req, http.StatusOK, t)
 
 	ref := []tableListResponse{
-		{Cluster: "clst1", Service: "svc1", Db: "db1", Table: "table1", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
-		{Cluster: "clst1", Service: "svc1", Db: "db1", Table: "table2", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
+		{Cluster: "clst1", Service: "svc1", DB: "db1", Table: "table1", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
+		{Cluster: "clst1", Service: "svc1", DB: "db1", Table: "table2", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
 	}
 
 	compareResult(resp.Body, ref, t)
@@ -223,7 +223,7 @@ func TestServerTableDelCommands(t *testing.T) {
 	req := tableCmdReq{
 		Cluster: "clst2",
 		Service: "svc1",
-		Db:      "db1",
+		DB:      "db1",
 		Table:   "*",
 		Input:   "mysql",
 		Output:  "kafka",
@@ -233,7 +233,7 @@ func TestServerTableDelCommands(t *testing.T) {
 	resp := tableJSONRequest(req, http.StatusOK, t)
 	require.Equal(t, "", resp.Body.String())
 
-	reg, err := state.TableRegistered(req.Service, req.Cluster, req.Db, req.Table, req.Input, req.Output, req.Version, false)
+	reg, err := state.TableRegistered(req.Service, req.Cluster, req.DB, req.Table, req.Input, req.Output, req.Version, false)
 	require.NoError(t, err)
 	require.False(t, reg)
 
@@ -243,9 +243,9 @@ func TestServerTableDelCommands(t *testing.T) {
 	resp = tableJSONRequest(req, http.StatusOK, t)
 
 	ref := []tableListResponse{
-		{Cluster: "clst1", Service: "svc1", Db: "db1", Table: "table1", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
-		{Cluster: "clst1", Service: "svc1", Db: "db1", Table: "table2", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
-		{Cluster: "clst2", Service: "svc2", Db: "db1", Table: "table4", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
+		{Cluster: "clst1", Service: "svc1", DB: "db1", Table: "table1", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
+		{Cluster: "clst1", Service: "svc1", DB: "db1", Table: "table2", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
+		{Cluster: "clst2", Service: "svc2", DB: "db1", Table: "table4", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json"},
 	}
 
 	compareResult(resp.Body, ref, t)
@@ -265,7 +265,7 @@ func TestServerTableAddDelListCommands(t *testing.T) {
 		Cmd:          "add",
 		Cluster:      "test_cluster_1",
 		Service:      "test_service_1",
-		Db:           "st_table_http_test0",
+		DB:           "st_table_http_test0",
 		Table:        "table_http_test0",
 		Input:        "mysql",
 		Output:       "kafka",
@@ -285,7 +285,7 @@ func TestServerTableAddDelListCommands(t *testing.T) {
 
 	resp = tableJSONRequest(listReq, http.StatusOK, t)
 
-	ref := []tableListResponse{{Cluster: "test_cluster_1", Service: "test_service_1", Db: "st_table_http_test0", Table: "table_http_test0", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json", Params: "{\"Pipe\":{\"Compression\":true}}"}}
+	ref := []tableListResponse{{Cluster: "test_cluster_1", Service: "test_service_1", DB: "st_table_http_test0", Table: "table_http_test0", Input: "mysql", Output: "kafka", Version: 0, OutputFormat: "json", Params: "{\"Pipe\":{\"Compression\":true}}"}}
 
 	compareResult(resp.Body, ref, t)
 
@@ -305,7 +305,7 @@ func TestServerTableCmdIncorrectParams(t *testing.T) {
 		Cmd:     "add",
 		Cluster: "test_cluster_1",
 		Service: "test_service_1",
-		Db:      "db1_http_test",
+		DB:      "db1_http_test",
 		Table:   "table1_http_test",
 	}
 	add.Cmd = ""
@@ -320,10 +320,10 @@ func TestServerTableCmdIncorrectParams(t *testing.T) {
 	tableRequest(add, http.StatusInternalServerError, t)
 
 	add.Service = "test_service_2"
-	add.Db = ""
+	add.DB = ""
 	tableRequest(add, http.StatusInternalServerError, t)
 
-	add.Db = "test_db_2"
+	add.DB = "test_db_2"
 	add.Table = ""
 	tableRequest(add, http.StatusInternalServerError, t)
 

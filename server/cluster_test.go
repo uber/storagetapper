@@ -47,10 +47,10 @@ func clustersTableInit(t *testing.T) {
 	conn := state.GetDB()
 	require.NotNil(t, conn)
 
-	err := util.ExecSQL(conn, "TRUNCATE TABLE "+types.MyDbName+".clusters")
+	err := util.ExecSQL(conn, "TRUNCATE TABLE "+types.MyDBName+".clusters")
 	test.CheckFail(err, t)
 
-	err = util.ExecSQL(conn, "TRUNCATE TABLE "+types.MyDbName+".cluster_state")
+	err = util.ExecSQL(conn, "TRUNCATE TABLE "+types.MyDBName+".cluster_state")
 	test.CheckFail(err, t)
 
 	err = util.ExecSQL(conn, "INSERT INTO cluster_state(cluster, gtid, seqno) VALUES (?, ?, ?)", "test_cluster1", "test_gtid_set1", 11111)

@@ -41,7 +41,7 @@ func init() {
 //avroEncoder implements Encoder interface for Avro format
 type avroEncoder struct {
 	Service   string
-	Db        string
+	DB        string
 	Table     string
 	Input     string
 	Output    string
@@ -54,7 +54,7 @@ type avroEncoder struct {
 }
 
 func initAvroEncoder(service, db, table, input string, output string, version int) (Encoder, error) {
-	return &avroEncoder{Service: service, Db: db, Table: table, Input: input, Output: output, Version: version}, nil
+	return &avroEncoder{Service: service, DB: db, Table: table, Input: input, Output: output, Version: version}, nil
 }
 
 //Type returns type of the encoder interface (faster then type assertion?)
@@ -168,11 +168,11 @@ func (e *avroEncoder) UpdateCodec() error {
 	//Schema from state is used to encode from row format, whether in
 	//binlog reader or when pipe type is local, so schema is always
 	//corresponds to the message schema
-	e.inSchema, err = state.GetSchema(e.Service, e.Db, e.Table, e.Input, e.Output, e.Version)
+	e.inSchema, err = state.GetSchema(e.Service, e.DB, e.Table, e.Input, e.Output, e.Version)
 	if log.E(err) {
 		return err
 	}
-	n, err := GetOutputSchemaName(e.Service, e.Db, e.Table, e.Input, e.Output, e.Version)
+	n, err := GetOutputSchemaName(e.Service, e.DB, e.Table, e.Input, e.Output, e.Version)
 	if log.E(err) {
 		return err
 	}

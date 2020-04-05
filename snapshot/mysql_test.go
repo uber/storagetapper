@@ -61,7 +61,7 @@ func createDBLow(t *testing.T, input string) *sql.DB {
 		db.Slave, "mysql")
 	test.CheckFail(err, t)
 
-	a.Db = ""
+	a.DB = ""
 	conn, err := db.Open(a)
 	test.CheckFail(err, t)
 
@@ -83,7 +83,7 @@ func createDBLow(t *testing.T, input string) *sql.DB {
 	err = conn.Close()
 	test.CheckFail(err, t)
 
-	a.Db = "snap_test_db1"
+	a.DB = "snap_test_db1"
 	conn, err = db.Open(a)
 	test.CheckFail(err, t)
 
@@ -154,7 +154,7 @@ func TestNonExistentTable(t *testing.T) {
 	test.Assert(t, err != nil, "non existent table should fail")
 }
 
-func TestNonExistentDb(t *testing.T) {
+func TestNonExistentDB(t *testing.T) {
 	resetState(t)
 
 	conn := createDB(t)

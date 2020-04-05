@@ -219,10 +219,10 @@ func waitAllEventsStreamed(format string, c pipe.Consumer, sseqno int, seqno int
 }
 
 func initTestDB(t *testing.T) {
-	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: ""})
+	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, DB: ""})
 	require.NoError(t, err)
 
-	test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS "+types.MyDbName)
+	test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS "+types.MyDBName)
 	test.ExecSQL(conn, t, "DROP DATABASE IF EXISTS e2e_test_db1")
 	test.ExecSQL(conn, t, "RESET MASTER")
 
@@ -254,9 +254,9 @@ func addTable(format string, tableNum string, output string, t *testing.T) {
 	test.CheckFail(err, t)
 
 	if tableNum == "1" {
-		conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: ""})
+		conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, DB: ""})
 		test.CheckFail(err, t)
-		test.ExecSQL(conn, t, "UPDATE "+types.MyDbName+".cluster_state SET seqno=0 WHERE cluster='e2e_test_cluster1'")
+		test.ExecSQL(conn, t, "UPDATE "+types.MyDBName+".cluster_state SET seqno=0 WHERE cluster='e2e_test_cluster1'")
 		err = conn.Close()
 		test.CheckFail(err, t)
 	}
@@ -391,7 +391,7 @@ func testStep(inPipeType string, bufferFormat string, outPipeType string, outPip
 	prepareSchemaResult(outPipeFormat, 0, 1, false, &result)
 
 	conn, err := db.Open(&db.Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser,
-		Pwd: types.TestMySQLPassword, Db: "e2e_test_db1"})
+		Pwd: types.TestMySQLPassword, DB: "e2e_test_db1"})
 	require.NoError(t, err)
 
 	seqno = prepareReferenceArray(conn, outPipeFormat, true, 101, seqno, 1, inserts[0], insertsResult[outPipeFormat][0], &result, t)

@@ -933,7 +933,7 @@ func TestMultiVersions_multi_table(t *testing.T) {
 
 		var dlen, tlen = 0, 0
 		if tests[i].real != 0 {
-			test.Assert(t, testReader.tables[tests[i].db] != nil, "Db not found in map: %v", tests[i].db)
+			test.Assert(t, testReader.tables[tests[i].db] != nil, "DB not found in map: %v", tests[i].db)
 			dlen = len(testReader.tables[tests[i].db])
 			a := testReader.tables[tests[i].db][tests[i].t]["test_svc1"]
 			test.Assert(t, a != nil, "Table not found in map: %v", tests[i].t)
@@ -954,18 +954,18 @@ func TestMultiVersions_multi_table(t *testing.T) {
 		//Check that table has been properly removed from the map and version array.
 		if tests[i].real != 0 {
 			if tlen > 1 {
-				test.Assert(t, testReader.tables[tests[i].db] != nil, "Db not found in map: %v", tests[i].db)
+				test.Assert(t, testReader.tables[tests[i].db] != nil, "DB not found in map: %v", tests[i].db)
 				a := testReader.tables[tests[i].db][tests[i].t]["test_svc1"]
 				test.Assert(t, a != nil, "Table not found in map: %v", tests[i].t)
 
 				test.Assert(t, !inVersionArray(a, tests[i].output, tests[i].version), "Found in map %v %v %v %v", tests[i].db, tests[i].t, tests[i].output, tests[i].version)
 			} else {
 				if dlen > 1 {
-					test.Assert(t, testReader.tables[tests[i].db] != nil, "Db not found in map: %v", tests[i].db)
+					test.Assert(t, testReader.tables[tests[i].db] != nil, "DB not found in map: %v", tests[i].db)
 					a := testReader.tables[tests[i].db][tests[i].t]
 					test.Assert(t, a == nil, "Table found in map: %v", tests[i].t)
 				} else {
-					test.Assert(t, testReader.tables[tests[i].db] == nil, "Db found in map: %v", tests[i].db)
+					test.Assert(t, testReader.tables[tests[i].db] == nil, "DB found in map: %v", tests[i].db)
 				}
 			}
 		}

@@ -28,14 +28,14 @@ import (
 )
 
 var testFile = `
-{test_replace}_topic_name_template_default: "default.{{.Service}}.db.{{.Db}}.table.{{.Table}}"
+{test_replace}_topic_name_template_default: "default.{{.Service}}.db.{{.DB}}.table.{{.Table}}"
 {test_replace}_topic_name_template:
     mysql:
-        kafka: "topic.{{.Service}}.db.{{.Db}}.table.{{.Table}}{{if .Version}}.v{{.Version}}{{end}}"
-        file: "{{.Service}}/{{.Db}}/{{.Table}}/{{.Version}}/"
+        kafka: "topic.{{.Service}}.db.{{.DB}}.table.{{.Table}}{{if .Version}}.v{{.Version}}{{end}}"
+        file: "{{.Service}}/{{.DB}}/{{.Table}}/{{.Version}}/"
         hdfs: "no-parameters"
     mysqlts:
-        hdfs: 'topic.{{.Service}}.db.{{.Db}}.table.{{.Table}}{{if .Version}}.v{{.Version}}{{end}}.{{.Timestamp.Format "20060102150405"}}'
+        hdfs: 'topic.{{.Service}}.db.{{.DB}}.table.{{.Table}}{{if .Version}}.v{{.Version}}{{end}}.{{.Timestamp.Format "20060102150405"}}'
     fail_execute:
         fail_execute: "{{.no_such_field}}"
     file:

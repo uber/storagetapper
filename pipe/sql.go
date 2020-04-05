@@ -118,7 +118,7 @@ func (p *sqlPipe) NewProducer(topic string) (Producer, error) {
 			return nil, err
 		}
 	} else {
-		ci, err := db.GetConnInfo(&db.Loc{Service: p.cfg.SQL.Service, Cluster: p.cfg.SQL.Cluster, Name: p.cfg.SQL.Db}, db.Master, p.cfg.SQL.Type)
+		ci, err := db.GetConnInfo(&db.Loc{Service: p.cfg.SQL.Service, Cluster: p.cfg.SQL.Cluster, Name: p.cfg.SQL.DB}, db.Master, p.cfg.SQL.Type)
 		if err != nil {
 			return nil, err
 		}

@@ -55,7 +55,7 @@ type Addr struct {
 	Port uint16 `json:"port"`
 	User string `json:"user"`
 	Pwd  string `json:"pwd"`
-	Db   string `json:"db"`
+	DB   string `json:"db"`
 }
 
 // Loc contains information related to database location
@@ -69,7 +69,7 @@ type Loc struct {
 type TableLoc struct {
 	Service string
 	Cluster string
-	Db      string
+	DB      string
 	Table   string
 	Input   string
 	Output  string

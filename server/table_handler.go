@@ -41,7 +41,7 @@ type tableCmdReq struct {
 	Cmd           string
 	Cluster       string
 	Service       string
-	Db            string
+	DB            string
 	Table         string
 	Input         string
 	Output        string
@@ -60,7 +60,7 @@ type tableCmdReq struct {
 type tableListResponse struct {
 	Cluster       string    `json:"cluster"`
 	Service       string    `json:"service"`
-	Db            string    `json:"db"`
+	DB            string    `json:"db"`
 	Table         string    `json:"table"`
 	Input         string    `json:"input"`
 	Output        string    `json:"output"`
@@ -102,19 +102,19 @@ func handleAddCmd(_ http.ResponseWriter, t *tableCmdReq) error {
 	}
 	if t.AutoVersion {
 		var err error
-		t.Version, err = state.TableMaxVersion(t.Service, t.Cluster, t.Db, t.Table, t.Input, t.Output)
+		t.Version, err = state.TableMaxVersion(t.Service, t.Cluster, t.DB, t.Table, t.Input, t.Output)
 		if err != nil {
 			return err
 		}
 		t.Version++
 	}
 	if t.PublishSchema != "" && t.Input == types.InputMySQL {
-		err := SchemaRegister(t.Service, t.Cluster, t.Db, t.Table, t.Input, t.Output, t.Version, t.OutputFormat, t.PublishSchema, t.CreateTopic && t.Output == "kafka")
+		err := SchemaRegister(t.Service, t.Cluster, t.DB, t.Table, t.Input, t.Output, t.Version, t.OutputFormat, t.PublishSchema, t.CreateTopic && t.Output == "kafka")
 		if err != nil {
 			return err
 		}
 	}
-	tn, err := config.Get().GetChangelogTopicName(t.Service, t.Db, t.Table, t.Input, t.Output, t.Version, time.Now())
+	tn, err := config.Get().GetChangelogTopicName(t.Service, t.DB, t.Table, t.Input, t.Output, t.Version, time.Now())
 	if err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func handleAddCmd(_ http.ResponseWriter, t *tableCmdReq) error {
 	if err := pipe.DeleteKafkaOffsets(tn, state.GetDB()); err != nil {
 		return err
 	}
-	if !state.RegisterTable(t.Cluster, t.Service, t.Db, t.Table, t.Input, t.Output, t.Version, t.OutputFormat, t.Params) {
+	if !state.RegisterTable(t.Cluster, t.Service, t.DB, t.Table, t.Input, t.Output, t.Version, t.OutputFormat, t.Params) {
 		return errors.New("error registering table")
 	}
 
@@ -130,7 +130,7 @@ func handleAddCmd(_ http.ResponseWriter, t *tableCmdReq) error {
 }
 
 func handleDelCmd(_ http.ResponseWriter, t *tableCmdReq) error {
-	if !state.DeregisterTable(t.Cluster, t.Service, t.Db, t.Table, t.Input, t.Output, t.Version) {
+	if !state.DeregisterTable(t.Cluster, t.Service, t.DB, t.Table, t.Input, t.Output, t.Version) {
 		return errors.New("error deregistering table")
 	}
 
@@ -144,7 +144,7 @@ func handleListCmd(w http.ResponseWriter, t *tableCmdReq) error {
 
 	cond, args = state.AddSQLCond(cond, args, "AND", "cluster", "=", t.Cluster)
 	cond, args = state.AddSQLCond(cond, args, "AND", "service", "=", t.Service)
-	cond, args = state.AddSQLCond(cond, args, "AND", "db", "=", t.Db)
+	cond, args = state.AddSQLCond(cond, args, "AND", "db", "=", t.DB)
 	cond, args = state.AddSQLCond(cond, args, "AND", "table_name", "=", t.Table)
 	cond, args = state.AddSQLCond(cond, args, "AND", "input", "=", t.Input)
 	cond, args = state.AddSQLCond(cond, args, "AND", "output", "=", t.Output)
@@ -173,11 +173,11 @@ func handleListCmd(w http.ResponseWriter, t *tableCmdReq) error {
 			if v.Cluster == "" {
 				v.Cluster = "*"
 			}
-			if v.Db == "" {
-				v.Db = "*"
+			if v.DB == "" {
+				v.DB = "*"
 			}
 			var b []byte
-			if b, err = json.Marshal(&tableListResponse{Cluster: v.Cluster, Service: v.Service, Db: v.Db, Table: v.Table, Input: v.Input, Output: v.Output, Version: v.Version, OutputFormat: v.OutputFormat, SnapshottedAt: v.SnapshottedAt, NeedSnapshot: v.NeedSnapshot, Params: v.ParamsRaw, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}); err != nil {
+			if b, err = json.Marshal(&tableListResponse{Cluster: v.Cluster, Service: v.Service, DB: v.DB, Table: v.Table, Input: v.Input, Output: v.Output, Version: v.Version, OutputFormat: v.OutputFormat, SnapshottedAt: v.SnapshottedAt, NeedSnapshot: v.NeedSnapshot, Params: v.ParamsRaw, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}); err != nil {
 				break
 			}
 			resp = append(resp, b...)
@@ -201,7 +201,7 @@ func parseTableForm(w http.ResponseWriter, r *http.Request) *tableCmdReq {
 		t.Cmd = r.FormValue("cmd")
 		t.Cluster = r.FormValue("cluster")
 		t.Service = r.FormValue("service")
-		t.Db = r.FormValue("db")
+		t.DB = r.FormValue("db")
 		t.Table = r.FormValue("table")
 		t.Input = strings.ToLower(r.FormValue("input"))
 		t.Output = strings.ToLower(r.FormValue("output"))
@@ -252,7 +252,7 @@ func tableCmd(w http.ResponseWriter, r *http.Request) {
 
 	if t.Cmd == "list" {
 		err = handleListCmd(w, t)
-	} else if len(t.Service) == 0 || len(t.Cluster) == 0 || len(t.Db) == 0 || len(t.Table) == 0 {
+	} else if len(t.Service) == 0 || len(t.Cluster) == 0 || len(t.DB) == 0 || len(t.Table) == 0 {
 		err = errors.New("invalid command, parameters(service,cluster,db,table) must not be empty")
 	} else if t.Cmd == "add" && len(t.OutputFormat) == 0 && !outputSQL(t.Output) {
 		err = errors.New("invalid add command. outputFormat must not be empty")
@@ -266,7 +266,7 @@ func tableCmd(w http.ResponseWriter, r *http.Request) {
 		err = errors.New("unknown command (possible commands add/del/list)")
 	}
 	if err != nil {
-		log.Errorf("Table http: cmd=%v, service=%v, cluster=%v, db=%v, table=%v, input=%v, output=%v, version=%v, outputFormat=%v, error=%v", t.Cmd, t.Service, t.Cluster, t.Db, t.Table, t.Input, t.Output, t.Version, t.OutputFormat, err)
+		log.Errorf("Table http: cmd=%v, service=%v, cluster=%v, db=%v, table=%v, input=%v, output=%v, version=%v, outputFormat=%v, error=%v", t.Cmd, t.Service, t.Cluster, t.DB, t.Table, t.Input, t.Output, t.Version, t.OutputFormat, err)
 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

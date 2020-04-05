@@ -17,16 +17,16 @@ func TestMutateTable(t *testing.T) {
 
 	var tblSchema types.TableSchema
 
-	rawSchema, err := GetRaw(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, TestInput)
+	rawSchema, err := GetRaw(&db.Loc{Service: TestSvc, Name: TestDB}, TestTbl, TestInput)
 	test.CheckFail(err, t)
 
-	if !MutateTable(conn, TestSvc, TestDb, TestTbl, ` ADD f111  BIGINT`, &tblSchema, &rawSchema) {
+	if !MutateTable(conn, TestSvc, TestDB, TestTbl, ` ADD f111  BIGINT`, &tblSchema, &rawSchema) {
 		t.Fatalf("MutateTable failed")
 	}
 
-	test.ExecSQL(conn, t, `ALTER TABLE `+types.MyDbName+`.`+TestTbl+` ADD f111  BIGINT`)
+	test.ExecSQL(conn, t, `ALTER TABLE `+types.MyDBName+`.`+TestTbl+` ADD f111  BIGINT`)
 
-	tblSchemaRef, err := Get(&db.Loc{Service: TestSvc, Name: TestDb}, TestTbl, TestInput)
+	tblSchemaRef, err := Get(&db.Loc{Service: TestSvc, Name: TestDB}, TestTbl, TestInput)
 	test.CheckFail(err, t)
 
 	log.Debugf("%+v", tblSchemaRef)

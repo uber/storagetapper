@@ -46,7 +46,7 @@ var IsValidConn = IsValidConnByType
 
 // Log returns logger with Addr fields
 func (a *Addr) Log() log.Logger {
-	return log.WithFields(log.Fields{"user": a.User, "host": a.Host, "port": a.Port, "db": a.Db})
+	return log.WithFields(log.Fields{"user": a.User, "host": a.Host, "port": a.Port, "db": a.DB})
 }
 
 // SQLMode can be substituted by tests
@@ -57,7 +57,7 @@ var SQLMode = "STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISI
 //OpenModeType opens database connection by given address
 func OpenModeType(ci *Addr, drv, mode string) (*sql.DB, error) {
 	ci.Log().Debugf("Connect string")
-	dbc, err := sql.Open(drv, fmt.Sprintf("%v:%v@tcp(%v:%v)/%v?sql_mode='"+mode+"'&interpolateParams=true&parseTime=true&loc=Local&time_zone='SYSTEM'", ci.User, ci.Pwd, ci.Host, ci.Port, ci.Db))
+	dbc, err := sql.Open(drv, fmt.Sprintf("%v:%v@tcp(%v:%v)/%v?sql_mode='"+mode+"'&interpolateParams=true&parseTime=true&loc=Local&time_zone='SYSTEM'", ci.User, ci.Pwd, ci.Host, ci.Port, ci.DB))
 
 	if log.EL(ci.Log(), err) {
 		return nil, err
@@ -88,7 +88,7 @@ func OpenService(dbl *Loc, substDB string, inputType string) (*sql.DB, error) {
 	}
 
 	if substDB != "" {
-		ci.Db = substDB
+		ci.DB = substDB
 	}
 
 	return Open(ci)

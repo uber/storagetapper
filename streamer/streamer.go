@@ -186,7 +186,7 @@ func (s *Streamer) setupChangelogConsumer(cfg *config.AppConfig) (pipe.Consumer,
 
 	if cfg.ChangelogBuffer {
 		var tn string
-		tn, err = config.Get().GetChangelogTopicName(s.row.Service, s.row.Db, s.row.Table, s.row.Input, s.row.Output, s.row.Version, s.row.SnapshottedAt)
+		tn, err = config.Get().GetChangelogTopicName(s.row.Service, s.row.DB, s.row.Table, s.row.Input, s.row.Output, s.row.Version, s.row.SnapshottedAt)
 		if log.EL(s.log, err) {
 			return nil, false
 		}
@@ -211,7 +211,7 @@ func (s *Streamer) setupChangelogConsumer(cfg *config.AppConfig) (pipe.Consumer,
 		return nil, false
 	}
 
-	if s.row.NeedSnapshot && !s.row.Params.NoSnapshot && !s.waitForGtid(s.row.Service, s.row.Cluster, s.row.Db, s.row.Input, gtid) {
+	if s.row.NeedSnapshot && !s.row.Params.NoSnapshot && !s.waitForGtid(s.row.Service, s.row.Cluster, s.row.DB, s.row.Input, gtid) {
 		if consumer != nil {
 			log.E(consumer.CloseOnFailure())
 		}
@@ -224,7 +224,7 @@ func (s *Streamer) setupChangelogConsumer(cfg *config.AppConfig) (pipe.Consumer,
 func (s *Streamer) start(cfg *config.AppConfig) bool {
 	var err error
 
-	s.clusterLock = lock.Create(state.GetDbAddr())
+	s.clusterLock = lock.Create(state.GetDBAddr())
 	defer s.clusterLock.Close()
 
 	h, _ := os.Hostname()
@@ -245,7 +245,7 @@ func (s *Streamer) start(cfg *config.AppConfig) bool {
 		return false
 	}
 
-	s.log = log.WithFields(log.Fields{"worker_id": w, "service": s.row.Service, "db": s.row.Db, "table": s.row.Table, "version": s.row.Version})
+	s.log = log.WithFields(log.Fields{"worker_id": w, "service": s.row.Service, "db": s.row.DB, "table": s.row.Table, "version": s.row.Version})
 	s.metrics = metrics.NewStreamerMetrics(s.getTag())
 
 	s.log.Debugf("Started event streamer")
@@ -260,7 +260,7 @@ func (s *Streamer) start(cfg *config.AppConfig) bool {
 
 	// Event Streamer worker has successfully acquired a lock on a table. Proceed further
 	// Each Event Streamer handles events from all partitions from Input buffer for a table
-	s.topic, err = cfg.GetOutputTopicName(s.row.Service, s.row.Db, s.row.Table, s.row.Input, s.row.Output, s.row.Version, s.row.SnapshottedAt)
+	s.topic, err = cfg.GetOutputTopicName(s.row.Service, s.row.DB, s.row.Table, s.row.Input, s.row.Output, s.row.Version, s.row.SnapshottedAt)
 	if log.E(err) {
 		return false
 	}
@@ -273,7 +273,7 @@ func (s *Streamer) start(cfg *config.AppConfig) bool {
 		return false
 	}
 
-	s.outEncoder, err = encoder.Create(s.row.OutputFormat, s.row.Service, s.row.Db, s.row.Table, s.row.Input, s.row.Output, s.row.Version)
+	s.outEncoder, err = encoder.Create(s.row.OutputFormat, s.row.Service, s.row.DB, s.row.Table, s.row.Input, s.row.Output, s.row.Version)
 	if log.EL(s.log, err) {
 		if consumer != nil {
 			log.E(consumer.CloseOnFailure())
@@ -293,7 +293,7 @@ func (s *Streamer) start(cfg *config.AppConfig) bool {
 	if cfg.ChangelogBuffer {
 		//Transit format encoder, aka envelope encoder
 		//It must be per table to be able to decode schematized events
-		s.envEncoder, err = encoder.Create(encoder.Internal.Type(), s.row.Service, s.row.Db, s.row.Table, s.row.Input, s.row.Output, s.row.Version)
+		s.envEncoder, err = encoder.Create(encoder.Internal.Type(), s.row.Service, s.row.DB, s.row.Table, s.row.Input, s.row.Output, s.row.Version)
 		if log.EL(s.log, err) {
 			log.E(consumer.CloseOnFailure())
 			return false

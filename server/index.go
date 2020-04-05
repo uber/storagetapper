@@ -564,7 +564,7 @@ function setup_handlers(type) {
 				  '<div class="row m-3"><table>' +
 				  "<tr><td>Service:</td><td>" + obj.service + "</td></tr>" + 
 				  "<tr><td>Cluster:</td><td>" + obj.cluster + "</td></tr>" + 
-				  "<tr><td>Db:</td><td>" + obj.db + "</td></tr>" + 
+				  "<tr><td>DB:</td><td>" + obj.db + "</td></tr>" + 
 				  "<tr><td>Table:</td><td>" + obj.table + "</td></tr>" + 
 				  "<tr><td>Input:</td><td>" + obj.input + "</td></tr>" + 
 				  "<tr><td>Output:</td><td>" + obj.output + "</td></tr>" + 

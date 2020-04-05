@@ -86,7 +86,7 @@ func schemaTableInit(t *testing.T) {
 	if conn == nil {
 		t.FailNow()
 	}
-	test.ExecSQL(conn, t, "TRUNCATE TABLE "+types.MyDbName+".output_schema")
+	test.ExecSQL(conn, t, "TRUNCATE TABLE "+types.MyDBName+".output_schema")
 }
 
 func TestSchemaInfoAddDelCommands(t *testing.T) {

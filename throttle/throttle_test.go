@@ -3,15 +3,14 @@ package throttle
 import (
 	"os"
 	"testing"
-	"time"
 
 	"github.com/uber/storagetapper/config"
-	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/test"
 )
 
 var cfg *config.AppConfig
 
+/*
 func testStep(n int64, target int64, iops int64, interval int64, samples int64, t *testing.T) {
 	log.Debugf("n=%v target=%v iops=%v interval=%v samples=%v", n, target, iops, interval, samples)
 
@@ -73,6 +72,7 @@ func TestZeroThrottleBasic(t *testing.T) {
 		}
 	}
 }
+*/
 
 func TestMain(m *testing.M) {
 	cfg = test.LoadConfig()

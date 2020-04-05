@@ -40,7 +40,7 @@ func init() {
 //jsonEncoder implements Encoder interface into common format
 type jsonEncoder struct {
 	Service   string
-	Db        string
+	DB        string
 	Table     string
 	Input     string
 	Output    string
@@ -66,7 +66,7 @@ var GenTime GenTimeFunc = genTime
 var ZeroTime = time.Time{}.In(time.UTC)
 
 func initJSONEncoder(service, db, table, input string, output string, version int) (Encoder, error) {
-	return &jsonEncoder{Service: service, Db: db, Table: table, Input: input, Output: output, Version: version}, nil
+	return &jsonEncoder{Service: service, DB: db, Table: table, Input: input, Output: output, Version: version}, nil
 }
 
 //Type returns this encoder type
@@ -120,13 +120,13 @@ func (e *jsonEncoder) CommonFormat(cf *types.CommonFormatEvent) ([]byte, error) 
 
 /*UpdateCodec refreshes the schema from state DB */
 func (e *jsonEncoder) UpdateCodec() error {
-	schema, err := state.GetSchema(e.Service, e.Db, e.Table, e.Input, e.Output, e.Version)
+	schema, err := state.GetSchema(e.Service, e.DB, e.Table, e.Input, e.Output, e.Version)
 	if err != nil {
 		return err
 	}
 
 	e.inSchema = schema
-	n, err := GetOutputSchemaName(e.Service, e.Db, e.Table, e.Input, e.Output, e.Version)
+	n, err := GetOutputSchemaName(e.Service, e.DB, e.Table, e.Input, e.Output, e.Version)
 	if err != nil {
 		return err
 	}
@@ -138,7 +138,7 @@ func (e *jsonEncoder) UpdateCodec() error {
 		}
 		if c.Type != "schema" {
 			return nil
-			//return fmt.Errorf("Broken schema in state for %v,%v,%v", e.Service, e.Db, e.Table)
+			//return fmt.Errorf("Broken schema in state for %v,%v,%v", e.Service, e.DB, e.Table)
 		}
 		e.outSchema = c
 

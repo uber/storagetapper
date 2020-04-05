@@ -50,7 +50,7 @@ var (
 	cfg              *config.AppConfig
 	testCluster      = "test_cluster"
 	testSvc          = types.MySvcName
-	testDb           = "test_db_streamer"
+	testDB           = "test_db_streamer"
 	testTbl          = "test_snapstream"
 	testTbl1         = "test_snapstream1"
 	testInput        = "mysql"
@@ -58,7 +58,7 @@ var (
 	testOutputFormat = "avro"
 	numTestEvents    = 30
 
-	dbl = &db.Loc{Cluster: testCluster, Service: testSvc, Name: testDb}
+	dbl = &db.Loc{Cluster: testCluster, Service: testSvc, Name: testDB}
 )
 
 func EventWorker(cfg *config.AppConfig, inP pipe.Pipe, _ *testing.T) {
@@ -79,11 +79,11 @@ func createTestDB(t *testing.T) {
 	dbConn, err := db.Open(ci)
 	require.NoError(t, err)
 
-	execSQL(dbConn, t, fmt.Sprintf("DROP DATABASE IF EXISTS %s", types.MyDbName))
-	execSQL(dbConn, t, fmt.Sprintf("DROP DATABASE IF EXISTS %s", testDb))
-	execSQL(dbConn, t, fmt.Sprintf("CREATE DATABASE %s DEFAULT CHARACTER SET latin1", testDb))
-	execSQL(dbConn, t, fmt.Sprintf("CREATE TABLE %s.%s (f1 BIGINT NOT NULL, f2 BIGINT NOT NULL, PRIMARY KEY(f1, f2))", testDb, testTbl))
-	execSQL(dbConn, t, fmt.Sprintf("CREATE TABLE %s.%s (f1 BIGINT NOT NULL, f2 BIGINT NOT NULL, PRIMARY KEY(f1, f2))", testDb, testTbl1))
+	execSQL(dbConn, t, fmt.Sprintf("DROP DATABASE IF EXISTS %s", types.MyDBName))
+	execSQL(dbConn, t, fmt.Sprintf("DROP DATABASE IF EXISTS %s", testDB))
+	execSQL(dbConn, t, fmt.Sprintf("CREATE DATABASE %s DEFAULT CHARACTER SET latin1", testDB))
+	execSQL(dbConn, t, fmt.Sprintf("CREATE TABLE %s.%s (f1 BIGINT NOT NULL, f2 BIGINT NOT NULL, PRIMARY KEY(f1, f2))", testDB, testTbl))
+	execSQL(dbConn, t, fmt.Sprintf("CREATE TABLE %s.%s (f1 BIGINT NOT NULL, f2 BIGINT NOT NULL, PRIMARY KEY(f1, f2))", testDB, testTbl1))
 }
 
 func setupDB(ctx context.Context, t *testing.T) *sql.DB {
@@ -102,9 +102,9 @@ func setupDB(ctx context.Context, t *testing.T) *sql.DB {
 	}
 
 	// Store Avro schema in local db
-	avSch, err := schema.ConvertToAvro(&db.Loc{Service: testSvc, Name: testDb}, testTbl, testInput, "avro")
+	avSch, err := schema.ConvertToAvro(&db.Loc{Service: testSvc, Name: testDB}, testTbl, testInput, "avro")
 	test.Assert(t, err == nil, "Error converting TestTbl to its Avro schema: %v", err)
-	tn, err := cfg.GetOutputTopicName(testSvc, testDb, testTbl, "mysql", testPipeType, 0, time.Now())
+	tn, err := cfg.GetOutputTopicName(testSvc, testDB, testTbl, "mysql", testPipeType, 0, time.Now())
 	test.CheckFail(err, t)
 
 	err = state.InsertSchema(tn, "avro", util.BytesToString(avSch))
@@ -115,7 +115,7 @@ func setupDB(ctx context.Context, t *testing.T) *sql.DB {
 func setupDataLow(dbConn *sql.DB, shiftKey int, table string, t *testing.T) {
 	for i := shiftKey; i < numTestEvents/10+shiftKey; i++ {
 		for j := 0; j < 10; j++ {
-			execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(%v, %v)", testDb, table, i, j))
+			execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(%v, %v)", testDB, table, i, j))
 		}
 	}
 }
@@ -147,7 +147,7 @@ func wrapEvent(enc encoder.Encoder, typ string, key []interface{}, bd []byte, se
 
 func setupBufferData(pipeType string, bufPipe pipe.Pipe, bufFormat string, outFormat string, wrap int, shiftKey int, t *testing.T) {
 	for {
-		row, err := state.GetTable(testSvc, testCluster, testDb, testTbl, types.InputMySQL, testPipeType, 0)
+		row, err := state.GetTable(testSvc, testCluster, testDB, testTbl, types.InputMySQL, testPipeType, 0)
 		test.CheckFail(err, t)
 		if !row.NeedSnapshot {
 			break
@@ -155,12 +155,12 @@ func setupBufferData(pipeType string, bufPipe pipe.Pipe, bufFormat string, outFo
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	enc, err := encoder.Create(bufFormat, testSvc, testDb, testTbl, testInput, testPipeType, 0)
+	enc, err := encoder.Create(bufFormat, testSvc, testDB, testTbl, testInput, testPipeType, 0)
 	test.CheckFail(err, t)
-	outEnc, err := encoder.Create(outFormat, testSvc, testDb, testTbl, testInput, testPipeType, 0)
+	outEnc, err := encoder.Create(outFormat, testSvc, testDB, testTbl, testInput, testPipeType, 0)
 	test.CheckFail(err, t)
 
-	tn, err := config.Get().GetChangelogTopicName(testSvc, testDb, testTbl, testInput, pipeType, 0, time.Now())
+	tn, err := config.Get().GetChangelogTopicName(testSvc, testDB, testTbl, testInput, pipeType, 0, time.Now())
 	test.CheckFail(err, t)
 	log.Debugf("Creating buffer pipe producer using topic: %v", tn)
 	producer, err := bufPipe.NewProducer(tn)
@@ -245,13 +245,13 @@ func setupWorker(bufPipe pipe.Pipe, outPipeType string, t *testing.T) (pipe.Cons
 	outPipe, err := pipe.CacheGet(outPipeType, &cfg.Pipe, state.GetDB())
 	log.F(err)
 
-	tn, err := cfg.GetOutputTopicName(testSvc, testDb, testTbl, "mysql", outPipeType, 0, time.Now())
+	tn, err := cfg.GetOutputTopicName(testSvc, testDB, testTbl, "mysql", outPipeType, 0, time.Now())
 	test.CheckFail(err, t)
 
 	outConsumer, err := outPipe.NewConsumer(tn)
 	test.CheckFail(err, t)
 
-	tn, err = cfg.GetOutputTopicName(testSvc, testDb, testTbl1, "mysql", outPipeType, 0, time.Now())
+	tn, err = cfg.GetOutputTopicName(testSvc, testDB, testTbl1, "mysql", outPipeType, 0, time.Now())
 	test.CheckFail(err, t)
 
 	outConsumer1, err := outPipe.NewConsumer(tn)
@@ -267,7 +267,7 @@ func setupWorker(bufPipe pipe.Pipe, outPipeType string, t *testing.T) (pipe.Cons
 func verifyFromOutputKafka(shiftKey int, outPConsumer pipe.Consumer, outFormat string, table string, ch chan bool, t *testing.T) {
 	log.Debugf("verification started %v table=%v outFormat=%v", shiftKey, table, outFormat)
 
-	enc, err := encoder.Create(outFormat, testSvc, testDb, table, testInput, testPipeType, 0)
+	enc, err := encoder.Create(outFormat, testSvc, testDB, table, testInput, testPipeType, 0)
 	test.CheckFail(err, t)
 
 	lastVal := make([]int64, 10+shiftKey)
@@ -292,7 +292,7 @@ func verifyFromOutputKafka(shiftKey int, outPConsumer pipe.Consumer, outFormat s
 
 		if shiftKey == 0 && data.SeqNo != ^uint64(0) {
 			t.Fatalf("Events out of order for data %+v when consuming %v.%v from output Kafka. "+
-				"Current event seqNo(%v) != expected(0) shiftKey=%v", data, testDb, table, data.SeqNo, shiftKey)
+				"Current event seqNo(%v) != expected(0) shiftKey=%v", data, testDB, table, data.SeqNo, shiftKey)
 		}
 
 		v1, ok := (*data.Fields)[0].Value.(int64)
@@ -304,7 +304,7 @@ func verifyFromOutputKafka(shiftKey int, outPConsumer pipe.Consumer, outFormat s
 		prev := lastVal[int(v1)]
 		if prev != 0 && prev != v2 && prev != (v2-1) {
 			t.Fatalf("Event with seqNo %v received out of order when consuming from %v.%v from output kafka. "+
-				"Current event f1(%v), f2(%v) != expected f1(%v), f2(%v or %v)", data.SeqNo, testDb, table, v1, v2, v1, prev, prev+1)
+				"Current event f1(%v), f2(%v) != expected f1(%v), f2(%v or %v)", data.SeqNo, testDB, table, v1, v2, v1, prev, prev+1)
 		}
 
 		lastVal[int(v1)] = v2
@@ -412,8 +412,8 @@ func TestStreamerShutdown(t *testing.T) {
 	bufPipe, err := pipe.Create("local", &cfg.Pipe, nil)
 	require.NoError(t, err)
 
-	execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(1, 1)", testDb, testTbl))
-	execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(1, 1)", testDb, testTbl1))
+	execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(1, 1)", testDB, testTbl))
+	execSQL(dbConn, t, fmt.Sprintf("insert into %s.%s values(1, 1)", testDB, testTbl1))
 
 	ch := startEmulateBinlogProgress(dbl, t)
 
@@ -439,11 +439,11 @@ func TestStreamerShutdown(t *testing.T) {
 		t.Fatalf("Streamer worker didn't finish. Num procs %v", shutdown.NumProcs())
 	}
 
-	if !state.DeregisterTableFromState(&db.Loc{Service: testSvc, Cluster: testCluster, Name: testDb}, testTbl, "mysql", testPipeType, 0, 1) {
+	if !state.DeregisterTableFromState(&db.Loc{Service: testSvc, Cluster: testCluster, Name: testDB}, testTbl, "mysql", testPipeType, 0, 1) {
 		t.Fatalf("Failed to deregister table")
 	}
 
-	if !state.DeregisterTableFromState(&db.Loc{Service: testSvc, Cluster: testCluster, Name: testDb}, testTbl1, "mysql", testPipeType, 0, 1) {
+	if !state.DeregisterTableFromState(&db.Loc{Service: testSvc, Cluster: testCluster, Name: testDB}, testTbl1, "mysql", testPipeType, 0, 1) {
 		t.Fatalf("Failed to deregister table 1")
 	}
 

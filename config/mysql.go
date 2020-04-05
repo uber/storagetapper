@@ -120,12 +120,12 @@ func mysqlInitLow() (err error) {
 		return nil
 	}
 
-	err = execSQL(`CREATE DATABASE IF NOT EXISTS ` + types.MyDbName + ` DEFAULT CHARACTER SET latin1`)
+	err = execSQL(`CREATE DATABASE IF NOT EXISTS ` + types.MyDBName + ` DEFAULT CHARACTER SET latin1`)
 	if err != nil || conn == nil {
 		return
 	}
 
-	return execSQL(`CREATE TABLE IF NOT EXISTS ` + types.MyDbName + `.config(
+	return execSQL(`CREATE TABLE IF NOT EXISTS ` + types.MyDBName + `.config(
 		name VARCHAR(256),
 		created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6),
 		body TEXT,
@@ -147,7 +147,7 @@ func mysqlRead(cfg interface{}, name string) ([]byte, error) {
 		return nil, err
 	}
 	var body string
-	query := "SELECT body FROM " + types.MyDbName + ".config WHERE name=? ORDER BY created_at DESC LIMIT 1"
+	query := "SELECT body FROM " + types.MyDBName + ".config WHERE name=? ORDER BY created_at DESC LIMIT 1"
 	err := queryRowSQL(query, name).Scan(&body)
 	if mySQLError(err, 1146) {
 		if err = mysqlInitLow(); err != nil {
@@ -174,7 +174,7 @@ func mysqlWrite(cfg interface{}, name string, body []byte) error {
 	if err := mysqlInit(cfg); err != nil || conn == nil {
 		return err
 	}
-	err := execSQL("INSERT INTO "+types.MyDbName+".config(name,body) VALUES (?,?)", name, body)
+	err := execSQL("INSERT INTO "+types.MyDBName+".config(name,body) VALUES (?,?)", name, body)
 	if err != nil {
 		err = conn.Close()
 		if err != nil {

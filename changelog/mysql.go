@@ -197,7 +197,7 @@ func (b *mysqlReader) createProducer(tn string, t *state.Row) (pipe.Producer, er
 	if !config.Get().ChangelogBuffer {
 		pipe2, err = pipe.CacheGet(t.Output, &t.Params.Pipe, state.GetDB())
 		if err != nil {
-			b.log.WithFields(log.Fields{"service": t.Service, "db": t.Db, "table": t.Table, "pipe": t.Output}).Errorf("%v", err)
+			b.log.WithFields(log.Fields{"service": t.Service, "db": t.DB, "table": t.Table, "pipe": t.Output}).Errorf("%v", err)
 			return nil, err
 		}
 		format = t.OutputFormat
@@ -214,8 +214,8 @@ func (b *mysqlReader) createProducer(tn string, t *state.Row) (pipe.Producer, er
 }
 
 func (b *mysqlReader) addNewTable(t *state.Row) bool {
-	b.log.Infof("Adding table to MySQL binlog reader (%v,%v,%v,%v,%v,%v)", t.Service, t.Db, t.Table, t.Output, t.Version, t.OutputFormat)
-	enc, err := encoder.Create(t.OutputFormat, t.Service, t.Db, t.Table, t.Input, t.Output, t.Version)
+	b.log.Infof("Adding table to MySQL binlog reader (%v,%v,%v,%v,%v,%v)", t.Service, t.DB, t.Table, t.Output, t.Version, t.OutputFormat)
+	enc, err := encoder.Create(t.OutputFormat, t.Service, t.DB, t.Table, t.Input, t.Output, t.Version)
 	if log.EL(b.log, err) {
 		return false
 	}
@@ -225,7 +225,7 @@ func (b *mysqlReader) addNewTable(t *state.Row) bool {
 		return true
 	}
 
-	pn, err := config.Get().GetChangelogTopicName(t.Service, t.Db, t.Table, t.Input, t.Output, t.Version, t.SnapshottedAt)
+	pn, err := config.Get().GetChangelogTopicName(t.Service, t.DB, t.Table, t.Input, t.Output, t.Version, t.SnapshottedAt)
 	if log.EL(b.log, err) {
 		return false
 	}
@@ -237,12 +237,12 @@ func (b *mysqlReader) addNewTable(t *state.Row) bool {
 
 	nt := &table{t.ID, false, p, t.RawSchema, t.SchemaGtid, t.Service, enc, t.Output, t.Version, t.OutputFormat, t.ParamsRaw, t.SnapshottedAt}
 
-	if b.tables[t.Db][t.Table][t.Service] == nil {
-		b.tables[t.Db][t.Table][t.Service] = make([]*table, 0)
+	if b.tables[t.DB][t.Table][t.Service] == nil {
+		b.tables[t.DB][t.Table][t.Service] = make([]*table, 0)
 	}
-	b.tables[t.Db][t.Table][t.Service] = append(b.tables[t.Db][t.Table][t.Service], nt)
+	b.tables[t.DB][t.Table][t.Service] = append(b.tables[t.DB][t.Table][t.Service], nt)
 
-	b.log.Infof("New table added to MySQL binlog reader (%v,%v,%v,%v,%v,%v), will produce to: %v", t.Service, t.Db, t.Table, t.Output, t.Version, t.OutputFormat, pn)
+	b.log.Infof("New table added to MySQL binlog reader (%v,%v,%v,%v,%v,%v), will produce to: %v", t.Service, t.DB, t.Table, t.Output, t.Version, t.OutputFormat, pn)
 
 	return true
 }
@@ -321,23 +321,23 @@ func (b *mysqlReader) reloadState() bool {
 	for i := 0; i < len(st); i++ {
 		t := &st[i]
 
-		if b.tables[t.Db] == nil {
-			b.tables[t.Db] = make(map[string]map[string][]*table)
+		if b.tables[t.DB] == nil {
+			b.tables[t.DB] = make(map[string]map[string][]*table)
 		}
 
 		if b.seqNo == 0 {
 			b.seqNo = t.SeqNo
 		}
 
-		if b.tables[t.Db][t.Table] == nil {
-			b.tables[t.Db][t.Table] = make(map[string][]*table)
+		if b.tables[t.DB][t.Table] == nil {
+			b.tables[t.DB][t.Table] = make(map[string][]*table)
 		}
 
-		if b.tables[t.Db][t.Table][t.Service] == nil {
-			b.tables[t.Db][t.Table][t.Service] = make([]*table, 0)
+		if b.tables[t.DB][t.Table][t.Service] == nil {
+			b.tables[t.DB][t.Table][t.Service] = make([]*table, 0)
 		}
 
-		tver := b.tables[t.Db][t.Table][t.Service]
+		tver := b.tables[t.DB][t.Table][t.Service]
 
 		j := findInVersionArray(tver, t.Output, t.Version)
 
@@ -348,11 +348,11 @@ func (b *mysqlReader) reloadState() bool {
 				log.EL(b.log, err)
 				tver[j] = tver[len(tver)-1]
 				tver[len(tver)-1] = nil
-				b.tables[t.Db][t.Table][t.Service] = tver[:len(tver)-1]
+				b.tables[t.DB][t.Table][t.Service] = tver[:len(tver)-1]
 			} else {
 				tver[j].dead = false
 				if t.SnapshotTimeChanged(tver[j].snapshottedAt) {
-					pn, err := config.Get().GetChangelogTopicName(t.Service, t.Db, t.Table, t.Input, t.Output, t.Version, t.SnapshottedAt)
+					pn, err := config.Get().GetChangelogTopicName(t.Service, t.DB, t.Table, t.Input, t.Output, t.Version, t.SnapshottedAt)
 					if log.EL(b.log, err) {
 						return false
 					}

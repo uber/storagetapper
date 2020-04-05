@@ -20,8 +20,8 @@
 
 package types
 
-//MyDbName is a database name this service will use to save state to
-var MyDbName = "storagetapper"
+//MyDBName is a database name this service will use to save state to
+var MyDBName = "storagetapper"
 
 //MySvcName is a name of this service
 const MySvcName = "storagetapper"

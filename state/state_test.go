@@ -57,7 +57,7 @@ func checkStateEqual(m1 Type, m2 Type) bool {
 var refST1 = Type{
 	{
 		TableLoc: types.TableLoc{
-			Service: "svc1", Cluster: "clst1", Db: "db1_state", Table: "table1",
+			Service: "svc1", Cluster: "clst1", DB: "db1_state", Table: "table1",
 			Input: "mysql", Output: "", Version: 0,
 		},
 
@@ -68,7 +68,7 @@ var refST1 = Type{
 	},
 	{
 		TableLoc: types.TableLoc{
-			Service: "svc1", Cluster: "clst1", Db: "db1_state", Table: "table2",
+			Service: "svc1", Cluster: "clst1", DB: "db1_state", Table: "table2",
 			Input: "mysql", Output: "", Version: 0,
 		},
 
@@ -79,7 +79,7 @@ var refST1 = Type{
 	},
 	{
 		TableLoc: types.TableLoc{
-			Service: "svc1", Cluster: "clst1", Db: "db2_state", Table: "table1",
+			Service: "svc1", Cluster: "clst1", DB: "db2_state", Table: "table1",
 			Input: "mysql", Output: "", Version: 0,
 		},
 
@@ -90,7 +90,7 @@ var refST1 = Type{
 	},
 	{
 		TableLoc: types.TableLoc{
-			Service: "svc2", Cluster: "clst1", Db: "db3_state", Table: "table1",
+			Service: "svc2", Cluster: "clst1", DB: "db3_state", Table: "table1",
 			Input: "mysql", Output: "", Version: 0,
 		},
 
@@ -101,7 +101,7 @@ var refST1 = Type{
 	},
 	{
 		TableLoc: types.TableLoc{
-			Service: "svc2", Cluster: "clst2", Db: "db2_state", Table: "table1",
+			Service: "svc2", Cluster: "clst2", DB: "db2_state", Table: "table1",
 			Input: "mysql", Output: "", Version: 0,
 		},
 
@@ -115,7 +115,7 @@ var refST1 = Type{
 var refST2 = Type{
 	{
 		TableLoc: types.TableLoc{
-			Service: "svc1", Cluster: "clst1", Db: "db1_state", Table: "table3",
+			Service: "svc1", Cluster: "clst1", DB: "db1_state", Table: "table3",
 			Input: "mysql", Output: "", Version: 0,
 		},
 
@@ -126,7 +126,7 @@ var refST2 = Type{
 	},
 	{
 		TableLoc: types.TableLoc{
-			Service: "svc2", Cluster: "clst1", Db: "db2_state", Table: "table2",
+			Service: "svc2", Cluster: "clst1", DB: "db2_state", Table: "table2",
 			Input: "mysql", Output: "", Version: 0,
 		},
 
@@ -140,7 +140,7 @@ var refST2 = Type{
 var refST3 = Type{
 	{
 		TableLoc: types.TableLoc{
-			Service: "svc2", Cluster: "clst2", Db: "db2_state", Table: "table1",
+			Service: "svc2", Cluster: "clst2", DB: "db2_state", Table: "table1",
 			Input: "mysql", Output: "", Version: 0,
 		},
 
@@ -159,8 +159,8 @@ func insertStateRowForTest(id int64, t *types.TableLoc, gtid string, params stri
 	if params == "" {
 		params = "{}"
 	}
-	execSQL(t1, "INSERT INTO registrations(id,service,cluster,db,table_name,input,output,version,output_format,params) VALUES (?,?,?,?,?,?,?,?,'',?)", id, t.Service, t.Cluster, t.Db, t.Table, t.Input, t.Output, t.Version, params)
-	execSQL(t1, "INSERT INTO state(id,service,cluster,db,table_name,input,output,version,output_format,reg_id,params) VALUES (?,?,?,?,?,?,?,?,'',?,?)", id, t.Service, t.Cluster, t.Db, t.Table, t.Input, t.Output, t.Version, id, params)
+	execSQL(t1, "INSERT INTO registrations(id,service,cluster,db,table_name,input,output,version,output_format,params) VALUES (?,?,?,?,?,?,?,?,'',?)", id, t.Service, t.Cluster, t.DB, t.Table, t.Input, t.Output, t.Version, params)
+	execSQL(t1, "INSERT INTO state(id,service,cluster,db,table_name,input,output,version,output_format,reg_id,params) VALUES (?,?,?,?,?,?,?,?,'',?,?)", id, t.Service, t.Cluster, t.DB, t.Table, t.Input, t.Output, t.Version, id, params)
 
 	execSQL(t1, "INSERT IGNORE INTO cluster_state(cluster, gtid) VALUES (?, ?)", t.Cluster, gtid)
 
@@ -180,7 +180,7 @@ func insertStateRowForTests(s Type, t1 *testing.T) {
 			t1.FailNow()
 		}
 
-		insertStateRowForTest(t.ID, &types.TableLoc{Service: t.Service, Cluster: t.Cluster, Db: t.Db, Table: t.Table, Input: t.Input, Output: t.Output, Version: 0}, t.Gtid, "", t1)
+		insertStateRowForTest(t.ID, &types.TableLoc{Service: t.Service, Cluster: t.Cluster, DB: t.DB, Table: t.Table, Input: t.Input, Output: t.Output, Version: 0}, t.Gtid, "", t1)
 	}
 }
 
@@ -233,7 +233,7 @@ func TestGetTable(t *testing.T) {
 
 	c, err = GetTableByID(3)
 	require.NoError(t, err)
-	require.True(t, c != nil)
+	require.NotNil(t, c)
 
 	refST1[2].Params = &config.Get().TableParams //point to default
 	c.GtidUpdatedAt = time.Time{}
@@ -279,7 +279,7 @@ func testGTIDs(t *testing.T) {
 	log.Debugf("Check that StateGetGTID return non-empty GTID")
 	tables := []string{"table5", "table0"}
 	for i, v := range tables {
-		insertStateRowForTest(int64(100+i), &types.TableLoc{Service: "svc1", Cluster: "clst1", Db: "db1_state", Table: v, Input: "mysql", Output: "kafka", Version: 0}, "", "", t)
+		insertStateRowForTest(int64(100+i), &types.TableLoc{Service: "svc1", Cluster: "clst1", DB: "db1_state", Table: v, Input: "mysql", Output: "kafka", Version: 0}, "", "", t)
 	}
 
 	gts, _, err = GetGTID(dbloc1.Cluster)
@@ -338,12 +338,12 @@ func TestStateTableParams(t *testing.T) {
 
 	tbl1, err := GetTable("svc11", "clst11", "db11", "table11", types.InputMySQL, "output11", 0)
 	require.NoError(t, err)
-	require.True(t, tbl1 != nil)
+	require.NotNil(t, tbl1)
 	require.Equal(t, tbl1.Params.Pipe.Compression, true)
 
 	tbl2, err := GetTable("svc11", "clst11", "db11", "table22", types.InputMySQL, "output11", 0)
 	require.NoError(t, err)
-	require.True(t, tbl2 != nil)
+	require.NotNil(t, tbl2)
 	require.Equal(t, tbl2.Params.Pipe.Compression, false)
 
 	st, err := Get()
@@ -357,12 +357,12 @@ func TestStateTableParams(t *testing.T) {
 
 	tbl1, err = GetTable("svc11", "clst11", "db11", "table11", types.InputMySQL, "output11", 0)
 	require.NoError(t, err)
-	require.True(t, tbl1 != nil)
+	require.NotNil(t, tbl1)
 	require.Equal(t, tbl1.Params.Pipe.Compression, true)
 
 	tbl2, err = GetTable("svc11", "clst11", "db11", "table22", types.InputMySQL, "output11", 0)
 	require.NoError(t, err)
-	require.True(t, tbl2 != nil)
+	require.NotNil(t, tbl2)
 	require.Equal(t, tbl2.Params.Pipe.Compression, true)
 }
 
@@ -676,7 +676,7 @@ func TestTableRegisterInState(t *testing.T) {
 
 		tbl, err := GetTableByID(int64(i))
 		require.NoError(t, err)
-		require.True(t, tbl != nil)
+		require.NotNil(t, tbl)
 		require.Equal(t, "REG_SCHEMA_TEST1", tbl.Table)
 		require.Equal(t, i, tbl.Version)
 	}
@@ -688,7 +688,7 @@ func TestTableRegisterInState(t *testing.T) {
 
 	tbl, err := GetTable(dbLoc1.Service, dbLoc1.Cluster, dbLoc1.Name, "REG_SCHEMA_TEST1", "mysql", "kafka", 0)
 	require.NoError(t, err)
-	require.True(t, tbl == nil)
+	require.Nil(t, tbl)
 }
 
 //Test that there is no deadlocks during parallel tables registration
@@ -722,7 +722,7 @@ func TestTableRegisterInStateParallel(t *testing.T) {
 	for i := 1; i <= 20; i++ {
 		tbl, err := GetTableByID(int64(i))
 		require.NoError(t, err)
-		require.True(t, tbl != nil)
+		require.NotNil(t, tbl)
 		require.Equal(t, "REG_SCHEMA_TEST1", tbl.Table)
 	}
 
@@ -733,7 +733,7 @@ func TestTableRegisterInStateParallel(t *testing.T) {
 
 	tbl, err := GetTable(dbLoc1.Service, dbLoc1.Cluster, dbLoc1.Name, "REG_SCHEMA_TEST1", "mysql", "kafka", 0)
 	require.NoError(t, err)
-	require.True(t, tbl == nil)
+	require.Nil(t, tbl)
 }
 
 func testTableSynced(id int64, synced int, t *testing.T) {
@@ -848,8 +848,8 @@ func TestTableVersions(t *testing.T) {
 func TestClusterInfo(t *testing.T) {
 	resetState(t)
 
-	refa := db.Addr{Name: "state_test_cluster1", Host: "state_test_host1", Port: 1234, User: "state_test_user1", Pwd: "state_test_pw1", Db: "state_test_db1"}
-	refb := db.Addr{Name: "state_test_cluster2", Host: "state_test_host2", Port: 4567, User: "state_test_user2", Pwd: "state_test_pw2", Db: "state_test_db2"}
+	refa := db.Addr{Name: "state_test_cluster1", Host: "state_test_host1", Port: 1234, User: "state_test_user1", Pwd: "state_test_pw1", DB: "state_test_db1"}
+	refb := db.Addr{Name: "state_test_cluster2", Host: "state_test_host2", Port: 4567, User: "state_test_user2", Pwd: "state_test_pw2", DB: "state_test_db2"}
 	err := InsertClusterInfo(&refa)
 	test.CheckFail(err, t)
 	err = InsertClusterInfo(&refb)
@@ -875,7 +875,7 @@ func TestClusterInfo(t *testing.T) {
 	addrs, err := GetClusterInfo("")
 	test.CheckFail(err, t)
 	test.Assert(t, len(addrs) == 2, "Should be two records. got %+v", addrs)
-	refa.Db, refb.Db = "", ""
+	refa.DB, refb.DB = "", ""
 	if !reflect.DeepEqual(addrs[0], refa) || !reflect.DeepEqual(addrs[1], refb) {
 		log.Errorf("Expected: %+v %+v", refa, refb)
 		log.Errorf("Received: %+v %+v", addrs[0], addrs[1])
@@ -889,15 +889,15 @@ func TestClusterInfo(t *testing.T) {
 		log.Errorf("Received: %+v", addrs[0])
 		t.FailNow()
 	}
-	refa.Db = "state_test_db1"
-	refb.Db = "state_test_db2"
+	refa.DB = "state_test_db1"
+	refb.DB = "state_test_db2"
 
 	err = DeleteClusterInfo("state_test_cluster2")
 	test.CheckFail(err, t)
 
 	log.Debugf("Test that we can resolve cluster name from service and db")
 
-	insertStateRowForTest(1, &types.TableLoc{Service: "state_test_service1", Cluster: "state_test_cluster1", Db: "state_test_db1", Table: "state_test_table1", Input: "mysql", Output: "kafka", Version: 0}, "", "", t)
+	insertStateRowForTest(1, &types.TableLoc{Service: "state_test_service1", Cluster: "state_test_cluster1", DB: "state_test_db1", Table: "state_test_table1", Input: "mysql", Output: "kafka", Version: 0}, "", "", t)
 
 	a, err = ConnectInfoGet(&db.Loc{Service: "state_test_service1", Name: "state_test_db1"}, db.Master)
 	test.CheckFail(err, t)
@@ -954,11 +954,11 @@ func TestOutputSchema(t *testing.T) {
 
 func TestNewFlag(t *testing.T) {
 	resetState(t)
-	insertStateRowForTest(1, &types.TableLoc{Service: "sns_svc1", Cluster: "sns_clst1", Db: "sns_db1", Table: "sns_t1", Input: "mysql", Output: "kafka", Version: 0}, "", `{"Schedule":{"Interval" : 10}}`, t)
+	insertStateRowForTest(1, &types.TableLoc{Service: "sns_svc1", Cluster: "sns_clst1", DB: "sns_db1", Table: "sns_t1", Input: "mysql", Output: "kafka", Version: 0}, "", `{"Schedule":{"Interval" : 10}}`, t)
 
 	row, err := GetTable("sns_svc1", "sns_clst1", "sns_db1", "sns_t1", "mysql", "kafka", 0)
 	test.CheckFail(err, t)
-	test.Assert(t, row != nil)
+	require.NotNil(t, row)
 
 	test.Assert(t, !row.NeedSnapshot)
 	test.Assert(t, row.SnapshottedAt.IsZero())
@@ -987,7 +987,7 @@ func TestNewFlag(t *testing.T) {
 
 	row, err = GetTable("sns_svc1", "sns_clst1", "sns_db1", "sns_t1", "mysql", "kafka", 0)
 	test.CheckFail(err, t)
-	test.Assert(t, row != nil)
+	require.NotNil(t, row)
 	test.Assert(t, !row.NeedSnapshot)
 
 	row, err = UpdateSnapshottedAt(row, tm.Add(-5*time.Second))
@@ -1015,7 +1015,7 @@ func TestSanitizeRegParams(t *testing.T) {
 func TestClearClusterState(t *testing.T) {
 	resetState(t)
 
-	tl := types.TableLoc{Service: "svc1", Cluster: "clst1", Db: "db1", Table: "t1", Input: types.InputMySQL, Output: "kafka", Version: 0}
+	tl := types.TableLoc{Service: "svc1", Cluster: "clst1", DB: "db1", Table: "t1", Input: types.InputMySQL, Output: "kafka", Version: 0}
 	s := types.TableSchema{DBName: "db1", TableName: "t1", Columns: []types.ColumnSchema{}}
 
 	//Test old cluster state is not cleared when non deleted table reinserted
@@ -1031,7 +1031,7 @@ func TestClearClusterState(t *testing.T) {
 
 	tbl, err := GetTableByID(1)
 	test.CheckFail(err, t)
-	test.Assert(t, tbl != nil)
+	require.NotNil(t, tbl)
 	test.Assert(t, tbl.Gtid == "some gtid")
 
 	tx, err = mgr.conn.Begin()
@@ -1050,7 +1050,7 @@ func TestClearClusterState(t *testing.T) {
 
 	tbl, err = GetTableByID(1)
 	test.CheckFail(err, t)
-	test.Assert(t, tbl != nil)
+	require.NotNil(t, tbl)
 	test.Assert(t, tbl.Gtid == "")
 
 	//Test that newly inserted row clears existing cluster state

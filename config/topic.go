@@ -54,7 +54,7 @@ func (c *AppConfig) GetOutputTopicName(svc string, db string, tbl string, input 
 		}
 	}
 
-	return getTopicName(tmpl, &topicParams{types.TableLoc{Service: svc, Cluster: "", Db: db, Table: tbl, Input: input, Output: output, Version: ver}, ts})
+	return getTopicName(tmpl, &topicParams{types.TableLoc{Service: svc, Cluster: "", DB: db, Table: tbl, Input: input, Output: output, Version: ver}, ts})
 }
 
 // GetChangelogTopicName returns output topic name
@@ -69,5 +69,5 @@ func (c *AppConfig) GetChangelogTopicName(svc string, db string, tbl string, inp
 		}
 	}
 
-	return getTopicName(tmpl, &topicParams{types.TableLoc{Service: svc, Cluster: "", Db: db, Table: tbl, Input: input, Output: output, Version: ver}, ts})
+	return getTopicName(tmpl, &topicParams{types.TableLoc{Service: svc, Cluster: "", DB: db, Table: tbl, Input: input, Output: output, Version: ver}, ts})
 }

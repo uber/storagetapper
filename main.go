@@ -75,7 +75,7 @@ func mainLow(cfg *config.AppConfig) {
 
 	log.Debugf("Config: %+v", cfg)
 
-	types.MyDbName = cfg.StateDBName
+	types.MyDBName = cfg.StateDBName
 	types.MyClusterName = cfg.StateClusterName
 
 	err := metrics.Init()

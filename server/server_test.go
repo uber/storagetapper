@@ -46,12 +46,12 @@ import (
 
 var (
 	TestSvc    = types.MySvcName
-	TestDb     = types.MyDbName
+	TestDB     = types.MyDBName
 	TestTbl    = "test_schema"
 	TestInput  = types.InputMySQL
 	TestOutput = "kafka"
 	TestFormat = "avro"
-	DbConn     *sql.DB
+	DBConn     *sql.DB
 	cfg        *config.AppConfig
 )
 
@@ -90,7 +90,7 @@ var refSchema = &types.AvroSchema{Fields: []types.AvroField{
 }
 
 func createTestSchemaTable(t *testing.T) {
-	test.ExecSQL(DbConn, t, `CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.test_schema (
+	test.ExecSQL(DBConn, t, `CREATE TABLE IF NOT EXISTS `+types.MyDBName+`.test_schema (
 		bi BIGINT NOT NULL,
 		i INT NOT NULL,
 		vc VARCHAR(20) NOT NULL,
@@ -105,14 +105,14 @@ func createTestSchemaTable(t *testing.T) {
 }
 
 func dropTestSchemaTable(t *testing.T) {
-	test.ExecSQL(DbConn, t, fmt.Sprintf(`DROP TABLE IF EXISTS %s`, TestTbl))
+	test.ExecSQL(DBConn, t, fmt.Sprintf(`DROP TABLE IF EXISTS %s`, TestTbl))
 }
 
 func performSchemaRegister(t *testing.T, tbl string) *httptest.ResponseRecorder {
 	body := schemaReq{
 		Cmd:       "register",
 		Service:   TestSvc,
-		Db:        TestDb,
+		DB:        TestDB,
 		Table:     tbl,
 		InputType: types.InputMySQL,
 		Output:    TestOutput,
@@ -120,7 +120,7 @@ func performSchemaRegister(t *testing.T, tbl string) *httptest.ResponseRecorder 
 		Dst:       "state",
 	}
 
-	n, err := encoder.GetOutputSchemaName(TestSvc, TestDb, tbl, types.InputMySQL, "kafka", 0)
+	n, err := encoder.GetOutputSchemaName(TestSvc, TestDB, tbl, types.InputMySQL, "kafka", 0)
 	test.CheckFail(err, t)
 	err = state.DeleteSchema(n, TestFormat)
 	test.CheckFail(err, t)
@@ -142,7 +142,7 @@ func performSchemaChange(t *testing.T, alterStmt string) *httptest.ResponseRecor
 	body := schemaReq{
 		Cmd:       "change",
 		Service:   TestSvc,
-		Db:        TestDb,
+		DB:        TestDB,
 		Table:     TestTbl,
 		Alter:     alterStmt,
 		InputType: TestInput,
@@ -171,7 +171,7 @@ func TestSchemaHandler_SchemaRegister(t *testing.T) {
 	test.Assert(t, res.Code == http.StatusOK,
 		"Schema register did not return 200 HTTP code")
 
-	outputSchemaName, err := encoder.GetOutputSchemaName(TestSvc, TestDb, TestTbl, TestInput, TestOutput, 0)
+	outputSchemaName, err := encoder.GetOutputSchemaName(TestSvc, TestDB, TestTbl, TestInput, TestOutput, 0)
 	test.CheckFail(err, t)
 
 	outSchema, err := encoder.GetLatestSchema("production", outputSchemaName, TestFormat)
@@ -199,7 +199,7 @@ func TestSchemaHandler_SchemaChange(t *testing.T) {
 	res = performSchemaChange(t, `ADD dcml DECIMAL`)
 	test.Assert(t, http.StatusOK == res.Code, "Schema change did not return 200 HTTP OK code")
 
-	outputSchemaName, err := encoder.GetOutputSchemaName(TestSvc, TestDb, TestTbl, TestInput, TestOutput, 0)
+	outputSchemaName, err := encoder.GetOutputSchemaName(TestSvc, TestDB, TestTbl, TestInput, TestOutput, 0)
 	test.CheckFail(err, t)
 
 	outSchema, err := encoder.GetLatestSchema("production", outputSchemaName, TestFormat)
@@ -276,13 +276,13 @@ func TestMain(m *testing.M) {
 	}
 	defer state.Close()
 
-	DbConn, err = db.OpenService(&db.Loc{Service: TestSvc, Name: TestDb}, "", types.InputMySQL)
+	DBConn, err = db.OpenService(&db.Loc{Service: TestSvc, Name: TestDB}, "", types.InputMySQL)
 	if err != nil {
 		log.Warnf("MySQL is not available")
 		os.Exit(0)
 	}
 	defer func() {
-		err := DbConn.Close()
+		err := DBConn.Close()
 		if err != nil {
 			os.Exit(1)
 		}

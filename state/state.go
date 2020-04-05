@@ -84,7 +84,7 @@ func (r *Row) SnapshotTimeChanged(prev time.Time) bool {
 
 func tableLocLog(t *types.TableLoc) log.Logger {
 	return log.WithFields(log.Fields{"service": t.Service, "cluster": t.Cluster,
-		"db": t.Db, "table": t.Table, "input": t.Input, "output": t.Output,
+		"db": t.DB, "table": t.Table, "input": t.Input, "output": t.Output,
 		"version": t.Version})
 }
 
@@ -93,8 +93,8 @@ func GetDB() *sql.DB {
 	return mgr.conn
 }
 
-//GetDbAddr return low level address of the database: Host, Port, User, Password
-func GetDbAddr() *db.Addr {
+//GetDBAddr return low level address of the database: Host, Port, User, Password
+func GetDBAddr() *db.Addr {
 	return mgr.dbAddr
 }
 
@@ -129,7 +129,7 @@ func parseRows(rows *sql.Rows) (Type, error) {
 	for rows.Next() {
 		var rp sql.NullString
 		var sn, del, guat mysql.NullTime
-		if err := rows.Scan(&r.ID, &r.Cluster, &r.Service, &r.Db, &r.Table, &r.Input, &r.Output, &r.OutputFormat, &r.Version, &r.Gtid,
+		if err := rows.Scan(&r.ID, &r.Cluster, &r.Service, &r.DB, &r.Table, &r.Input, &r.Output, &r.OutputFormat, &r.Version, &r.Gtid,
 			&r.SeqNo, &guat, &r.SchemaGtid, &r.RawSchema, &sn, &del, &r.NeedSnapshot, &rp); err != nil {
 			return nil, err
 		}
@@ -164,7 +164,7 @@ func parseRegRows(rows *sql.Rows) (Type, error) {
 	var rp sql.NullString
 	var ns int
 	for rows.Next() {
-		if err := rows.Scan(&r.Cluster, &r.Service, &r.Db, &r.Table, &r.Input, &r.Output, &r.OutputFormat, &r.Version, &sa, &ns, &ca, &ua, &rp); err != nil {
+		if err := rows.Scan(&r.Cluster, &r.Service, &r.DB, &r.Table, &r.Input, &r.Output, &r.OutputFormat, &r.Version, &sa, &ns, &ca, &ua, &rp); err != nil {
 			return nil, err
 		}
 		r.NeedSnapshot = false
@@ -333,7 +333,7 @@ func undeleteStateRow(tx *sql.Tx, id int64, outputFormat, params string) error {
 }
 
 func deleteStateRow(tx *sql.Tx, t *types.TableLoc) error {
-	err := util.ExecTxSQL(tx, "UPDATE state SET deleted_at=CURRENT_TIMESTAMP WHERE service=? AND cluster=? AND db=? AND table_name=? AND input=? AND output=? AND version=?", t.Service, t.Cluster, t.Db, t.Table, t.Input, t.Output, t.Version)
+	err := util.ExecTxSQL(tx, "UPDATE state SET deleted_at=CURRENT_TIMESTAMP WHERE service=? AND cluster=? AND db=? AND table_name=? AND input=? AND output=? AND version=?", t.Service, t.Cluster, t.DB, t.Table, t.Input, t.Output, t.Version)
 	return err
 }
 
@@ -426,7 +426,7 @@ func GetSchema(svc, sdb, table, input string, output string, version int) (*type
 func getID(tx *sql.Tx, t *types.TableLoc) (id int64, schemaGTID string, needSnapshot bool, err error) {
 	err = tx.QueryRow("SELECT id, need_snapshot, schema_gtid FROM state INNER JOIN raw_schema ON raw_schema.state_id = state.id "+
 		"WHERE service=? AND cluster=? AND db=? AND table_name=? AND input=? AND output=? "+
-		"AND version=? FOR UPDATE", t.Service, t.Cluster, t.Db, t.Table, t.Input, t.Output, t.Version).Scan(&id, &needSnapshot, &schemaGTID)
+		"AND version=? FOR UPDATE", t.Service, t.Cluster, t.DB, t.Table, t.Input, t.Output, t.Version).Scan(&id, &needSnapshot, &schemaGTID)
 	if log.E(err) {
 		return 0, "", false, err
 	}
@@ -514,7 +514,7 @@ func insertNewSchema(tx *sql.Tx, newGTID string, t *types.TableLoc, regid int64,
 		}
 	}
 
-	insRes, err := tx.Exec("INSERT INTO state (reg_id,service,cluster,db,table_name,input,output,version,output_format,params) VALUES (?,?,?,?,?,?,?,?,?,?)", regid, t.Service, t.Cluster, t.Db, t.Table, t.Input, t.Output, t.Version, format, params)
+	insRes, err := tx.Exec("INSERT INTO state (reg_id,service,cluster,db,table_name,input,output,version,output_format,params) VALUES (?,?,?,?,?,?,?,?,?,?)", regid, t.Service, t.Cluster, t.DB, t.Table, t.Input, t.Output, t.Version, format, params)
 	if err != nil {
 		if !isDuplicateKeyErr(err) {
 			log.E(err)
@@ -550,7 +550,7 @@ func insertNewSchema(tx *sql.Tx, newGTID string, t *types.TableLoc, regid int64,
 //replaceSchema replaces both structured and raw schema definitions saved in the
 //state with new versions provided as parameters. If old GTID is empty adds it as new table to the state
 func replaceSchemaLow(svc, cluster string, s *types.TableSchema, regid int64, rawSchema, oldGTID, newGTID, input, output string, version int, format string, params string) error {
-	t := &types.TableLoc{Service: svc, Cluster: cluster, Db: s.DBName, Table: s.TableName, Input: input, Output: output, Version: version}
+	t := &types.TableLoc{Service: svc, Cluster: cluster, DB: s.DBName, Table: s.TableName, Input: input, Output: output, Version: version}
 
 	tx, err := mgr.conn.Begin()
 	if log.E(err) {
@@ -787,7 +787,7 @@ func DeregisterTableFromState(dbl *db.Loc, table, input, output string, version 
 		return false
 	}
 	defer func() { _ = tx.Rollback() }()
-	err = deleteStateRow(tx, &types.TableLoc{Service: dbl.Service, Cluster: dbl.Cluster, Db: dbl.Name, Table: table, Input: input, Output: output, Version: version})
+	err = deleteStateRow(tx, &types.TableLoc{Service: dbl.Service, Cluster: dbl.Cluster, DB: dbl.Name, Table: table, Input: input, Output: output, Version: version})
 	if log.E(err) {
 		return false
 	}

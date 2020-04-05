@@ -43,7 +43,7 @@ func configsTableInit(t *testing.T) {
 	if conn == nil {
 		t.FailNow()
 	}
-	_, err := conn.Exec("TRUNCATE TABLE " + types.MyDbName + ".config")
+	_, err := conn.Exec("TRUNCATE TABLE " + types.MyDBName + ".config")
 	if err != nil {
 		log.Errorf("Error truncating table: %v", err)
 	}

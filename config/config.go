@@ -138,7 +138,7 @@ type SQLConfig struct {
 	DSN     string `yaml:"dsn"`
 	Service string
 	Cluster string
-	Db      string
+	DB      string
 }
 
 // ScheduleConfig holds snapshot schedule parameters
@@ -190,15 +190,15 @@ func getDefaultConfig() *AppConfigODS {
 		Port: 7836,
 
 		MaxNumProcs:         runtime.NumCPU(),
-		StateDBName:         types.MyDbName,
+		StateDBName:         types.MyDBName,
 		StateClusterName:    types.MyClusterName,
 		StateUpdateInterval: 300 * time.Second,
 		WorkerIdleInterval:  30 * time.Second,
 
 		ChangelogPipeType:                 "kafka",
-		ChangelogTopicNameTemplateDefault: types.MySvcName + ".service.{{.Service}}.db.{{.Db}}.table.{{.Table}}{{if .Version}}.v{{.Version}}{{end}}",
+		ChangelogTopicNameTemplateDefault: types.MySvcName + ".service.{{.Service}}.db.{{.DB}}.table.{{.Table}}{{if .Version}}.v{{.Version}}{{end}}",
 
-		OutputTopicNameTemplateDefault: "hp-tap-{{.Service}}-{{.Db}}-{{.Table}}{{if .Version}}-v{{.Version}}{{end}}",
+		OutputTopicNameTemplateDefault: "hp-tap-{{.Service}}-{{.DB}}-{{.Table}}{{if .Version}}-v{{.Version}}{{end}}",
 		ChangelogBuffer:                true,
 		ChangelogWatchdogInterval:      300 * time.Second,
 

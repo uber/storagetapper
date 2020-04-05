@@ -123,7 +123,7 @@ func ConnectInfoGet(l *db.Loc, connType db.ConnectionType) (*db.Addr, error) {
 		return nil, nil
 	}
 
-	a.Db = l.Name
+	a.DB = l.Name
 
 	return &a, nil
 }

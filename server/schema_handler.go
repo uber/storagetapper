@@ -129,7 +129,7 @@ type schemaReq struct {
 	Body        string
 	Service     string
 	Cluster     string
-	Db          string
+	DB          string
 	Table       string
 	InputType   string
 	Output      string
@@ -214,7 +214,7 @@ func parseSchemaForm(w http.ResponseWriter, r *http.Request) *schemaReq {
 		s.Body = r.FormValue("body")
 		s.Service = r.FormValue("service")
 		s.Cluster = r.FormValue("cluster")
-		s.Db = r.FormValue("db")
+		s.DB = r.FormValue("db")
 		s.Table = r.FormValue("table")
 		s.InputType = strings.ToLower(r.FormValue("inputType"))
 		s.Type = r.FormValue("type")
@@ -262,9 +262,9 @@ func schemaCmd(w http.ResponseWriter, r *http.Request) {
 	} else if s.InputType == "" || s.Output == "" {
 		err = errors.New("InputType and Output cannot be empty")
 	} else if s.Cmd == "register" {
-		err = SchemaRegister(s.Service, s.Cluster, s.Db, s.Table, s.InputType, s.Output, s.Version, s.Type, s.Dst, s.CreateTopic)
+		err = SchemaRegister(s.Service, s.Cluster, s.DB, s.Table, s.InputType, s.Output, s.Version, s.Type, s.Dst, s.CreateTopic)
 	} else if s.Cmd == "change" { //mutate, alter?
-		err = SchemaChange(s.Service, s.Cluster, s.Db, s.Table, s.InputType, s.Output, s.Version, s.Type, s.Alter, s.Dst)
+		err = SchemaChange(s.Service, s.Cluster, s.DB, s.Table, s.InputType, s.Output, s.Version, s.Type, s.Alter, s.Dst)
 	} else {
 		err = errors.New("unknown command (possible commands: add/del/register/change)")
 	}

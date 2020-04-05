@@ -93,7 +93,7 @@ func InitManager(ctx context.Context, cfg *config.AppConfig) error {
 
 	// First create a connection to be used to initialize the DB
 	dbAddr2 := *mgr.dbAddr
-	dbAddr2.Db = ""
+	dbAddr2.DB = ""
 	if mgr.nodbconn, err = db.Open(&dbAddr2); err != nil {
 		return err
 	}
@@ -155,9 +155,9 @@ func (m *Mgr) getDBAddr(cfg *config.AppConfig) (*db.Addr, error) {
 		}
 
 		pwd, _ := u.User.Password()
-		dbAddr = &db.Addr{Host: host, Port: uint16(uPort), User: u.User.Username(), Pwd: pwd, Db: types.MyDbName}
+		dbAddr = &db.Addr{Host: host, Port: uint16(uPort), User: u.User.Username(), Pwd: pwd, DB: types.MyDBName}
 	} else {
-		dbAddr, err = db.GetConnInfo(&db.Loc{Service: types.MySvcName, Name: types.MyDbName, Cluster: types.MyClusterName}, db.Master,
+		dbAddr, err = db.GetConnInfo(&db.Loc{Service: types.MySvcName, Name: types.MyDBName, Cluster: types.MyClusterName}, db.Master,
 			types.InputMySQL)
 		if err != nil {
 			return nil, err
@@ -170,13 +170,13 @@ func (m *Mgr) getDBAddr(cfg *config.AppConfig) (*db.Addr, error) {
 //create database if necessary
 func (m *Mgr) create() bool {
 	log.Debugf("Creating state DB (if not exist)")
-	err := util.ExecSQL(m.nodbconn, "CREATE DATABASE IF NOT EXISTS "+types.MyDbName+" DEFAULT CHARACTER SET latin1")
+	err := util.ExecSQL(m.nodbconn, "CREATE DATABASE IF NOT EXISTS "+types.MyDBName+" DEFAULT CHARACTER SET latin1")
 	if err != nil {
 		log.Errorf("State DB create failed: " + err.Error())
 		return false
 	}
 	err = util.ExecSQL(m.nodbconn, `
-	CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.state (
+	CREATE TABLE IF NOT EXISTS `+types.MyDBName+`.state (
 		id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
 
 		service    VARCHAR(128) NOT NULL,
@@ -210,11 +210,11 @@ func (m *Mgr) create() bool {
 		KEY(snapshotted_at)
 	) ENGINE=INNODB`)
 	if err != nil {
-		log.Errorf("state table create failed %v. db: %v ", err, types.MyDbName)
+		log.Errorf("state table create failed %v. db: %v ", err, types.MyDBName)
 		return false
 	}
 	err = util.ExecSQL(m.nodbconn, `
-	CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.cluster_state (
+	CREATE TABLE IF NOT EXISTS `+types.MyDBName+`.cluster_state (
 		cluster VARCHAR(128) NOT NULL PRIMARY KEY,
 		gtid    TEXT NOT NULL,
 		seqno   BIGINT NOT NULL DEFAULT 0,
@@ -231,7 +231,7 @@ func (m *Mgr) create() bool {
 		return false
 	}
 	err = util.ExecSQL(m.nodbconn, `
-	CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.raw_schema (
+	CREATE TABLE IF NOT EXISTS `+types.MyDBName+`.raw_schema (
 		state_id    BIGINT NOT NULL PRIMARY KEY,
 		schema_gtid TEXT NOT NULL,
 		raw_schema  TEXT NOT NULL,
@@ -243,7 +243,7 @@ func (m *Mgr) create() bool {
 		return false
 	}
 	err = util.ExecSQL(m.nodbconn, `
-	CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.columns (
+	CREATE TABLE IF NOT EXISTS `+types.MyDBName+`.columns (
 		state_id BIGINT NOT NULL,
 
 		column_name              VARCHAR(64) NOT NULL DEFAULT '',
@@ -263,7 +263,7 @@ func (m *Mgr) create() bool {
 		return false
 	}
 	err = util.ExecSQL(m.nodbconn, `
-	CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.clusters (
+	CREATE TABLE IF NOT EXISTS `+types.MyDBName+`.clusters (
 		name     VARCHAR(128) NOT NULL,
 		host     VARCHAR(128) NOT NULL,
 		port     INT NOT NULL DEFAULT 3306,
@@ -277,7 +277,7 @@ func (m *Mgr) create() bool {
 		return false
 	}
 	err = util.ExecSQL(m.nodbconn, `
-	CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.output_schema (
+	CREATE TABLE IF NOT EXISTS `+types.MyDBName+`.output_schema (
 		name        VARCHAR(128) NOT NULL,
 		type        VARCHAR(64) NOT NULL,
 		schema_body TEXT NOT NULL,
@@ -289,7 +289,7 @@ func (m *Mgr) create() bool {
 		return false
 	}
 	err = util.ExecSQL(m.nodbconn, `
-	CREATE TABLE IF NOT EXISTS `+types.MyDbName+`.registrations (
+	CREATE TABLE IF NOT EXISTS `+types.MyDBName+`.registrations (
 		id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
 
 		service    VARCHAR(128) NOT NULL,
@@ -326,7 +326,7 @@ func (m *Mgr) create() bool {
 //truncate drops and recreates empty state tables
 func (m *Mgr) truncate() bool {
 	addr := *mgr.dbAddr
-	addr.Db = ""
+	addr.DB = ""
 	l := lock.Create(&addr)
 	if !l.Lock(lockName, maxLockWait) {
 		log.Warnf("Could not acquire lock on state tables")
@@ -334,7 +334,7 @@ func (m *Mgr) truncate() bool {
 	}
 	defer l.Close()
 
-	err := util.ExecSQL(m.nodbconn, `DROP DATABASE IF EXISTS `+types.MyDbName)
+	err := util.ExecSQL(m.nodbconn, `DROP DATABASE IF EXISTS `+types.MyDBName)
 	if log.E(err) {
 		return false
 	}
@@ -351,7 +351,7 @@ func (m *Mgr) startStateRegSync() {
 		defer ticker.Stop()
 
 		addr := *mgr.dbAddr
-		addr.Db = ""
+		addr.DB = ""
 		l := lock.Create(&addr)
 
 		m.regSyncRunOnce(l)
@@ -420,7 +420,7 @@ func SyncRegisteredTables() bool {
 	for rs1.Next() {
 		var r Row
 		var params sql.NullString
-		if err := rs1.Scan(&r.ID, &r.Service, &r.Cluster, &r.Db, &r.Table, &r.Input, &r.Output, &r.Version, &r.OutputFormat, &params); err != nil {
+		if err := rs1.Scan(&r.ID, &r.Service, &r.Cluster, &r.DB, &r.Table, &r.Input, &r.Output, &r.Version, &r.OutputFormat, &params); err != nil {
 			log.E(errors.Wrap(err, "Failed to scan rows to register while syncing state"))
 			continue
 		}
@@ -445,7 +445,7 @@ func syncRegistered(r *Row) {
 		mgr.metrics.TableReg.Dec()
 	}(time.Now())
 
-	enumerator, err := db.GetEnumerator(r.Service, r.Cluster, r.Db, r.Table, r.Input)
+	enumerator, err := db.GetEnumerator(r.Service, r.Cluster, r.DB, r.Table, r.Input)
 	if log.E(err) {
 		return
 	}
@@ -492,7 +492,7 @@ func SyncDeregisteredTables() bool {
 
 	for rs1.Next() {
 		var r Row
-		if err := rs1.Scan(&r.ID, &r.Cluster, &r.Service, &r.Db, &r.Table, &r.Input, &r.Output, &r.Version, &r.OutputFormat); err != nil {
+		if err := rs1.Scan(&r.ID, &r.Cluster, &r.Service, &r.DB, &r.Table, &r.Input, &r.Output, &r.Version, &r.OutputFormat); err != nil {
 			log.E(errors.Wrap(err, "Failed to scan rows to deregister while syncing state"))
 			continue
 		}
@@ -520,10 +520,10 @@ func syncDeregistered(r *Row) {
 	var tablesTotal, tablesSuccess uint64
 	syncedState := regStateSynced
 
-	enumerator, err := db.GetEnumerator(r.Service, r.Cluster, r.Db, r.Table, r.Input)
+	enumerator, err := db.GetEnumerator(r.Service, r.Cluster, r.DB, r.Table, r.Input)
 	if err != nil {
-		if err.Error() == "DB not found" && r.Cluster != "" && r.Db != "" {
-			dbl := &db.Loc{Service: r.Service, Cluster: r.Cluster, Name: r.Db}
+		if err.Error() == "DB not found" && r.Cluster != "" && r.DB != "" {
+			dbl := &db.Loc{Service: r.Service, Cluster: r.Cluster, Name: r.DB}
 			if DeregisterTableFromState(dbl, r.Table, r.Input, r.Output, r.Version, r.ID) {
 				syncedState = regStateNotFound
 				tablesTotal = 1

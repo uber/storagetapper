@@ -35,7 +35,7 @@ type RowMessage struct {
 type TableLoc struct {
 	Service string
 	Cluster string
-	Db      string
+	DB      string
 	Table   string
 	Input   string
 	Output  string

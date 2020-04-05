@@ -35,7 +35,7 @@ import (
 var cfg *config.AppConfig
 
 func connectInfoGetForTest(l *Loc, connType ConnectionType) (*Addr, error) {
-	return &Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, Db: l.Name}, nil
+	return &Addr{Host: "localhost", Port: 3306, User: types.TestMySQLUser, Pwd: types.TestMySQLPassword, DB: l.Name}, nil
 }
 
 func TestBasic(t *testing.T) {

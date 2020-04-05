@@ -41,7 +41,7 @@ func MutateTable(sdb *sql.DB, svc string, dbName string, tableName string, alter
 		return false
 	}
 	tn := time.Now().Format("20060102") + "_" + stn.String()
-	ftn := "`" + types.MyDbName + "`.`" + tn + "`"
+	ftn := "`" + types.MyDBName + "`.`" + tn + "`"
 	c := fmt.Sprintf("%s_%s_%s", svc, dbName, tableName)
 
 	if log.E(util.ExecSQL(sdb, "CREATE TABLE "+ftn+*rawSchema+" COMMENT='"+c+"'")) {
@@ -60,7 +60,7 @@ func MutateTable(sdb *sql.DB, svc string, dbName string, tableName string, alter
 		return false
 	}
 
-	tsn, err := GetColumns(sdb, types.MyDbName, tn)
+	tsn, err := GetColumns(sdb, types.MyDBName, tn)
 	if log.E(err) {
 		return false
 	}

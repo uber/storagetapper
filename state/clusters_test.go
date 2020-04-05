@@ -52,7 +52,7 @@ func TestConnectInfoGet(t *testing.T) {
 				Port: 123,
 				User: "maximus",
 				Pwd:  "pass123",
-				Db:   "test_db",
+				DB:   "test_db",
 			},
 		},
 		{
@@ -67,7 +67,7 @@ func TestConnectInfoGet(t *testing.T) {
 				Port: 123,
 				User: "maximus",
 				Pwd:  "pass123",
-				Db:   "test_db",
+				DB:   "test_db",
 			},
 		},
 		{
@@ -82,7 +82,7 @@ func TestConnectInfoGet(t *testing.T) {
 				Port: 123,
 				User: "maximus",
 				Pwd:  "pass123",
-				Db:   "test_db",
+				DB:   "test_db",
 			},
 		},
 		{
@@ -97,7 +97,7 @@ func TestConnectInfoGet(t *testing.T) {
 				Port: 123,
 				User: "maximus",
 				Pwd:  "pass123",
-				Db:   "test_db",
+				DB:   "test_db",
 			},
 		},
 		{

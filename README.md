@@ -1,55 +1,57 @@
 StorageTapper
---------------
+-------------
 
-StorageTapper is a scalable realtime MySQL change data streaming and
-transformation service.
+Overview
+--------
 
-Service reads data from MySQL, transforms it into an Avro schema
-serialized format, and publishes these events to Kafka. Consumers can then
-consume these events directly from Kafka.
-
-[![Build Status](https://travis-ci.com/uber/storagetapper.svg?branch=master)](https://travis-ci.com/uber/storagetapper)
+[![Build Status](https://github.com/uber/storagetapper/workflows/Go/badge.svg)]()
 [![Go Report Card](https://goreportcard.com/badge/github.com/uber/storagetapper)](https://goreportcard.com/report/github.com/uber/storagetapper)
 [![codecov](https://codecov.io/gh/uber/storagetapper/branch/master/graph/badge.svg)](https://codecov.io/gh/uber/storagetapper)
 
-- [Features](#features)
-- [Limitations](#limitations)
-- [Build & Install](#build--install)
-- [Configuration](#configuration)
+StorageTapper is a scalable realtime MySQL change data streaming, logical backup
+and logical replication service.
 
-Features
---------
+Storagetapper is deployed in production at Uber and used to produce snapshot and
+realtime changed data of thousands of MySQL tables across multiple datacenters.
 
-  * Producing events to Kafka
-  * Automatic work distribution between instances
-  * Avro output format
-  * [JSON](./doc/commonformat.md) output format
-  * HTTP [endpoints](./doc/endpoints.md) to control
-      * Tables to be ingested
-      * Output schema
-      * Database address resolver
-  * Snapshot is taken from slave to reduce load on master
-  * Binlogs streaming from master for better SLA
-  * Throttling when taking snapshot
+It is also used as a backup service to snapshot hundreds of terrabytes
+of Schemaless data to HDFS and S3 with optional assymetric encryption and
+compression.
 
-Limitations
------------
-  * Tables must have a primary key
+It reads data from source transforms according to the specified event
+format and produces data to destination.
+
+Supported event sources:
+* MySQL
+* Schemaless
+
+Supported event destinations:
+* Kafka
+* HDFS
+* S3
+* Local file
+* MySQL (experimental)
+* Postgres (experimental)
+* Clickhouse (experimental)
+
+Supported event formats:
+* Avro
+* [JSON](./doc/commonformat.md)
+* MsgPack
+* SQL
+
+Storagetapper keeps it jobs state in MySQL database and automatically distribute jobs
+between configured number of workers.
+
+It is also aware of node roles and takes snapshot from the slave nodes in order 
+to reduce load on master nodes. It can also optionally further throttles the reads.
+Binlogs are streamed from master nodes for better SLAs.
+
+Service is dynamically configurable through [RESTful API](./doc/endpoints.md) or
+builtin UI.
 
 Build & Install
 ---------------
-
-## Get build dependencies
-```sh
-go get github.com/Masterminds/glide
-go get github.com/alecthomas/gometalinter
-```
-
-It's recommended to have local MySQL and Kafka installed, so as many tests
-depend on them. Tweak [development config](./config/development.yaml) to
-correspond your setup.
-**WARNING**: Tests run dangerous commands like RESET MASTER and DROP
-DATABASE, so for tests don't use any MySQL instances with precious data.
 
 ## Debian & Ubuntu
 ```sh
@@ -60,7 +62,23 @@ make deb && dpkg -i ../storagetapper_1.0_amd64.deb
 ## Others
 ```sh
 cd storagetapper
-make test && make install
+make && make install
+```
+
+## Development
+
+### Linux
+
+```sh
+/bin/bash scripts/install_deps.sh # install all dependencies: MySQL, Kafka, HDFS, S3, ...
+make test # run all tests
+GO111MODULE=on TEST_PARAM="-test.run=TestLocalBasic" /bin/bash scripts/run_tests.sh ./pipe # individual test
+```
+
+### Non Linux
+```sh
+make test-env
+$ make test
 ```
 
 Configuration

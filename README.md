@@ -15,7 +15,7 @@ Storagetapper is deployed in production at Uber and used to produce snapshot and
 realtime changed data of thousands of MySQL tables across multiple datacenters.
 
 It is also used as a backup service to snapshot hundreds of terrabytes
-of Schemaless data to HDFS and S3 with optional assymetric encryption and
+of Schemaless data to HDFS and S3 with optional asymmetric encryption and
 compression.
 
 It reads data from source transforms according to the specified event

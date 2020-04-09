@@ -1,0 +1,10 @@
+FROM debian:stretch
+
+RUN apt-get update && apt-get install -y netcat mysql-client curl
+
+ADD wait_for.sh /wait_for.sh
+ADD demo.sh /demo.sh
+RUN chmod +x /wait_for.sh /demo.sh
+
+ENTRYPOINT ["/wait_for.sh", "/demo.sh"]
+CMD [""]

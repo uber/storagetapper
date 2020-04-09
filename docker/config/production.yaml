@@ -1,0 +1,8 @@
+log_type: std
+state_update_timeout: 10
+
+state_connect_url: root:storagetapper@db
+kafka_addresses:
+  - "kafka:9092"
+changelog_topic_name_template_default: "storagetapper.changelog.{{.Service}}.{{.Db}}.{{.Table}}"
+output_topic_name_template_default: "storagetapper.output.{{.Service}}.{{.Db}}.{{.Table}}"

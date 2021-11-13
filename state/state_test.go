@@ -30,7 +30,7 @@ import (
 
 	"time"
 
-	"github.com/siddontang/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/stretchr/testify/require"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
@@ -1097,7 +1097,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to init State")
 		os.Exit(1)
 	}
-	defer Close()
+	defer func() { _ = Close() }()
 
 	os.Exit(m.Run())
 }

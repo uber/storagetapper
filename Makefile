@@ -43,7 +43,7 @@ docker-test: docker-image
 	-docker rm -f $(shell cat /tmp/s3server.cid)
 	rm -f /tmp/s3server.cid
 	docker run --cidfile=/tmp/s3server.cid -d -p 8000:8000 scality/s3server
-	docker run --cap-add net_admin --cap-add ipc_lock -v $(shell pwd):/storagetapper uber/storagetapper_test /bin/bash /docker_test_entry.sh
+	docker run --cap-add sys_nice --cap-add net_admin --cap-add ipc_lock -v $(shell pwd):/storagetapper uber/storagetapper_test /bin/bash /docker_test_entry.sh
 
 test-env: docker-image
-	docker run --cap-add net_admin --cap-add ipc_lock -it -v $(shell pwd):/storagetapper -e "GOPATH=/root/gopath" -w /storagetapper/ uber/storagetapper_test
+	docker run --cap-add sys_nice --cap-add net_admin --cap-add ipc_lock -it -v $(shell pwd):/storagetapper -e "GOPATH=/root/gopath" -w /storagetapper/ uber/storagetapper_test

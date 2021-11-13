@@ -28,7 +28,7 @@ import (
 	"runtime"
 	"testing"
 
-	gomysql "github.com/siddontang/go-mysql/mysql"
+	gomysql "github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/stretchr/testify/require"
 	"github.com/uber/storagetapper/types"
 )

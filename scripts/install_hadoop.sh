@@ -4,13 +4,13 @@ set -ex
 
 NAME=hadoop
 DIR=/home/$NAME
-VERSION=2.8.5
-SHA256="F9C726DF693CE2DAA4107886F603270D66E7257F77A92C9886502D6CD4A884A4"
+VERSION=3.3.1
+SHA512="2fd0bf74852c797dc864f373ec82ffaa1e98706b309b30d1effa91ac399b477e1accc1ee74d4ccbb1db7da1c5c541b72e4a834f131a99f2814b030fbd043df66"
 
 sudo useradd $NAME -m || [ $? -eq 9 ]
 cd $DIR
 [ -f hadoop-$VERSION.tar.gz ] || sudo -H -u $NAME wget "https://mirrors.ocf.berkeley.edu/apache/hadoop/common/hadoop-$VERSION/hadoop-$VERSION.tar.gz" -O hadoop-$VERSION.tar.gz
-echo "$SHA256 hadoop-$VERSION.tar.gz" | sha256sum -c
+echo "$SHA512 hadoop-$VERSION.tar.gz" | sha512sum -c
 sudo -H -u $NAME tar -xzf hadoop-$VERSION.tar.gz --strip 1
 
 cat << 'EOF' | sudo -H -u $NAME tee $DIR/etc/hadoop/core-site.xml
@@ -40,7 +40,7 @@ cat << 'EOF' | sudo -H -u $NAME tee $DIR/etc/hadoop/hdfs-site.xml
 EOF
 
 sudo -H -u $NAME /bin/bash <<EOF
-sed -i 's+export JAVA_HOME=.*+export JAVA_HOME=\$(dirname \$(dirname \$(readlink -f  /usr/bin/javac)))+' etc/hadoop/hadoop-env.sh
+sed -i 's+# export JAVA_HOME=.*+export JAVA_HOME=\$(dirname \$(dirname \$(readlink -f  /usr/bin/java)))+' etc/hadoop/hadoop-env.sh
 if [ ! -f ~/.ssh/id_rsa ]; then
 	ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa
 	cat ~/.ssh/id_rsa.pub > ~/.ssh/authorized_keys

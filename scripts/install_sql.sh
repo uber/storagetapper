@@ -10,7 +10,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y clickhouse-client clickho
 #Avoid conflict with Hadoop default port
 sudo sed -i 's+<tcp_port>9000</tcp_port>+<tcp_port>9500</tcp_port>+g' /etc/clickhouse-server/config.xml
 
-sudo apt-get install --force-yes -y postgresql
+sudo apt-get install --force-yes -y postgresql shellcheck
 
 #echo "host all postgres 127.0.0.1/32 trust" | sudo -H tee -a `find /etc/postgresql -name pg_hba.conf`
 find /etc/postgresql -name pg_hba.conf -exec sudo -H sed -i -e 's/md5/trust/g' -e 's/peer/trust/g' {} \;

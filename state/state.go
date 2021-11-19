@@ -29,9 +29,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
+	gmysql "github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/pkg/errors"
-	gmysql "github.com/siddontang/go-mysql/mysql"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/log"
@@ -128,7 +127,7 @@ func parseRows(rows *sql.Rows) (Type, error) {
 	var r Row
 	for rows.Next() {
 		var rp sql.NullString
-		var sn, del, guat mysql.NullTime
+		var sn, del, guat sql.NullTime
 		if err := rows.Scan(&r.ID, &r.Cluster, &r.Service, &r.DB, &r.Table, &r.Input, &r.Output, &r.OutputFormat, &r.Version, &r.Gtid,
 			&r.SeqNo, &guat, &r.SchemaGtid, &r.RawSchema, &sn, &del, &r.NeedSnapshot, &rp); err != nil {
 			return nil, err
@@ -160,7 +159,7 @@ func parseRegRows(rows *sql.Rows) (Type, error) {
 	defer func() { log.E(rows.Close()) }()
 	res := make(Type, 0)
 	var r Row
-	var sa, ca, ua mysql.NullTime
+	var sa, ca, ua sql.NullTime
 	var rp sql.NullString
 	var ns int
 	for rows.Next() {

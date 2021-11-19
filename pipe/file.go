@@ -40,9 +40,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/crypto/openpgp"
-	"golang.org/x/crypto/openpgp/armor"
-	"golang.org/x/crypto/openpgp/packet" //"context"
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
+	"github.com/ProtonMail/go-crypto/openpgp/packet" //"context"
 	"golang.org/x/sys/unix"
 
 	"github.com/fsnotify/fsnotify"

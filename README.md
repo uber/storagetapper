@@ -40,6 +40,14 @@ Supported event formats:
 * MsgPack
 * SQL
 
+Features:
+* Fields filtering
+* Snapshot row filtering
+* Producing realtime changes only, i.e. omitting initial snapshot
+* Snapshot and changelog events ordering
+* Periodic snapshots
+* Snapshot index hinting
+
 Storagetapper keeps it jobs state in MySQL database and automatically distribute jobs
 between configured number of workers.
 
@@ -95,7 +103,7 @@ given order:
     $(STORAGETAPPER_CONFIG_DIR)/production.yaml
 ```
 
-Available options described in [Options](./doc/options.md) section
+Available options described in [Configuration](./doc/options.md) section
 
 License
 -------

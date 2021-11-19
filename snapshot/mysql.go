@@ -26,7 +26,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"
 	"github.com/uber/storagetapper/encoder"
@@ -230,7 +229,7 @@ func driverTypeToGoTypeLow(p interface{}, schema *types.ColumnSchema) (v interfa
 			v = f.String
 			size = int64(len(f.String))
 		}
-	case *mysql.NullTime:
+	case *sql.NullTime:
 		if f.Valid {
 			v = f.Time
 			size = 20

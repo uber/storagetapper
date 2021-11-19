@@ -6,7 +6,7 @@ for i in "$@"; do
 	CGO_ENABLED=0 golangci-lint run --skip-files format_gen --disable-all \
 		-Egofmt \
 		-Egovet \
-		-Egolint \
+		-Erevive \
 		-Egoimports \
 		-Eineffassign \
 		-Eerrcheck \
@@ -20,7 +20,6 @@ for i in "$@"; do
 		-Eunused \
 		-Evarcheck \
 		-Eunconvert \
-		-Emaligned \
 		-Eprealloc \
 		-Estylecheck \
 		"$i" || exit 1

@@ -113,9 +113,7 @@ func (p *s3Client) OpenRead(name string, offset int64) (io.ReadCloser, error) {
 }
 
 func (p *s3Client) OpenWrite(name string) (flushWriteCloser, io.Seeker, error) {
-	if strings.HasSuffix(name, ".open") {
-		name = strings.TrimSuffix(name, ".open")
-	}
+	name = strings.TrimSuffix(name, ".open")
 	log.Debugf("OpenWrite: %v", name)
 	r, w := io.Pipe()
 	ch := make(chan error)

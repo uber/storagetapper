@@ -30,8 +30,8 @@ import (
 	"sort"
 	"time"
 
+	gomysql "github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-sql-driver/mysql"
-	gomysql "github.com/siddontang/go-mysql/mysql"
 	"github.com/uber/storagetapper/log"
 	"github.com/uber/storagetapper/types"
 )
@@ -228,7 +228,7 @@ func MySQLToDriverType(mtype string, ftype string) interface{} {
 		}
 		return new(sql.NullInt64)
 	case "timestamp", "datetime":
-		return new(mysql.NullTime)
+		return new(sql.NullTime)
 	case "bigint", "bit", "year":
 		return new(sql.NullInt64)
 	case "float", "double", "decimal", "numeric":

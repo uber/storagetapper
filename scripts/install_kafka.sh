@@ -3,7 +3,8 @@
 set -ex
 
 DIR=/home/kafka
-VERSION="2.3.0"
+VERSION="2.8.1"
+SCALA_VERSION="2.13"
 
 sudo apt-get install default-jre netcat
 sudo useradd kafka -m || [ $? -eq 9 ]
@@ -14,8 +15,8 @@ mkdir -p $DIR
 (
 cd $DIR
 
-[ -f kafka_2.11-$VERSION.tgz ] || sudo -u kafka wget "http://apache.cs.utah.edu/kafka/$VERSION/kafka_2.11-$VERSION.tgz" -O kafka_2.11-$VERSION.tgz && \
-	echo "A10EC00619BFFAA8CB4B2EEE5EDB0BCB455E6D812CDF5039F18413755D865C5DA7AEA24428E85E3CD952DC745995382FD5DF656344B08B06D54CF5112FC4F9E6 kafka_2.11-$VERSION.tgz" |sha512sum -c
+[ -f kafka_$SCALA_VERSION-$VERSION.tgz ] || sudo -u kafka wget "https://archive.apache.org/dist/kafka/$VERSION/kafka_$SCALA_VERSION-$VERSION.tgz" -O kafka_$SCALA_VERSION-$VERSION.tgz && \
+	echo "91FCD1061247AD0DDB63FA2B5C0251EE0E58E60CC9E1A3EBE2E84E9A31872448A36622DD15868DE2C6D3F7E26020A8C61477BC764E2FB6776A25E4344EB8892D kafka_$SCALA_VERSION-$VERSION.tgz" |sha512sum -c
 
 for i in 1 2 3; do
 	ZK_PORT=$((i + 2180))
@@ -27,7 +28,7 @@ for i in 1 2 3; do
 	set -ex
 
 	mkdir -p $DIR/kafka-$KAFKA_PORT
-	tar xzf $DIR/kafka_2.11-$VERSION.tgz -C $DIR/kafka-$KAFKA_PORT --strip-components 1
+	tar xzf $DIR/kafka_$SCALA_VERSION-$VERSION.tgz -C $DIR/kafka-$KAFKA_PORT --strip-components 1
 
 	sed -i -e "s/^broker.id=.*/broker.id=$i/g" -e "s/^zookeeper.connect=.*/zookeeper.connect=localhost:2181,localhost:2182,localhost:2183/g" $DIR/kafka-$KAFKA_PORT/config/server.properties
 	echo -e "\\nport=$KAFKA_PORT\\ndelete.topic.enable = true\\nnum.partitions=8\\n" >> $DIR/kafka-$KAFKA_PORT/config/server.properties

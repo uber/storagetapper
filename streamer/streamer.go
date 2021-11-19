@@ -27,7 +27,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/siddontang/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/uber/storagetapper/changelog"
 	"github.com/uber/storagetapper/config"
 	"github.com/uber/storagetapper/db"

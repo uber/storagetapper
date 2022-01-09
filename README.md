@@ -48,15 +48,15 @@ Features:
 * Periodic snapshots
 * Snapshot index hinting
 
-Storagetapper keeps it jobs state in MySQL database and automatically distribute jobs
+Storagetapper keeps its jobs state in MySQL database and automatically distributes jobs
 between configured number of workers.
 
 It is also aware of node roles and takes snapshot from the slave nodes in order 
-to reduce load on master nodes. It can also optionally further throttles the reads.
+to reduce load on master nodes. StorageTapper can also optionally further throttle its reads.
 Binlogs are streamed from master nodes for better SLAs.
 
 Service is dynamically configurable through [RESTful API](./doc/endpoints.md) or
-builtin UI.
+built-in UI.
 
 Build & Install
 ---------------

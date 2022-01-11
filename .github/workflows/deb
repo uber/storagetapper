@@ -1,0 +1,14 @@
+name: Debian package
+on: [push]
+jobs:
+
+  build:
+    name: Debian package
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Install dependencies
+      run: ./scripts/install_deps.sh
+
+    - name: Build packages
+      run: make deb

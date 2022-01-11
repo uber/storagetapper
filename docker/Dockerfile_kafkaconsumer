@@ -1,0 +1,7 @@
+FROM wurstmeister/kafka
+
+ADD wait_for.sh /wait_for.sh
+RUN chmod +x /wait_for.sh
+
+ENTRYPOINT ["/wait_for.sh", "/opt/kafka/bin/kafka-console-consumer.sh"]
+CMD ['']

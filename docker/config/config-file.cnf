@@ -1,0 +1,8 @@
+[mysqld]
+server-id=1
+binlog-format=ROW
+gtid_mode=ON
+enforce-gtid-consistency
+log_slave_updates=1
+log-bin=bin.log
+log-bin-index=bin-log.index

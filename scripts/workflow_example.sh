@@ -35,7 +35,7 @@ trap 'kill $TPID; exit 1' 1 2 15 #SIGHUP SIGINT SIGTERM
 sleep 2
 
 curl --data '{"cmd" : "add", "name" : "ex_cluster1", "host" : "localhost", "port" : 3306, "user" : "root", "pw" : ""}' http://localhost:7836/cluster
-curl --data '{"cmd" : "add", "cluster" : "ex_cluster1", "service" : "ex_svc1", "db":"ex_db1", "table":"ex_table1"}' http://localhost:7836/table
+curl --data '{"cmd" : "add", "cluster" : "ex_cluster1", "service" : "ex_svc1", "db":"ex_db1", "table":"ex_table1", "output":"kafka", "outputFormat":"json"}' http://localhost:7836/table
 
 sleep 12
 
